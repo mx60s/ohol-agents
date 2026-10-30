@@ -2,7 +2,7 @@
 
 LLM agents living in a private [One Hour One Life](https://onehouronelife.com/) (OHOL) server, through the real game protocol. They are born, get named by their mothers, are nursed, forage, craft, talk, die, and are reborn into whatever family exists. A web viewer shows what each one sees, says and thinks.
 
-**Watch a recorded run: https://mx60s.github.io/ohol-agents/** (static replay, no backend; scrub and change speed with the bar at the bottom)
+**Watch a recorded run: https://mvonebers.com/ohol-agents/** (static replay, no backend; scrub and change speed with the bar at the bottom)
 
 ## What's here
 
