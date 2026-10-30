@@ -1,0 +1,27 @@
+diff --git a/server/server.cpp b/server/server.cpp
+index 3667707..4273fd4 100644
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -19762,6 +19762,9 @@ static GridPos getAveragePopulationPos(
+ 
+ 
+ 
++// MTS patch: game data dump hook (see mtsDumpGameData.h)
++#include "mtsDumpGameData.h"
++
+ int main( int inNumArgs, const char **inArgs ) {
+     // use the serverSettings folder if it's available
+     setUseServerSettings();
+@@ -20174,6 +20177,12 @@ int main( int inNumArgs, const char **inArgs ) {
+     while( initTransBankStep() < 1.0 );
+     initTransBankFinish();
+     
++    // MTS patch: OHOL_DUMP_GAME_DATA=<path> dumps objects + transitions
++    // as JSON and exits
++    if( getenv( "OHOL_DUMP_GAME_DATA" ) != NULL ) {
++        mtsDumpGameData( getenv( "OHOL_DUMP_GAME_DATA" ) );
++        return 0;
++        }
+ 
+     // defaults to one hour
+     int epochSeconds = 

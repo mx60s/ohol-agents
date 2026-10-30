@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "openrouter/anthropic/claude-opus-5.5",
+  "small_model": "openrouter/deepseek/deepseek-v4-flash",
+  "agent": {
+    "explore": {
+      "model": "openrouter/deepseek/deepseek-v4-flash"
+    },
+    "general": {
+      "model": "openrouter/moonshotai/kimi-k3"
+    },
+    "worker": {
+      "mode": "subagent",
+      "model": "openrouter/moonshotai/kimi-k3",
+      "description": "Cheap coding worker. Use for well-specified edits, mechanical refactors, running tests and fixing straightforward failures. Give it the exact files, the change wanted, and how to check it."
+    }
+  }
+}

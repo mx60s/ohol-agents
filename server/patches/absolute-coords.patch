@@ -1,0 +1,28 @@
+diff --git a/server/server.cpp b/server/server.cpp
+index 58c58de..3667707 100644
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -1999,6 +1999,11 @@ static void backToBasics( LiveObject *inPlayer ) {
+     p->originalBirthPos = p->birthPos;
+         
+     p->actionTarget = p->birthPos;
++
++    // MTS patch: zero the birth offset so every client gets absolute
++    // world coordinates (shared map across agents)
++    p->birthPos.x = 0;
++    p->birthPos.y = 0;
+         
+     p->actionAttempt = false;
+ 
+@@ -11843,6 +11848,11 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+     
+     newObject.actionTarget = newObject.birthPos;
+ 
++    // MTS patch: zero the birth offset so every client gets absolute
++    // world coordinates (shared map across agents)
++    newObject.birthPos.x = 0;
++    newObject.birthPos.y = 0;
++
+ 
+ 
+     newObject.ancestorIDs = new SimpleVector<int>();

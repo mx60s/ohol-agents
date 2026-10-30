@@ -1,0 +1,18 @@
+# VCS / secrets
+.git
+.env
+.env.*
+
+# Local game-server build artifacts and world state
+.ohol-build
+.ohol-run
+
+# Node artifacts (reinstalled via npm ci in the image)
+node_modules
+**/node_modules
+viewer/node_modules
+viewer/dist
+
+# Logs
+logs
+**/logs

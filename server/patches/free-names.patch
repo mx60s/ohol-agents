@@ -1,0 +1,72 @@
+diff --git a/server/server.cpp b/server/server.cpp
+index 4273fd4..87f90d5 100644
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -16555,10 +16555,56 @@ void executeKillAction( int inKillerIndex,
+ 
+ 
+ 
++// MTS patch: with setting mtsFreeNames=1, names are taken as spoken
++// (letters only, max 2 words of 16 chars) instead of being snapped to the
++// closest entry in firstNames/lastNames.txt. Returns a static buffer.
++static const char *mtsCleanName( const char *inName, int inMaxWords ) {
++    static char buf[40];
++    int n = 0, words = 0, inWord = 0, wordLen = 0;
++    for( const char *c = inName; *c != '\0' && n < 38; c++ ) {
++        char ch = *c;
++        if( ch >= 'a' && ch <= 'z' ) ch = ch - 'a' + 'A';
++        if( ch >= 'A' && ch <= 'Z' ) {
++            if( ! inWord ) {
++                if( words == inMaxWords ) break;
++                if( words > 0 ) buf[n++] = ' ';
++                words++;
++                inWord = 1;
++                wordLen = 0;
++                }
++            if( wordLen < 16 ) {
++                buf[n++] = ch;
++                wordLen++;
++                }
++            }
++        else {
++            inWord = 0;
++            }
++        }
++    buf[n] = '\0';
++    if( n == 0 ) {
++        return "NAMELESS";
++        }
++    return buf;
++    }
++
++
+ static void nameEve( LiveObject *nextPlayer, const char *name ) {
+     
++    if( SettingsManager::getIntSetting( "mtsFreeNames", 0 ) ) {
++        // "I AM MARIA HOPE" -> MARIA HOPE ; "I AM HOPE" -> EVE HOPE
++        const char *clean = mtsCleanName( name, 2 );
++        if( strstr( clean, " " ) != NULL ) {
++            nextPlayer->name = stringDuplicate( clean );
++            }
++        else {
++            nextPlayer->name = autoSprintf( "%s %s", eveName, clean );
++            }
++        }
++    else {
+     const char *close = findCloseLastName( name );
+     nextPlayer->name = autoSprintf( "%s %s", eveName, close );
++        }
+     
+                                 
+     nextPlayer->name = getUniqueCursableName( 
+@@ -16670,7 +16716,9 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby, char *inName,
+ 
+ 
+     const char *close = 
+-        findCloseFirstName( name, getFemale( inBaby ) );
++        SettingsManager::getIntSetting( "mtsFreeNames", 0 )
++        ? mtsCleanName( name, 1 )
++        : findCloseFirstName( name, getFemale( inBaby ) );
+ 
+     if( strcmp( lastName, "" ) != 0 ) {    
+         babyO->name = autoSprintf( "%s %s",

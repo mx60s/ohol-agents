@@ -1,0 +1,14 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+.ohol-build/
+.ohol-run/
+dist/
+*.log
+logs/
+
+# recorder output (published copy is committed explicitly)
+recordings/*
+!recordings/showcase.jsonl
