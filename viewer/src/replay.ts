@@ -45,7 +45,7 @@ export class ReplaySource implements DataSource {
     error: null,
     loadedBytes: 0,
     playing: true,
-    speed: 16,
+    speed: 4,
     start: 0,
     end: 0,
     playhead: 0,
