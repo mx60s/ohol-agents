@@ -1,5 +1,6 @@
 // 1920x1080 stream overlay (stream.html; <body class="stream">). Follows the director's focus.
 // Every piece of user/model text renders as React text (escaped), clamped by CSS.
+import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentView, Invention, LifeRecord, MapCellTuple, PlayerView, RunEvent } from "../api-types.ts";
 import { getClient, useInventions, useLives, useMap, useNow, useObjectNames, useWorldState } from "../data/index.ts";
@@ -430,11 +431,11 @@ function Following(p: FollowingProps) {
             </div>
           </div>
         </div>
-        {tags.length > 0 && (
+        {(tags.length > 0 || !TRAITS_SHOWN) && (
           <div className="sec">
             <div className="label">Personality</div>
             <div className="traitrow">
-              {tags.map((t) => (
+              {(TRAITS_SHOWN ? tags : ["none"]).map((t) => (
                 <span key={t} className="pill">
                   {t}
                 </span>

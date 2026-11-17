@@ -1,4 +1,5 @@
 // Site home (index.html): world status, the people, map, personality cloud, families, deaths, news, story.
+import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useMemo, useState } from "react";
 import type { LifeRecord } from "../api-types.ts";
 import { pageHref } from "../data/index.ts";
@@ -257,8 +258,8 @@ function Home() {
           <WorldStatus site={site} />
           <People site={site} />
           <div className="grid cloud-row">
-            <Panel title="Personality cloud" variant="pink" badge={<MockBadge title={MOCK_TITLE} />} id="cloud">
-              <PersonalityCloud site={site} />
+            <Panel title="Personality cloud" variant="pink" badge={TRAITS_SHOWN ? <MockBadge title={MOCK_TITLE} /> : undefined} id="cloud">
+              {TRAITS_SHOWN ? <PersonalityCloud site={site} /> : <p className="note">none</p>}
             </Panel>
             <Families site={site} />
           </div>

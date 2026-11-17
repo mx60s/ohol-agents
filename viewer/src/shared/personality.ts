@@ -14,10 +14,19 @@ export interface PersonalityText {
   source: "backend" | "mock";
 }
 
+/**
+ * false while the traits are placeholders: every personality display reads
+ * "none" (stream, agent page, people table, home cloud). Hair colours still
+ * come from the recorded traits; nothing shows their values. Build with
+ * VITE_SHOW_TRAITS=1 to show the recorded numbers again.
+ */
+export const TRAITS_SHOWN: boolean = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_SHOW_TRAITS === "1";
+
 /** LifeRecord plus fields a newer backend may add. */
 export type LifeWithSummary = LifeRecord & { personalitySummary?: string | null };
 
 export function personalityText(life: Pick<LifeWithSummary, "traits" | "personalitySummary">, dims: readonly string[]): PersonalityText {
+  if (!TRAITS_SHOWN) return { text: "none", source: "mock" };
   const s = life.personalitySummary?.trim();
   if (s) return { text: s, source: "backend" };
   return { text: personalityBlurb(life.traits, dims), source: "mock" };

@@ -1,4 +1,5 @@
 // People (people.html): every life ever, searchable and sortable, with portraits and each trait column.
+import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useMemo, useState } from "react";
 import type { LifeRecord } from "../api-types.ts";
 import { pageHref, useNow } from "../data/index.ts";
@@ -131,8 +132,8 @@ function PeoplePage() {
                         {site.dims.map((d) => {
                           const v = clampTrait(l.traits?.[d]);
                           return (
-                            <td key={d} className="num mono trait" style={v == null ? undefined : { background: traitBg(v) }} title={formatTrait(l.traits?.[d])}>
-                              {v == null ? "" : formatTrait(v, 1)}
+                            <td key={d} className="num mono trait" style={v == null || !TRAITS_SHOWN ? undefined : { background: traitBg(v) }} title={formatTrait(l.traits?.[d])}>
+                              {!TRAITS_SHOWN ? "none" : v == null ? "" : formatTrait(v, 1)}
                             </td>
                           );
                         })}

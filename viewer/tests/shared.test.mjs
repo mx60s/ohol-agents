@@ -83,14 +83,15 @@ test("numbered repeat first names: 'AURORA II DAWN' is family Dawn, shown as Aur
   assert.equal(lineageName({ eveName: "AURORA II", lineageId: "x:4" }), "Aurora");
 });
 
-test("personalityBlurb is tentative, prefers a backend summary", () => {
+test("personalityBlurb is tentative; personalityText reads \"none\" while traits are hidden", () => {
   const b = personalityBlurb({ openness: 1.3, agreeableness: -1.2, extraversion: 0.1 }, DIMS);
   assert.match(b, /^Seems curious about new things, and perhaps blunt and independent\.$/);
   assert.match(personalityBlurb({ openness: 0.1 }, DIMS), /middle-of-the-road/);
   assert.match(personalityBlurb(null, DIMS), /early/);
   assert.doesNotThrow(() => personalityBlurb({ openness: 1e300, neuroticism: -1e12 }, DIMS));
-  assert.deepEqual(personalityText({ traits: null, personalitySummary: "Neuron says hi." }, DIMS), { text: "Neuron says hi.", source: "backend" });
-  assert.equal(personalityText({ traits: { openness: 2 } }, DIMS).source, "mock");
+  // traits are placeholders for now (TRAITS_SHOWN false unless VITE_SHOW_TRAITS=1): every life reads "none"
+  assert.deepEqual(personalityText({ traits: null, personalitySummary: "Neuron says hi." }, DIMS), { text: "none", source: "mock" });
+  assert.deepEqual(personalityText({ traits: { openness: 2 } }, DIMS), { text: "none", source: "mock" });
 });
 
 test("normalisers tolerate garbage and missing fields", () => {

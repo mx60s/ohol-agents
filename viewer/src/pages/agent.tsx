@@ -1,4 +1,5 @@
 // One life (agent.html?life=<lifeId>): profile, raw traits, life in numbers, death, family, timeline.
+import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useMemo, useState } from "react";
 import type { LifeRecord, RunEvent } from "../api-types.ts";
 import { pageHref, queryParam, useLife, useLifeLog, useNow, useWorldState, type LifeLogState } from "../data/index.ts";
@@ -233,8 +234,10 @@ function Personality({ life, site }: { life: LifeRecord; site: SiteData }) {
   const p = personalityText(life, dims);
   const famName = site.famName(life.lineageId);
   return (
-    <Panel title="Personality" variant="pink" badge={<MockBadge title={MOCK_TITLE} />}>
-      {!life.traits ? (
+    <Panel title="Personality" variant="pink" badge={TRAITS_SHOWN ? <MockBadge title={MOCK_TITLE} /> : undefined}>
+      {!TRAITS_SHOWN ? (
+        <Note>none</Note>
+      ) : !life.traits ? (
         <Note>No traits recorded for this life.</Note>
       ) : (
         <>
