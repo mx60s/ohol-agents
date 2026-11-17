@@ -69,8 +69,9 @@ const DEFAULT_CLOCK: TurnClock = { cycleMs: 8000, timeScale: 1 };
 export function playerLabel(w: World, gd: GameData, p: Player, flower?: string | null): string {
   const age = w.currentAge(p);
   const sex = p.female == null ? "person" : age < 3 ? (p.female ? "baby girl" : "baby boy") : p.female ? "woman" : "man";
-  const name = p.name ? `${p.name}` : "unnamed";
-  return `#${p.id} ${name} (${sex}, ${age.toFixed(age < 3 ? 1 : 0)}${flower ? `, ${flower}` : ""})`;
+  // no name: say so inside the parentheses; a bare "unnamed" in name position got copied as a name ("I AM UNNAMED THORN")
+  const name = p.name ? `${p.name} ` : "";
+  return `#${p.id} ${name}(${p.name ? "" : "no name, "}${sex}, ${age.toFixed(age < 3 ? 1 : 0)}${flower ? `, ${flower}` : ""})`;
 }
 
 /** "a red rose", "an orange tulip" */
@@ -174,6 +175,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   L.push(`${playerLabel(w, gd, me)}, ${isEve ? "an Eve (first of a family)" : `generation ${me.ancestors.length + 1}`}.`);
   const myFlower = o.flowerOf?.(me.id);
   if (myFlower) L.push(`You wear ${withArticle(myFlower)} in your hair.`);
+  if (me.name) L.push(`Your name is ${me.name}.`);
   if (!me.name) L.push(isEve ? `No name yet: found your family by saying "I AM <FIRST NAME> <FAMILY NAME>" (once only).${o.takenSurnames?.length ? ` Family names already taken (pick a new one): ${takenList(o.takenSurnames)}.` : ""}` : `No name yet; usually your mother names you.`);
   if (o.goal) L.push(`Your goal: ${o.goal}`);
   L.push(homeLine(w, pos, isEve));
@@ -230,7 +232,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
     L.push(`== DEATHS YOU SAW ==`);
     for (const d of deaths.slice(-5)) {
       const rel = relationTo(w, d.id, d.ancestors, d.eveId);
-      L.push(`- ${turnsAgo(d.t, now, clock)}: ${d.name ?? `unnamed #${d.id}`}${rel ? ` [${rel}]` : ""}, age ${d.age.toFixed(d.age < 3 ? 1 : 0)}, at (${d.x}, ${d.y})`);
+      L.push(`- ${turnsAgo(d.t, now, clock)}: ${d.name ?? `#${d.id} (no name)`}${rel ? ` [${rel}]` : ""}, age ${d.age.toFixed(d.age < 3 ? 1 : 0)}, at (${d.x}, ${d.y})`);
     }
   }
 

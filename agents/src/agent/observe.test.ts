@@ -311,17 +311,17 @@ test("flowers: own flower after the identity line, each nearby person's inside t
   const lines = obs.split("\n");
   const idx = lines.findIndex((l) => l.startsWith("#1 "));
   assert.equal(lines[idx + 1], "You wear an orange rose in your hair.");
-  assert.match(obs, /^- #2 unnamed \(man, 24, blue daisy\) /m);
+  assert.match(obs, /^- #2 \(no name, man, 24, blue daisy\) /m);
   labels[1] = "orange forget-me-not";
   labels[2] = "blue forget-me-not";
   const fm = buildObservation(g.world, gd, { ...base, flowerOf: (pid) => labels[pid] ?? null });
   assert.match(fm, /^You wear an orange forget-me-not in your hair\.$/m);
-  assert.match(fm, /^- #2 unnamed \(man, 24, blue forget-me-not\) /m);
+  assert.match(fm, /^- #2 \(no name, man, 24, blue forget-me-not\) /m);
   labels[1] = "red tulip";
   assert.match(buildObservation(g.world, gd, { ...base, flowerOf: (pid) => labels[pid] ?? null }), /^You wear a red tulip in your hair\.$/m);
   const plain = buildObservation(g.world, gd, base);
   assert.doesNotMatch(plain, /in your hair|daisy|rose/);
-  assert.match(plain, /^- #2 unnamed \(man, 24\) /m);
+  assert.match(plain, /^- #2 \(no name, man, 24\) /m);
   assert.match(systemPromptFor({ promptBaseline: "playbook" }), /Everyone wears a unique flower in their hair that others can see\./);
 });
 
@@ -486,4 +486,24 @@ test("hints: the ignition chain can be found one click at a time from the observ
   assert.match(obs(), /^- use on Burning Tinder \(-1, 0\): uses up Kindling, it becomes Fire$/m);
   await body.use(-1, 0);
   assert.equal(g.world.objAt(-1, 0).id, id("Fire"));
+});
+
+test("names: no placeholder in name position that could be copied as a name (\"I AM UNNAMED THORN\")", () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 14, held: 0, female: true });
+  g.addPlayer({ id: 2, x: 1, y: 0, age: 0.5, held: 0, female: true });
+  g.start();
+  const obs = buildObservation(g.world, gd, { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
+  assert.doesNotMatch(obs, /unnamed/i);
+  assert.match(obs, /^#1 \(no name, woman, 14\)/m);
+  assert.match(obs, /^- #2 \(no name, baby girl, 0\.5\) /m);
+});
+
+test("a named character is told its name in so many words", () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: 0, female: true });
+  g.start();
+  g.world.self!.name = "LILA PINE";
+  const base = { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock };
+  assert.match(buildObservation(g.world, gd, base), /^Your name is LILA PINE\.$/m);
 });

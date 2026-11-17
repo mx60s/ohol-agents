@@ -9,7 +9,7 @@ import { displayName, lineageName, lineageOrder, surnameOf } from "../shared/ind
 import { lifeAge, settleStaleLives } from "./logic.ts";
 
 export interface SiteData {
-  /** every life, newest born first */
+  /** every life of the current run (world), newest born first; all runs when there is no current run */
   lives: LifeRecord[];
   byId: Record<string, LifeRecord>;
   dims: string[];
@@ -45,8 +45,17 @@ export function useSite(): SiteData {
     const lives = settleStaleLives(lv0.lives, runId);
     return lives === lv0.lives ? { lives, byId: lv0.byId } : { lives, byId: Object.fromEntries(lives.map((l) => [l.lifeId, l])) };
   }, [lv0.lives, lv0.byId, runId]);
-  const lv = { ...lv0, ...settled };
-  const lineages = lin.data?.lineages;
+  // the site shows the current world only: a new run (world regenerated, fresh start) resets every
+  // count, list and family. byId keeps every life, so an old life's own page still opens.
+  // Fixtures and snapshots without a matching run keep everything.
+  const current = useMemo(() => {
+    if (!runId || !settled.lives.some((l) => l.runId === runId)) return settled.lives;
+    return settled.lives.filter((l) => l.runId === runId);
+  }, [settled.lives, runId]);
+  const lv = { ...lv0, ...settled, lives: current };
+  const currentLineageIds = useMemo(() => new Set(current.map((l) => l.lineageId)), [current]);
+  const allLineages = lin.data?.lineages;
+  const lineages = useMemo(() => allLineages?.filter((l) => currentLineageIds.has(l.lineageId)), [allLineages, currentLineageIds]);
   const agents = w.state?.agents;
   const players = w.state?.players;
 
