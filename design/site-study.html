@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study dashboard · Lifelines · mockup</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="site.css">
+<style>
+  .banner { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; padding: 14px 18px; }
+  .banner .burst { width: 92px; height: 92px; font-size: 14px; }
+  .banner h2 { font-size: 22px; margin-bottom: 4px; }
+  .banner p { margin: 0; font-size: 14px; color: var(--ink-2); max-width: 820px; }
+  .banner .ns { display: grid; grid-template-columns: repeat(4, auto); gap: 4px 18px; font-size: 12.5px; }
+  .banner .ns b { font-family: var(--font-mono); font-size: 18px; display: block; color: var(--ink); }
+
+  .controls { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 18px 0 4px; font-size: 13px; font-weight: 800; }
+  .q { margin-top: 30px; }
+  .q > .ribbon { max-width: 100%; margin: 0 6px 18px; text-align: left; display: flex; align-items: baseline; gap: 12px; font-size: 21px; }
+  .q > .ribbon .qn { background: var(--butter); color: var(--ink); text-shadow: none; border: 2px solid var(--ink); border-radius: 8px; padding: 0 8px; font-size: 17px; }
+  .q > .ribbon .hint { margin-left: auto; font-family: var(--font-body); font-size: 13px; font-weight: 700; opacity: .9; }
+  .figure .panel-body { padding: 14px 16px 12px; }
+  .figure .foot { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; margin-top: 6px; font-size: 12px; color: var(--ink-3); }
+  .figure .foot .mono { font-size: 11.5px; }
+  .read { font-size: 13.5px; }
+  .read h4 { font-size: 15px; margin: 0 0 6px; }
+  .read ul { margin: 0 0 10px; padding-left: 18px; }
+  .read li { margin-bottom: 4px; }
+  .small-mult { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+  .small-mult .t { font-weight: 800; font-size: 12.5px; text-align: center; margin-bottom: -2px; }
+  .divkey { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .divkey .ramp { width: 160px; height: 12px; border: 1.5px solid var(--ink); border-radius: 6px; background: linear-gradient(90deg, #3b4a90, #8f99c9, #ece4d0, #dc977b, #b24a2c); }
+</style>
+</head>
+<body>
+
+<header class="site-top">
+  <div class="in">
+    <div class="wordmark"><span>L</span><span>i</span><span>f</span><span>e</span><span>l</span><span>i</span><span>n</span><span>e</span><span>s</span></div>
+    <div class="tagline">How personality shapes a society of AI people in One Hour One Life</div>
+    <nav class="navbar"><a href="site-home.html">Live</a><a href="site-agent.html">People</a><a href="#">Families</a><a class="on" href="site-study.html">Study</a><a href="#">About</a></nav>
+    <a class="btn is-clay" href="stream.html">▶ Watch the stream</a>
+  </div>
+</header>
+<div class="runbar"><div class="in">
+  <span>Data: <b>1 run</b> (2026-11-16-a) · <b>23 lives</b> · <b>3 generations</b></span><span class="sep"></span>
+  <span>Updated <b>4 s ago</b></span><span class="sep"></span>
+  <span>Trait readout: <span class="mock-tag">MOCK</span> random around family centres</span><span class="sep"></span>
+  <a href="#">Download CSV</a> · <a href="#">Analysis notebook</a>
+</div></div>
+
+<main class="page">
+  <div class="page-title"><h1 class="sparkle">The study</h1><span class="crumbs">Four questions from the proposal, each with the chart that answers it.</span></div>
+
+  <section class="panel banner">
+    <div class="burst is-mock">MOCK<br>DATA</div>
+    <div>
+      <h2>Read these as a preview, not results.</h2>
+      <p>Every chart below uses mock traits and one 41-minute pilot run. With n = 23 lives nothing here could be significant. Each figure shows its <b>n</b>, an uncertainty band or interval, and what a real effect would look like. Effects are only reported once pooled over <b>≥ 10 runs</b>.</p>
+    </div>
+    <div class="ns">
+      <span><b>23</b>lives</span><span><b>9</b>alive (censored)</span><span><b>7</b>reached 14+</span><span><b>4</b>lineages</span>
+    </div>
+  </section>
+
+  <div class="controls">
+    Trait for Q1, Q2 and Q4 <div class="seg" id="tsel"></div>
+    <span class="muted" style="font-weight:700">Trait names come from the readout and will change; charts don't depend on them.</span>
+  </div>
+
+  <!-- ======================= Q1 ======================= -->
+  <section class="q">
+    <div class="ribbon"><span class="qn">Q1</span> Do traits affect survival and reaching adulthood? <span class="hint">age 14 = adult in OHOL</span></div>
+    <div class="grid">
+      <div class="panel figure span-5">
+        <div class="panel-head is-navy">Age at death vs trait</div>
+        <div class="panel-body">
+          <div class="chart-head"><h3 id="q1a-t">—</h3><span class="n">n = 23 (14 died, 9 alive)</span></div>
+          <div id="q1a"></div>
+          <div class="legend"><span id="q1a-leg" style="display:contents"></span><span>▲ above a point = still alive (age so far, censored)</span><span>band = 95% CI of linear fit, deaths only</span></div>
+        </div>
+      </div>
+      <div class="panel figure span-4">
+        <div class="panel-head is-navy">Reached adulthood, by trait third</div>
+        <div class="panel-body">
+          <div class="chart-head"><h3>Share reaching age 14</h3><span class="n">n = 19 born (Eves excluded)</span></div>
+          <div id="q1b"></div>
+          <div class="foot"><span>whiskers = 95% Wilson interval · labels = k / n</span></div>
+        </div>
+      </div>
+      <div class="panel span-3">
+        <div class="panel-head is-butter">How to read Q1</div>
+        <div class="panel-body read">
+          <h4>What would count</h4>
+          <ul><li>A slope whose 95% band excludes 0, pooled across runs, after controlling for mother's food at birth.</li><li>Survival model: Cox, alive lives censored.</li></ul>
+          <h4>Confounds</h4>
+          <ul><li>Babies mostly die of neglect, which is about the <i>mother's</i> traits, not their own.</li><li>Lineages share trait centres, so family and trait are tangled.</li></ul>
+          <div class="note">Right now: no pattern you should believe. 9 starvations, 5 cold.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Q2 ======================= -->
+  <section class="q">
+    <div class="ribbon"><span class="qn">Q2</span> Who leaves descendants? <span class="hint">only people who reached 14 can have children</span></div>
+    <div class="grid">
+      <div class="panel figure span-7">
+        <div class="panel-head is-leaf">Descendants per adult, sorted by trait</div>
+        <div class="panel-body">
+          <div class="chart-head"><h3 id="q2-t">—</h3><span class="n">n = 7 people who reached 14 · women only can bear</span></div>
+          <div id="q2"></div>
+          <div class="legend"><span><i style="display:inline-block;width:14px;height:10px;background:var(--leaf);border:1.5px solid var(--ink);vertical-align:-1px"></i> children</span><span><i style="display:inline-block;width:14px;height:10px;background:#c3d39a;border:1.5px solid var(--ink);vertical-align:-1px"></i> grandchildren</span><span>✕ = male (no births possible in OHOL; listed for completeness)</span></div>
+        </div>
+      </div>
+      <div class="panel figure span-5">
+        <div class="panel-head is-leaf">Lineage size over time</div>
+        <div class="panel-body">
+          <div class="chart-head"><h3>Living members per family</h3><span class="n">n = 4 lineages, 1 run</span></div>
+          <div id="q2b"></div>
+          <div class="legend" id="q2b-leg"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Q3 ======================= -->
+  <section class="q">
+    <div class="ribbon"><span class="qn">Q3</span> Who takes which role, beyond chance? <span class="hint">roles from an action classifier, share of each life's actions</span></div>
+    <div class="grid">
+      <div class="panel figure span-6">
+        <div class="panel-head is-berry">Trait × role correlation</div>
+        <div class="panel-body">
+          <div class="chart-head"><h3>Spearman ρ, trait vs share of actions in role</h3><span class="n">n = 17 lives with ≥ 30 actions</span></div>
+          <div id="q3a"></div>
+          <div class="foot"><div class="divkey"><span>ρ −0.6</span><span class="ramp"></span><span>+0.6</span></div><span>● = permutation p &lt; .05 (uncorrected; 25 tests, expect ~1 by chance)</span></div>
+        </div>
+      </div>
+      <div class="panel figure span-6">
+        <div class="panel-head is-berry">Observed role mix vs a shuffled world</div>
+        <div class="panel-body">
+          <div class="chart-head"><h3>Role concentration (how specialised people are)</h3><span class="n">n = 17 · 1,000 shuffles</span></div>
+          <div id="q3b"></div>
+          <div class="foot"><span>grey bar = 95% range when actions are shuffled between people · ◆ = observed</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Q4 ======================= -->
+  <section class="q">
+    <div class="ribbon"><span class="qn">Q4</span> Do traits persist, drift or converge across generations?</div>
+    <div class="grid">
+      <div class="panel figure span-12">
+        <div class="panel-head is-clay">Trait distribution per generation, every trait</div>
+        <div class="panel-body">
+          <div class="chart-head"><h3>Each dot is a life · bar = generation median</h3><span class="n">gen 1: n = 4 · gen 2: n = 17 · gen 3: n = 2</span></div>
+          <div class="small-mult" id="q4a"></div>
+          <div class="legend" id="q4a-leg" style="margin-top:6px"></div>
+        </div>
+      </div>
+      <div class="panel figure span-6">
+        <div class="panel-head is-clay">Lineage mean trajectories</div>
+        <div class="panel-body">
+          <div class="chart-head"><h3 id="q4b-t">—</h3><span class="n">per-lineage mean ± 1 SE; points labelled with n</span></div>
+          <div id="q4b"></div>
+          <div class="legend" id="q4b-leg"></div>
+        </div>
+      </div>
+      <div class="panel figure span-6">
+        <div class="panel-head is-clay">Mother vs child</div>
+        <div class="panel-body">
+          <div class="chart-head"><h3 id="q4c-t">—</h3><span class="n">n = 19 mother–child pairs</span></div>
+          <div id="q4c"></div>
+          <div class="foot"><span>dashed = child equals mother · solid = fit, band = 95% CI · slope ≈ how much is passed down</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:16px">How traits are inherited is a design choice, not a finding: in these mocks a child's traits are drawn around a fixed family centre. If the real build sets child = mother + noise, Q4 measures the noise we chose. Decide this before the first real run.</p>
+  </section>
+</main>
+
+<footer class="footer"><div class="in">
+  <span>Lifelines · a research pilot on agent societies</span>
+  <span>Game art: One Hour One Life, by Jason Rohrer (public domain)</span>
+  <span class="disclaimer">* Traits shown are mock. Individual results vary.</span>
+</div></footer>
+
+<script src="mock/data.js"></script>
+<script src="mock/charts.js"></script>
+<script>
+const { people, lineages, traits } = MOCK;
+const L = (id) => lineages[id - 1];
+const R = MOCK.rnd;
+let ti = 0;
+const f2 = (v) => v.toFixed(2);
+const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+const sd = (a) => { const m = mean(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / Math.max(1, a.length - 1)); };
+const median = (a) => { const s = [...a].sort((x, y) => x - y), m = s.length / 2; return s.length % 2 ? s[Math.floor(m)] : (s[m - 1] + s[m]) / 2; };
+function wilson(k, n) { if (!n) return [0, 0]; const z = 1.96, p = k / n, d = 1 + z * z / n, c = p + z * z / (2 * n), w = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)); return [(c - w) / d, (c + w) / d]; }
+function fit(xs, ys) { const mx = mean(xs), my = mean(ys); let sxy = 0, sxx = 0; xs.forEach((x, i) => { sxy += (x - mx) * (ys[i] - my); sxx += (x - mx) ** 2; }); const b = sxy / sxx, a = my - b * mx; const res = ys.map((y, i) => y - (a + b * xs[i])); const s = Math.sqrt(res.reduce((q, r) => q + r * r, 0) / (xs.length - 2)); return { a, b, s, mx, sxx, n: xs.length }; }
+function band(F, x) { const se = F.s * Math.sqrt(1 / F.n + (x - F.mx) ** 2 / F.sxx); return [F.a + F.b * x - 2.1 * se, F.a + F.b * x + 2.1 * se]; }
+
+function linLegend() {
+  return lineages.map(l => `<span class="lin s${l.id} ${l.extinct ? 'extinct' : ''}" style="--c:${l.color}"><i></i>${l.name}</span>`).join('');
+}
+
+function q1a() {
+  const t = traits[ti];
+  document.getElementById('q1a-t').textContent = `${t.name} (x) vs age at death (y)`;
+  const W = 540, H = 300, m = { l: 46, r: 14, t: 12, b: 40 };
+  const x = CH.lin(0, 1, m.l, W - m.r), y = CH.lin(0, 60, H - m.b, m.t);
+  let s = CH.axes({ W, H, m, x, y, xt: [0, .25, .5, .75, 1], yt: [0, 14, 30, 45, 60], xlab: t.name + ' (raw, 0–1)', ylab: 'Age (years)', xfmt: f2 });
+  s += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(14)}" y2="${y(14)}" stroke="var(--leaf)" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W - m.r - 4}" y="${y(14) - 5}" text-anchor="end" style="font-weight:800; fill: var(--grass-dark)">adult (14)</text>`;
+  const dead = people.filter(p => !p.alive);
+  const F = fit(dead.map(p => p.traits[t.key]), dead.map(p => p.age));
+  let up = '', lo = '';
+  for (let v = 0.05; v <= 0.951; v += 0.05) { const [a, b] = band(F, v); up += `${x(v)},${y(Math.min(60, Math.max(0, b)))} `; lo = `${x(v)},${y(Math.max(0, Math.min(60, a)))} ` + lo; }
+  s += `<polygon points="${up}${lo}" fill="rgba(74,90,168,.2)" stroke="none"/>`;
+  s += `<line x1="${x(.05)}" y1="${y(F.a + F.b * .05)}" x2="${x(.95)}" y2="${y(F.a + F.b * .95)}" stroke="var(--berry)" stroke-width="2"/>`;
+  people.forEach(p => {
+    const l = L(p.lineage), px = x(p.traits[t.key]), py = y(p.age);
+    s += `<g><title>${p.name} · ${t.short} ${p.traits[t.key]} · ${p.alive ? 'alive, age ' : 'died at '}${p.age}</title>${CH.mark(l.shape, px, py, 5.5, l.color, 'var(--parchment-hi)', { sw: 2, hollow: p.alive })}`;
+    if (p.alive) s += `<path d="M${px} ${py - 9} l-4 6 h8z" fill="var(--ink)"/>`;
+    s += `</g>`;
+  });
+  s += `<text x="${m.l + 8}" y="${m.t + 12}" style="font-weight:800; fill: var(--ink)">slope ${F.b >= 0 ? '+' : ''}${F.b.toFixed(1)} y per unit · 95% CI wide, crosses 0</text>`;
+  CH.svg(document.getElementById('q1a'), W, H, s);
+  document.getElementById('q1a-leg').innerHTML = linLegend();
+}
+
+function q1b() {
+  const t = traits[ti];
+  const born = people.filter(p => p.gen > 1).sort((a, b) => a.traits[t.key] - b.traits[t.key]);
+  const k = Math.ceil(born.length / 3);
+  const groups = [born.slice(0, k), born.slice(k, 2 * k), born.slice(2 * k)];
+  const W = 400, H = 300, m = { l: 46, r: 10, t: 14, b: 52 };
+  const x = (i) => m.l + (i + .5) * (W - m.l - m.r) / 3, y = CH.lin(0, 1, H - m.b, m.t);
+  let s = CH.axes({ W, H, m, x: (v) => v, y, xt: [], yt: [0, .25, .5, .75, 1], ylab: 'Share reaching 14', yfmt: (v) => Math.round(v * 100) + '%' });
+  const names = ['low', 'middle', 'high'];
+  groups.forEach((g, i) => {
+    const kk = g.filter(p => p.age >= 14).length, n = g.length, [a, b] = wilson(kk, n);
+    const bw = 58, cx = x(i), top = y(kk / n);
+    s += `<rect x="${cx - bw / 2}" y="${top}" width="${bw}" height="${Math.max(0, y(0) - top)}" rx="4" fill="var(--berry)" stroke="var(--ink)" stroke-width="1.5"/>`;
+    s += `<line x1="${cx}" x2="${cx}" y1="${y(a)}" y2="${y(b)}" stroke="var(--ink)" stroke-width="2"/><line x1="${cx - 9}" x2="${cx + 9}" y1="${y(a)}" y2="${y(a)}" stroke="var(--ink)" stroke-width="2"/><line x1="${cx - 9}" x2="${cx + 9}" y1="${y(b)}" y2="${y(b)}" stroke="var(--ink)" stroke-width="2"/>`;
+    s += `<text x="${cx + bw / 2 + 4}" y="${Math.min(top, y(0) - 4) - 4}" style="font-weight:800; fill: var(--ink)">${kk}/${n}</text>`;
+    s += `<text x="${cx}" y="${H - m.b + 16}" text-anchor="middle" style="font-weight:800">${names[i]} third</text>`;
+    s += `<text x="${cx}" y="${H - m.b + 30}" text-anchor="middle">${f2(g[0].traits[t.key])}–${f2(g[g.length - 1].traits[t.key])}</text>`;
+  });
+  s += `<text class="axis-title" x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">${t.name}</text>`;
+  CH.svg(document.getElementById('q1b'), W, H, s);
+}
+
+function q2() {
+  const t = traits[ti];
+  document.getElementById('q2-t').textContent = `Sorted by ${t.name}, low → high`;
+  const adults = people.filter(p => p.age >= 14).sort((a, b) => a.traits[t.key] - b.traits[t.key]);
+  const kids = (p) => people.filter(q => q.mother === p.name);
+  const W = 700, rowH = 30, m = { l: 230, r: 30, t: 22, b: 36 }, H = m.t + m.b + adults.length * rowH;
+  const x = CH.lin(0, 8, m.l, W - m.r);
+  let s = '';
+  [0, 2, 4, 6, 8].forEach(v => { s += `<line class="grid" x1="${x(v)}" x2="${x(v)}" y1="${m.t - 6}" y2="${H - m.b}"/><text x="${x(v)}" y="${H - m.b + 16}" text-anchor="middle">${v}</text>`; });
+  s += `<text x="${m.l - 66}" y="${m.t - 8}" text-anchor="end" style="font-weight:800; font-size:10.5px">${t.short.toUpperCase()}</text>`;
+  adults.forEach((p, i) => {
+    const l = L(p.lineage), yy = m.t + i * rowH + rowH / 2;
+    const c = kids(p), g = c.reduce((s2, q) => s2 + kids(q).length, 0);
+    s += CH.mark(l.shape, 12, yy, 5.5, l.color, 'var(--ink)', { sw: 1.5 });
+    s += `<text x="24" y="${yy + 4}" style="font-weight:800; fill: var(--ink)">${p.name}</text>`;
+    s += `<text x="${m.l - 66}" y="${yy + 4}" text-anchor="end" class="mono" style="font-family: var(--font-mono)">${f2(p.traits[t.key])}</text>`;
+    s += `<text x="${m.l - 10}" y="${yy + 4}" text-anchor="end" style="fill: var(--ink-3)">${p.alive ? 'alive' : '† ' + Math.floor(p.age)}</text>`;
+    if (p.sex === 'M') { s += `<text x="${x(0) + 6}" y="${yy + 4}" style="fill: var(--ink-3); font-weight:800">✕</text>`; return; }
+    const w1 = x(c.length) - x(0), w2 = x(c.length + g) - x(c.length);
+    if (c.length) s += `<rect x="${x(0)}" y="${yy - 9}" width="${w1}" height="18" rx="4" fill="var(--leaf)" stroke="var(--ink)" stroke-width="1.5"/>`;
+    if (g) s += `<rect x="${x(c.length) + 2}" y="${yy - 9}" width="${w2 - 2}" height="18" rx="4" fill="#c3d39a" stroke="var(--ink)" stroke-width="1.5"/>`;
+    s += `<text x="${x(c.length + g) + 6}" y="${yy + 4}" style="font-weight:800; fill: var(--ink)">${c.length}${g ? ' + ' + g : ''}</text>`;
+  });
+  s += `<g class="axis"><line x1="${x(0)}" x2="${x(0)}" y1="${m.t - 6}" y2="${H - m.b}"/></g>`;
+  s += `<text class="axis-title" x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">Descendants (children + grandchildren)</text>`;
+  CH.svg(document.getElementById('q2'), W, H, s);
+}
+
+function q2b() {
+  const W = 500, H = 270, m = { l: 40, r: 70, t: 12, b: 40 };
+  const x = CH.lin(0, 42, m.l, W - m.r), y = CH.lin(0, 6, H - m.b, m.t);
+  let s = CH.axes({ W, H, m, x, y, xt: [0, 10, 20, 30, 40], yt: [0, 2, 4, 6], xlab: 'Minutes since run start', ylab: 'Living members' });
+  const series = {
+    1: [[0, 1], [6, 2], [12, 3], [15, 4], [19, 5], [24, 5], [27, 6], [31, 5], [35, 5], [38, 4], [41, 4]],
+    2: [[0, 1], [5, 2], [10, 3], [14, 4], [20, 4], [25, 3], [30, 4], [33, 3], [37, 3], [41, 3]],
+    3: [[4, 1], [12, 2], [18, 3], [23, 2], [28, 1], [36, 1], [39.5, 0]],
+    4: [[9.75, 1], [14, 2], [20, 3], [26, 4], [29, 3], [33, 2], [41, 2]],
+  };
+  Object.entries(series).forEach(([id, pts]) => {
+    const l = L(+id);
+    const d = pts.map((p, i) => (i ? `H${x(p[0])}V${y(p[1])}` : `M${x(p[0])} ${y(p[1])}`)).join('');
+    s += `<path d="${d}" fill="none" stroke="${l.hex}" stroke-width="2.5" ${l.extinct ? 'stroke-dasharray="6 4"' : ''}/>`;
+    const last = pts[pts.length - 1];
+    s += CH.mark(l.shape, x(last[0]), y(last[1]), 5, l.hex, 'var(--ink)');
+    s += `<text x="${x(last[0]) + 9}" y="${y(last[1]) + 4 + (id == 2 ? -2 : id == 4 ? 4 : 0)}" style="font-weight:800; fill: var(--ink)">${l.name}${l.extinct ? ' †' : ''}</text>`;
+  });
+  CH.svg(document.getElementById('q2b'), W, H, s);
+  document.getElementById('q2b-leg').innerHTML = linLegend() + '<span>dashed = extinct</span>';
+}
+
+function q3a() {
+  const roles = ['explore', 'care', 'craft', 'social', 'forage'];
+  const W = 560, cw = 82, ch = 40, m = { l: 150, t: 30, r: 10, b: 10 }, H = m.t + traits.length * ch + m.b;
+  const col = (r) => { const a = Math.min(1, Math.abs(r) / .6); const neg = [59, 74, 144], pos = [178, 74, 44], mid = [236, 228, 208]; const e = r < 0 ? neg : pos; return `rgb(${mid.map((v, i) => Math.round(v + (e[i] - v) * a)).join(',')})`; };
+  let s = '';
+  roles.forEach((r, j) => s += `<text x="${m.l + j * cw + cw / 2}" y="${m.t - 10}" text-anchor="middle" style="font-weight:800; fill: var(--ink)">${r}</text>`);
+  const fixed = { 't1,explore': .52, 't4,care': .44, 't2,craft': .38, 't3,social': .41, 't4,explore': -.33 };
+  traits.forEach((t, i) => {
+    s += `<text x="${m.l - 10}" y="${m.t + i * ch + ch / 2 + 4}" text-anchor="end" style="font-weight:800; fill: var(--ink)">${t.name}</text>`;
+    roles.forEach((r, j) => {
+      const v = fixed[`${t.key},${r}`] ?? +((R() - .5) * .44).toFixed(2);
+      const sig = Math.abs(v) > .4;
+      const xx = m.l + j * cw, yy = m.t + i * ch;
+      s += `<g><title>${t.name} × ${r}: ρ = ${v.toFixed(2)}${sig ? ', p < .05' : ''}</title><rect x="${xx + 1}" y="${yy + 1}" width="${cw - 2}" height="${ch - 2}" rx="5" fill="${col(v)}" stroke="var(--parchment-hi)" stroke-width="2"/>`;
+      const dark = Math.abs(v) > .35;
+      s += `<text x="${xx + cw / 2}" y="${yy + ch / 2 + 4}" text-anchor="middle" style="font-family: var(--font-mono); font-size:12.5px; font-weight:600; fill: ${dark ? '#fff' : 'var(--ink)'}">${v > 0 ? '+' : ''}${v.toFixed(2)}${sig ? ' ●' : ''}</text></g>`;
+    });
+  });
+  CH.svg(document.getElementById('q3a'), W, H, s);
+}
+
+function q3b() {
+  const roles = ['explore', 'care', 'craft', 'social', 'forage'];
+  const obs = [.46, .58, .41, .33, .22], lo = [.18, .20, .17, .19, .21], hi = [.36, .41, .34, .35, .38];
+  const W = 540, H = 262, m = { l: 80, r: 20, t: 10, b: 40 };
+  const x = CH.lin(0, .8, m.l, W - m.r), rh = (H - m.t - m.b) / roles.length;
+  let s = '';
+  [0, .1, .2, .3, .4, .5, .6, .7, .8].forEach(v => s += `<line class="grid" x1="${x(v)}" x2="${x(v)}" y1="${m.t}" y2="${H - m.b}"/><text x="${x(v)}" y="${H - m.b + 16}" text-anchor="middle">${v.toFixed(1)}</text>`);
+  roles.forEach((r, i) => {
+    const yy = m.t + i * rh + rh / 2, beyond = obs[i] > hi[i];
+    s += `<text x="${m.l - 10}" y="${yy + 4}" text-anchor="end" style="font-weight:800; fill: var(--ink)">${r}</text>`;
+    s += `<rect x="${x(lo[i])}" y="${yy - 8}" width="${x(hi[i]) - x(lo[i])}" height="16" rx="8" fill="var(--parchment-lo)" stroke="var(--ink-3)" stroke-width="1.5"/>`;
+    s += `<g><title>${r}: observed ${obs[i]}, null 95% ${lo[i]}–${hi[i]}</title>${CH.mark('diamond', x(obs[i]), yy, 7, beyond ? 'var(--berry)' : 'var(--parchment-hi)', 'var(--ink)', { sw: 2 })}</g>`;
+    s += `<text x="${x(obs[i]) + 12}" y="${yy + 4}" style="font-weight:800; fill: var(--ink)">${obs[i].toFixed(2)}${beyond ? ' · beyond' : ''}</text>`;
+  });
+  s += `<g class="axis"><line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/></g>`;
+  s += `<text class="axis-title" x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">Concentration (Gini of role share across people)</text>`;
+  CH.svg(document.getElementById('q3b'), W, H, s);
+}
+
+function q4a() {
+  const el = document.getElementById('q4a');
+  el.innerHTML = traits.map((t, k) => `<div><div class="t">${t.name}</div><div id="sm${k}"></div></div>`).join('');
+  traits.forEach((t, k) => {
+    const W = 230, H = 210, m = { l: k ? 26 : 36, r: 6, t: 10, b: 34 };
+    const x = (g) => m.l + (g - .5) * (W - m.l - m.r) / 3, y = CH.lin(0, 1, H - m.b, m.t);
+    let s = '';
+    [0, .5, 1].forEach(v => { s += `<line class="grid" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/>`; s += `<text x="${m.l - 5}" y="${y(v) + 4}" text-anchor="end">${v}</text>`; });
+    [1, 2, 3].forEach(g => {
+      const ps = people.filter(p => p.gen === g);
+      ps.forEach((p, i) => { const l = L(p.lineage); s += CH.mark(l.shape, x(g) + ((i * 7) % 28) - 14, y(p.traits[t.key]), 3.8, l.hex, 'var(--parchment-hi)', { sw: 1 }); });
+      const md = median(ps.map(p => p.traits[t.key]));
+      s += `<line x1="${x(g) - 22}" x2="${x(g) + 22}" y1="${y(md)}" y2="${y(md)}" stroke="var(--ink)" stroke-width="3" stroke-linecap="round"/>`;
+      s += `<text x="${x(g)}" y="${H - m.b + 15}" text-anchor="middle" style="font-weight:800">gen ${g}</text><text x="${x(g)}" y="${H - m.b + 28}" text-anchor="middle" style="font-family: var(--font-mono); font-size: 10.5px">n=${ps.length}</text>`;
+    });
+    s += `<g class="axis"><line x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/><line x1="${m.l}" x2="${m.l}" y1="${m.t}" y2="${H - m.b}"/></g>`;
+    CH.svg(document.getElementById('sm' + k), W, H, s);
+  });
+  document.getElementById('q4a-leg').innerHTML = linLegend() + '<span>gen 3 has n = 2: read its median as a guess</span>';
+}
+
+function q4b() {
+  const t = traits[ti];
+  document.getElementById('q4b-t').textContent = `${t.name}: lineage mean by generation`;
+  const W = 520, H = 280, m = { l: 46, r: 90, t: 12, b: 40 };
+  const x = CH.lin(.7, 3.3, m.l, W - m.r), y = CH.lin(0, 1, H - m.b, m.t);
+  let s = CH.axes({ W, H, m, x, y, xt: [1, 2, 3], yt: [0, .25, .5, .75, 1], xlab: 'Generation', ylab: t.name + ' (mean)', xfmt: (v) => 'gen ' + v, yfmt: f2 });
+  const all = people.map(p => p.traits[t.key]);
+  s += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(mean(all))}" y2="${y(mean(all))}" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="2 4"/><text x="${W - m.r + 4}" y="${y(mean(all)) + 4}" style="fill: var(--ink-3)">all lives</text>`;
+  lineages.forEach((l, li) => {
+    const pts = [1, 2, 3].map(g => { const v = people.filter(p => p.lineage === l.id && p.gen === g).map(p => p.traits[t.key]); return v.length ? { g, m: mean(v), se: v.length > 1 ? sd(v) / Math.sqrt(v.length) : null, n: v.length } : null; }).filter(Boolean);
+    const off = (li - 1.5) * 7;
+    s += `<polyline points="${pts.map(p => `${x(p.g) + off},${y(p.m)}`).join(' ')}" fill="none" stroke="${l.hex}" stroke-width="2.5" ${l.extinct ? 'stroke-dasharray="6 4"' : ''}/>`;
+    pts.forEach(p => {
+      if (p.se) s += `<line x1="${x(p.g) + off}" x2="${x(p.g) + off}" y1="${y(p.m - p.se)}" y2="${y(p.m + p.se)}" stroke="${l.hex}" stroke-width="2"/>`;
+      s += CH.mark(l.shape, x(p.g) + off, y(p.m), 5.5, l.hex, 'var(--parchment-hi)', { sw: 1.5 });
+    });
+    const last = pts[pts.length - 1];
+    s += `<text x="${x(last.g) + off + 10}" y="${y(last.m) + 4}" style="font-weight:800; fill: var(--ink)">${l.name} <tspan style="font-family: var(--font-mono); font-weight:500; font-size:10.5px">n=${last.n}</tspan></text>`;
+  });
+  CH.svg(document.getElementById('q4b'), W, H, s);
+  document.getElementById('q4b-leg').innerHTML = linLegend() + '<span>gen 1 = one Eve each, so no error bar</span>';
+}
+
+function q4c() {
+  const t = traits[ti];
+  document.getElementById('q4c-t').textContent = `${t.name}: mother (x) vs child (y)`;
+  const pairs = people.filter(p => p.mother).map(p => [people.find(q => q.name === p.mother), p]).filter(([a]) => a);
+  const W = 520, H = 280, m = { l: 46, r: 14, t: 12, b: 40 };
+  const x = CH.lin(0, 1, m.l, W - m.r), y = CH.lin(0, 1, H - m.b, m.t);
+  let s = CH.axes({ W, H, m, x, y, xt: [0, .25, .5, .75, 1], yt: [0, .25, .5, .75, 1], xlab: "Mother's " + t.name, ylab: "Child's " + t.name, xfmt: f2, yfmt: f2 });
+  s += `<line x1="${x(0)}" y1="${y(0)}" x2="${x(1)}" y2="${y(1)}" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  const F = fit(pairs.map(([a]) => a.traits[t.key]), pairs.map(([, c]) => c.traits[t.key]));
+  let up = '', lo = '';
+  for (let v = .15; v <= .901; v += .05) { const [a, b] = band(F, v); up += `${x(v)},${y(b)} `; lo = `${x(v)},${y(a)} ` + lo; }
+  s += `<polygon points="${up}${lo}" fill="rgba(192,100,58,.14)"/>`;
+  s += `<line x1="${x(.15)}" y1="${y(F.a + F.b * .15)}" x2="${x(.9)}" y2="${y(F.a + F.b * .9)}" stroke="var(--clay)" stroke-width="2"/>`;
+  pairs.forEach(([a, c]) => { const l = L(c.lineage); s += `<g><title>${a.name} → ${c.name}</title>${CH.mark(l.shape, x(a.traits[t.key]) + (R() - .5) * 6, y(c.traits[t.key]), 5, l.hex, 'var(--parchment-hi)', { sw: 1.5 })}</g>`; });
+  s += `<text x="${m.l + 8}" y="${m.t + 12}" style="font-weight:800; fill: var(--ink)">slope ${F.b.toFixed(2)} · only 4 distinct mothers, pairs are not independent</text>`;
+  CH.svg(document.getElementById('q4c'), W, H, s);
+}
+
+function drawAll() {
+  document.getElementById('tsel').innerHTML = traits.map((t, i) => `<span class="${i === ti ? 'on' : ''}" data-i="${i}">${t.name}</span>`).join('');
+  q1a(); q1b(); q2(); q4b(); q4c();
+}
+document.getElementById('tsel').onclick = (e) => { if (e.target.dataset.i != null) { ti = +e.target.dataset.i; drawAll(); } };
+drawAll(); q2b(); q3a(); q3b(); q4a();
+</script>
+</body>
+</html>

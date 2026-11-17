@@ -10,10 +10,14 @@
 
 # ---------- viewer build ----------
 FROM node:24-slim AS viewer
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/viewer
 COPY viewer/package.json viewer/package-lock.json ./
 RUN npm ci
+COPY data/ /app/data/
 COPY viewer/ ./
+# real OHOL art (clones OneLifeData7 at the pinned tag, converts sprites to PNG)
+RUN npm run assets
 # same-origin: the viewer talks to the API on whatever host serves it
 RUN VITE_API_URL=same-origin npm run build
 

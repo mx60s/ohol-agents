@@ -8,9 +8,12 @@ if (!config.llmApiKey) {
   process.exit(1);
 }
 
+// a stray rejected promise (e.g. a timer's async tick) must not take the 24/7 service down
+process.on("unhandledRejection", (e) => console.error("unhandled rejection", e));
+
 const gd = new GameData();
 const runs = new RunController(config, gd);
-startApi(config.port, runs, gd, config.controlToken);
+startApi(config.port, runs, gd, config.controlToken, { maxSseClients: config.sseMaxClients });
 if (config.autostart) runs.start();
 else console.log("AUTOSTART=0: idle until POST /api/start?token=...");
 

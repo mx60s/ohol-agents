@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lifelines · live monitor · mockup</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="site.css">
+<style>
+  .hero {
+    height: 168px; border-bottom: 3px solid var(--ink); position: relative;
+    background: url(assets/world/scene-strip.png) center 62% / 1600px auto repeat-x, var(--grass);
+  }
+  .hero .in { max-width: 1440px; margin: 0 auto; height: 100%; position: relative; padding: 0 28px; }
+  .hero .hello {
+    position: absolute; left: 28px; bottom: 18px; max-width: 470px;
+    background: var(--paper-white); border: var(--ink-line); border-radius: 18px; padding: 10px 16px 12px;
+    box-shadow: var(--shadow-sticker);
+  }
+  .hero .hello h1 { font-size: 24px; }
+  .hero .hello p { margin: 3px 0 0; font-size: 14px; color: var(--ink-2); }
+  .hero .burst { position: absolute; right: 40px; top: 18px; width: 96px; height: 96px; font-size: 15px; }
+
+  /* status tiles */
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
+  .tiles .stat { padding: 12px 16px; border-right: 1.5px dashed var(--parchment-edge); border-bottom: 1.5px dashed var(--parchment-edge); }
+  .tiles .stat:nth-child(4n) { border-right: 0; }
+  .tiles .stat:nth-last-child(-n+4) { border-bottom: 0; }
+  .stat .n small { font-family: var(--font-body); font-size: 14px; font-weight: 800; color: var(--ink-2); }
+  .stat.good .n { color: var(--alive); }
+  .stat.bad .n { color: var(--danger); }
+
+  .about { background: var(--gloss), linear-gradient(180deg, #fff6d2, #f6e3a6); }
+  .about p { margin: 0 0 8px; font-size: 14px; }
+  .about .disc { font-size: 12px; color: var(--ink-2); font-style: italic; }
+
+  /* roster */
+  .roster-tools { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 14px; }
+  .card {
+    display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: start;
+    background: var(--paper-white); border: 2px solid var(--ink); border-radius: 14px; padding: 9px 10px 9px 9px;
+    box-shadow: 2px 3px 0 rgba(31,26,20,.16); text-decoration: none; color: inherit; position: relative;
+  }
+  .card:hover { transform: translateY(-1px); box-shadow: 3px 5px 0 rgba(31,26,20,.2); color: inherit; }
+  .card .pic { width: 64px; height: 72px; border-radius: 8px; border: 1.5px solid var(--ink); overflow: hidden;
+    background: var(--grass) url(assets/world/ground-tile.png) 0 0 / 200px; display: grid; place-items: end center; }
+  .card .pic img { width: 64px; height: 64px; display: block; }
+  .card .nm { font-family: var(--font-display); font-weight: 600; font-size: 15.5px; line-height: 1.1; }
+  .card .meta { font-size: 12px; color: var(--ink-2); font-weight: 700; margin: 2px 0 5px; display: flex; align-items: center; gap: 6px; }
+  .card .doing { font-size: 12.5px; color: var(--ink-2); line-height: 1.3; }
+  .card .flag { margin-top: 5px; font-size: 11.5px; }
+  .card .onair { position: absolute; top: -10px; right: 10px; }
+  .card.focus { box-shadow: 0 0 0 3px var(--butter), 2px 3px 0 rgba(31,26,20,.16); }
+
+  /* map */
+  .map { position: relative; border: 2px solid var(--ink); border-radius: 10px; overflow: hidden; aspect-ratio: 1 / .8; background: url(assets/world/map-thumb.png) center / cover; }
+  .map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .map .cap { position: absolute; left: 8px; bottom: 6px; font-size: 11px; font-weight: 800; background: rgba(255,253,247,.85); padding: 1px 6px; border-radius: 6px; border: 1px solid var(--ink); }
+
+  /* deaths */
+  .deaths { list-style: none; margin: 0; padding: 0; }
+  .deaths li { display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--parchment-edge); }
+  .deaths li:last-child { border-bottom: 0; }
+  .deaths .avatar { width: 40px; height: 40px; }
+  .deaths .nm { font-weight: 800; font-size: 14px; }
+  .deaths .why { font-size: 12.5px; color: var(--ink-2); }
+  .deaths time { font-size: 12px; color: var(--ink-3); font-weight: 700; }
+
+  /* lineages */
+  .lineage { padding: 9px 0; border-bottom: 1px solid var(--parchment-edge); }
+  .lineage:last-child { border-bottom: 0; }
+  .lineage .row1 { display: flex; align-items: center; gap: 8px; }
+  .lineage .row1 .pill { margin-left: auto; }
+  .lineage .row2 { font-size: 12px; color: var(--ink-2); margin: 3px 0 5px; }
+  .members { display: flex; gap: 3px; flex-wrap: wrap; }
+  .members i { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--ink); display: inline-block; }
+  .members i.dead { background: transparent !important; border-color: var(--ink-3); border-style: dashed; }
+
+  /* cloud */
+  .cloud-wrap { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .hairkey { display: flex; gap: 10px; align-items: center; background: var(--parchment-lo); border-radius: 10px; padding: 8px 10px; font-size: 12.5px; }
+  .hairkey .heads { display: flex; }
+  .hairkey .heads img { width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--ink); background: var(--grass); margin-left: -6px; object-fit: cover; object-position: 50% 0; }
+  .hairkey .heads img:first-child { margin-left: 0; }
+
+  .news-list { list-style: none; margin: 0; padding: 0; }
+  .news-list li { padding: 8px 0; border-bottom: 1px solid var(--parchment-edge); font-family: var(--font-news); font-size: 14.5px; line-height: 1.4; }
+  .news-list time { display: block; font-family: var(--font-body); font-weight: 800; font-size: 11.5px; color: var(--ink-3); letter-spacing: .04em; }
+  .story-p { font-family: var(--font-news); font-size: 14.5px; line-height: 1.5; margin: 0; }
+
+  @media (max-width: 1400px) {
+    .tiles { grid-template-columns: repeat(4, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-top">
+  <div class="in">
+    <div class="wordmark"><span>L</span><span>i</span><span>f</span><span>e</span><span>l</span><span>i</span><span>n</span><span>e</span><span>s</span></div>
+    <div class="tagline">How personality shapes a society of AI people in One Hour One Life</div>
+    <nav class="navbar"><a class="on" href="site-home.html">Live</a><a href="site-agent.html">People</a><a href="#">Families</a><a href="site-study.html">Study</a><a href="#">About</a></nav>
+    <a class="btn is-clay" href="stream.html">▶ Watch the stream</a>
+  </div>
+</header>
+<div class="runbar"><div class="in">
+  <span class="live"><span class="live-dot"></span><b>LIVE</b></span>
+  <span>Run <b class="mono">2026-11-16-a</b></span><span class="sep"></span>
+  <span>Started <b>14:02</b> · running <b>41 min</b></span><span class="sep"></span>
+  <span>Agents: <b>Gemini 3.8 Flash</b>, 9 seats</span><span class="sep"></span>
+  <span>Last update <b>4 s ago</b></span><span class="sep"></span>
+  <span>Trait readout: <span class="mock-tag">MOCK</span> random, not from neurons yet</span>
+</div></div>
+
+<section class="hero"><div class="in">
+  <div class="hello">
+    <h1 class="sparkle">Welcome to the grassland!</h1>
+    <p>Four Eves, nineteen babies, forty-one minutes. Everything below updates live from the running world.</p>
+  </div>
+  <div class="burst">GEN 3<br>REACHED!</div>
+</div></section>
+
+<main class="page">
+  <div class="grid">
+
+    <div class="span-8 stack">
+<!-- WORLD STATUS -->
+    <section class="panel">
+      <div class="panel-head is-navy">World status <span class="sub">this run · since 14:02</span></div>
+      <div class="tiles">
+        <div class="stat good"><span class="n">9 <small>/ 23</small></span><span class="k">Alive now</span><span class="d">4 adults · 3 children · 2 babies</span></div>
+        <div class="stat"><span class="n">19</span><span class="k">Births</span><span class="d">+ 4 Eves</span></div>
+        <div class="stat bad"><span class="n">14</span><span class="k">Deaths</span><span class="d">9 starvation · 5 cold</span></div>
+        <div class="stat"><span class="n">3</span><span class="k">Deepest generation</span><span class="d">HOPE: Eve → Joy → Faith</span></div>
+        <div class="stat"><span class="n">3 <small>living</small></span><span class="k">Families</span><span class="d">1 extinct (KETTLE)</span></div>
+        <div class="stat"><span class="n">5 <small>/ 19</small></span><span class="k">Reached adulthood</span><span class="d">age ≥ 14, of those born</span></div>
+        <div class="stat"><span class="n">11.2 <small>y</small></span><span class="k">Median age at death</span><span class="d">n = 14 · IQR 0.5–16</span></div>
+        <div class="stat"><span class="n">$3.12</span><span class="k">LLM spend</span><span class="d">1,904 calls · cap $10</span></div>
+      </div>
+    </section>
+
+    <!-- ROSTER -->
+    <section class="panel">
+      <div class="panel-head is-leaf">The people <span class="sub">click anyone for their page</span></div>
+      <div class="panel-body">
+        <div class="roster-tools">
+          <div class="seg"><span class="on">Living 9</span><span>Dead 14</span><span>Everyone 23</span></div>
+          <div class="seg"><span class="on">By family</span><span>By age</span><span>Hungriest</span></div>
+          <div class="legend" style="margin-left:auto">
+            <span class="lin s1" style="--c:var(--lin-1)"><i></i>HOPE</span>
+            <span class="lin s2" style="--c:var(--lin-2)"><i></i>ASHGROVE</span>
+            <span class="lin s4" style="--c:var(--lin-4)"><i></i>MOSS</span>
+          </div>
+        </div>
+        <div class="roster" id="roster"></div>
+      </div>
+    </section>
+
+          <div class="grid" style="grid-template-columns: 5fr 3fr">
+<!-- CLOUD -->
+    <section class="panel">
+      <div class="panel-head is-bubblegum">Personality cloud <span class="mock-tag" style="margin-left:6px">MOCK</span><span class="sub">every life, in trait space</span></div>
+      <div class="panel-body cloud-wrap">
+        <div class="chart-head">
+          <span style="font-size:12.5px; font-weight:800">x</span><div class="seg" id="xsel"></div>
+        </div>
+        <div class="chart-head">
+          <span style="font-size:12.5px; font-weight:800">y</span><div class="seg" id="ysel"></div>
+        </div>
+        <div id="cloud"></div>
+        <div class="legend">
+          <span class="lin s1" style="--c:var(--lin-1)"><i></i>HOPE</span>
+          <span class="lin s2" style="--c:var(--lin-2)"><i></i>ASHGROVE</span>
+          <span class="lin s3 extinct" style="--c:var(--lin-3)"><i></i>KETTLE</span>
+          <span class="lin s4" style="--c:var(--lin-4)"><i></i>MOSS</span>
+          <span>filled = alive · hollow = dead</span>
+          <span class="mono" style="margin-left:auto">n = 23</span>
+        </div>
+        <div class="hairkey">
+          <div class="heads"><img src="assets/people/joy-hope-head.png" alt=""><img src="assets/people/tomas-hope-head.png" alt=""><img src="assets/people/faith-hope-head.png" alt=""></div>
+          <div><b>Reading the people:</b> hair <b>colour</b> comes from personality, so siblings differ. Hair <b>style</b> and face are shared by the family. Chart colours mark the family, not the hair.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LINEAGES -->
+    <section class="panel">
+      <div class="panel-head is-clay">Families</div>
+      <div class="panel-body" style="padding:6px 14px 10px" id="lineages"></div>
+    </section>
+
+          </div>
+      <section class="panel">
+        <div class="panel-head is-berry">📖 The story so far</div>
+        <div class="panel-body">
+          <p class="story-p">Four Eves woke up in the grassland. <b>HOPE</b> stayed by the berries and is on its third generation. <b>ASHGROVE</b> learned to make tools but keeps losing babies. <b>MOSS</b> keeps wandering off. <b>KETTLE</b> had two children and lost both to hunger; the family is gone.</p>
+        </div>
+      </section>
+    </div>
+    <div class="span-4 stack">
+<!-- ABOUT -->
+    <aside class="panel about">
+      <div class="panel-head is-butter">About the study</div>
+      <div class="panel-body">
+        <p><b>Do personalities shape societies?</b> LLM agents are born, raised, and die in a real One Hour One Life server. Each life gets a personality, read from the model's internal activations (neurons), not written into its prompt.</p>
+        <p>We watch who survives, who has children, who takes which jobs, and whether personality is passed down or drifts over generations.</p>
+        <p><a href="site-study.html">See the study questions →</a></p>
+        <p class="disc">* Personality values on this site are MOCK until the neuron readout ships. Individual results vary.</p>
+      </div>
+    </aside>
+
+          <section class="panel">
+        <div class="panel-head is-berry">Map <span class="sub">living people · 140 × 112 tiles</span></div>
+        <div class="panel-body" style="padding:12px">
+          <div class="map" id="map"><span class="cap">● = person · shape = family</span></div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head is-ink">Recent deaths <span class="sub">14 total</span></div>
+        <div class="panel-body" style="padding:6px 14px 8px">
+          <ul class="deaths" id="deaths"></ul>
+          <a href="#" style="font-size:13px; font-weight:800">All deaths →</a>
+        </div>
+      </section>
+          <section class="panel">
+        <div class="panel-head is-navy">📻 World news <span class="sub">narrator · every 30 s</span></div>
+        <div class="panel-body" style="padding:4px 16px 10px">
+          <ul class="news-list">
+            <li><time>41:02</time>Joy Hope has placed her daughter beside a gooseberry bush, which is how the Hopes have always done it, all two generations of them.</li>
+            <li><time>39:30</time>Pip Kettle, aged two, has starved. The Kettle line, founded thirty-one minutes ago with some confidence, is now extinct.</li>
+            <li><time>37:55</time>Bram Ashgrove has made a sharp stone. He has not yet found anything to use it on.</li>
+            <li><time>35:10</time>Eve Moss walks north, alone, for the fourth time. Her son Odo watches her go.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer class="footer"><div class="in">
+  <span>Lifelines · a research pilot on agent societies</span>
+  <span>Game art: One Hour One Life, by Jason Rohrer (public domain)</span>
+  <span class="disclaimer">* Traits shown are mock. Individual results vary.</span>
+</div></footer>
+
+<script src="mock/data.js"></script>
+<script src="mock/charts.js"></script>
+<script>
+const { people, lineages, traits } = MOCK;
+const L = (id) => lineages[id - 1];
+const ageWord = (a) => a < 1 ? 'baby' : a < 14 ? 'child' : a < 40 ? 'adult' : 'elder';
+const fmtAge = (a) => a < 1 ? '0' : Math.floor(a);
+
+// roster
+const doing = {
+  'JOY HOPE': ['Feeding Faith', 'danger', 'hungry'], 'EVE HOPE': ['Picking gooseberries'], 'TOMAS HOPE': ['Talking to Joy by the fire'],
+  'FAITH HOPE': ['Being carried', 'danger', 'starving'], 'EVE ASHGROVE': ['Making a sharp stone'], 'BRAM ASHGROVE': ['Looking for a use for his stone'],
+  'WREN ASHGROVE': ['Eating a gooseberry'], 'EVE MOSS': ['Walking north (4th time)', 'warn', 'cold'], 'ODO MOSS': ['Following his mother'],
+};
+document.getElementById('roster').innerHTML = people.filter(p => p.alive).map(p => {
+  const d = doing[p.name] || ['Idle'];
+  const ln = L(p.lineage);
+  const flag = (d[1] ? `<span class="pill ${d[1]} flag">${d[1] === 'danger' ? '⚠' : '❄'} ${d[2]}</span>` : '') ;
+  const onair = p.name === 'JOY HOPE' ? '<span class="pill navy onair">● on stream</span>' : '';
+  return `<a class="card ${p.name === 'JOY HOPE' ? 'focus' : ''}" href="site-agent.html">${onair}
+    <div class="pic"><img src="${p.img}" alt=""></div>
+    <div><div class="nm">${p.name}</div>
+      <div class="meta"><span class="lin s${ln.id}" style="--c:${ln.color}"><i></i></span>${p.sex === 'F' ? '♀' : '♂'} ${fmtAge(p.age)} y · gen ${p.gen}</div>
+      <div class="doing">${d[0]}</div>${flag}</div></a>`;
+}).join('');
+
+// deaths
+const order = ['PIP KETTLE', 'NED MOSS', 'BO ASHGROVE', 'EVE KETTLE', 'ABEL HOPE'];
+const when = ['2 min ago', '6 min ago', '9 min ago', '13 min ago', '15 min ago'];
+document.getElementById('deaths').innerHTML = order.map((n, i) => {
+  const p = people.find(q => q.name === n); const ln = L(p.lineage);
+  return `<li><span class="avatar dead" style="--lin:${ln.hex}"><img src="${p.img}" alt=""></span>
+    <div><div class="nm">${p.name} <span class="muted" style="font-weight:700">${fmtAge(p.age)} y</span></div>
+    <div class="why">${p.cause === 'cold' ? '❄ froze' : '🍂 starved'}${p.name === 'PIP KETTLE' ? ' · last of the KETTLEs' : ''}</div></div>
+    <time>${when[i]}</time></li>`;
+}).join('');
+
+// lineages
+document.getElementById('lineages').innerHTML = lineages.map(ln => {
+  const ms = people.filter(p => p.lineage === ln.id);
+  const alive = ms.filter(p => p.alive).length;
+  const gens = Math.max(...ms.map(p => p.gen));
+  return `<div class="lineage">
+    <div class="row1"><span class="lin s${ln.id} ${ln.extinct ? 'extinct' : ''}" style="--c:${ln.color}"><i></i>${ln.name}</span>
+      ${ln.extinct ? `<span class="pill dead">extinct ${ln.extinctAt}</span>` : `<span class="pill alive">${alive} alive</span>`}</div>
+    <div class="row2">${ms.length} lives · ${gens} gen · founded ${ln.founded} · ${ln.hair}</div>
+    <div class="members">${ms.map(p => `<i class="${p.alive ? '' : 'dead'}" style="background:${ln.color}" title="${p.name}"></i>`).join('')}</div>
+  </div>`;
+}).join('') + `<p style="font-size:12px;color:var(--ink-2);margin:8px 0 0">● alive &nbsp; ◌ dead, in birth order</p>`;
+
+// map dots
+(() => {
+  const pts = { 1: [0.36, 0.55], 2: [0.62, 0.38], 4: [0.74, 0.22] };
+  let s = '';
+  people.filter(p => p.alive).forEach((p, i) => {
+    const c = pts[p.lineage]; const ln = L(p.lineage);
+    const x = (c[0] + (MOCK.rnd() - .5) * .06) * 100, y = (c[1] + (MOCK.rnd() - .5) * .06) * 80;
+    s += CH.mark(ln.shape, x, y, 1.9, ln.color, 'var(--ink)', { sw: .5 });
+  });
+  s += `<circle cx="36" cy="44" r="5" fill="none" stroke="var(--butter)" stroke-width=".8" stroke-dasharray="1.2 1"/>`;
+  s += `<text x="42" y="38" style="font: 800 3.2px Nunito; fill: var(--ink)">CAM: JOY</text>`;
+  s += `<text x="4" y="76" style="font: 800 3px Nunito; fill: var(--ink)"></text>`;
+  document.getElementById('map').insertAdjacentHTML('afterbegin', `<svg viewBox="0 0 100 80" preserveAspectRatio="none">${s}</svg>`);
+})();
+
+// cloud
+let xi = 2, yi = 3;
+function seg(id, cur, on) {
+  document.getElementById(id).innerHTML = traits.map((t, i) => `<span class="${i === cur ? 'on' : ''}" data-i="${i}">${t.short}</span>`).join('');
+  document.getElementById(id).onclick = (e) => { const i = e.target.dataset.i; if (i != null) { on(+i); draw(); } };
+}
+function draw() {
+  seg('xsel', xi, (i) => xi = i); seg('ysel', yi, (i) => yi = i);
+  const W = 520, H = 330, m = { l: 46, r: 12, t: 10, b: 40 };
+  const x = CH.lin(0, 1, m.l, W - m.r), y = CH.lin(0, 1, H - m.b, m.t);
+  const tx = traits[xi], ty = traits[yi];
+  let s = CH.axes({ W, H, m, x, y, xt: [0, .25, .5, .75, 1], yt: [0, .25, .5, .75, 1], xlab: tx.name + ' →', ylab: ty.name + ' →', xfmt: v => v.toFixed(2), yfmt: v => v.toFixed(2) });
+  // dead first (behind), then alive
+  [...people].sort((a, b) => a.alive - b.alive).forEach(p => {
+    const ln = L(p.lineage);
+    s += `<g><title>${p.name} · ${tx.short} ${p.traits[tx.key]} · ${ty.short} ${p.traits[ty.key]}${p.alive ? '' : ' · dead'}</title>${CH.mark(ln.shape, x(p.traits[tx.key]), y(p.traits[ty.key]), 6, ln.color, 'var(--parchment-hi)', { sw: 2, hollow: !p.alive })}</g>`;
+  });
+  const joy = people.find(p => p.name === 'JOY HOPE');
+  s += `<text x="${x(joy.traits[tx.key]) + 12}" y="${y(joy.traits[ty.key]) + 4}" style="font-weight:900; fill: var(--ink); paint-order: stroke; stroke: var(--parchment-hi); stroke-width: 4px">← JOY</text>`;
+  CH.svg(document.getElementById('cloud'), W, H, s);
+}
+draw();
+</script>
+</body>
+</html>

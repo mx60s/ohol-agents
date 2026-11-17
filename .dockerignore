@@ -16,3 +16,15 @@ viewer/dist
 # Logs
 logs
 **/logs
+
+# OHOL art data clone cache
+viewer/.ohol-cache
+
+# Not used by any image (Pages builds from the repo, not Docker)
+recordings
+design
+
+# agent worktrees, dev logs, docs
+.claude
+agents/logs-dev
+docs

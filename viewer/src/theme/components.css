@@ -1,0 +1,61 @@
+/* Styles for the shared React components in theme/components.tsx (on top of tokens.css + site.css). */
+
+/* Cherry Bomb One (display) ships one weight: never fake-bold it; it is wide, so title bars run smaller */
+h1, h2, h3, h4, .wordmark, .panel-head, .ribbon, .btn, .navbar a, .navbar a.on, .burst, .stat .n { font-weight: 400; font-synthesis: none; }
+.panel-head { font-size: 16px; letter-spacing: .01em; }
+.btn, .navbar a { font-size: 14.5px; }
+.stat .n { letter-spacing: .03em; }
+
+/* minimal MOCK badge (user feedback: keep it small, one per trait display) */
+.mock-tag {
+  padding: 0 5px; border: 0; border-radius: 3px; transform: none;
+  background: var(--mock); font-size: 9.5px; font-weight: 800; letter-spacing: .08em; line-height: 1.6;
+}
+
+/* panel title-bar alias: navy is the default bar, .is-navy kept for symmetry */
+.panel-head.is-navy { --bar: var(--grad-navy); }
+.panel-head .ttl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* stat tiles in a dashed grid (design: "World status") */
+/* dashed lines only BETWEEN tiles, for any column count: each tile draws its top/left
+   edge and the grid is clipped so the outer ones fall outside. Use <Panel bare> for the design's flush look. */
+.tiles { display: grid; grid-template-columns: repeat(var(--tile-cols, 4), minmax(0, 1fr)); overflow: hidden; }
+.tiles .stat { padding: 12px 16px; border-left: 1.5px dashed var(--parchment-edge); border-top: 1.5px dashed var(--parchment-edge); margin: -1.5px 0 0 -1.5px; min-width: 0; }
+.stat .n small { font-family: var(--font-body); font-size: 14px; font-weight: 800; color: var(--ink-2); }
+.stat.good .n { color: var(--alive); }
+.stat.bad .n { color: var(--danger); }
+.stat .d { overflow-wrap: anywhere; }
+
+/* wordmark sizes */
+.wordmark.is-sm { font-size: 28px; -webkit-text-stroke-width: 5px; }
+.wordmark.is-lg { font-size: 64px; -webkit-text-stroke-width: 9px; }
+a.wordmark-link { text-decoration: none; }
+
+/* site header extras */
+.site-top .watch { white-space: nowrap; }
+.site-top .navbar a { cursor: pointer; }
+
+/* offline / connection chip used in the runbar */
+.conn { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
+.conn .live-dot.off { background: var(--stone); }
+.conn.offline { color: var(--danger); }
+
+/* footer credit sits on the left, disclaimer on the right */
+.footer .credit { max-width: 760px; }
+
+/* person canvases */
+.person-canvas { display: block; }
+.portrait-well { background: var(--grass) url(./assets/ground-tile.png) 0 0 / 200px; }
+.portrait-frame {
+  display: inline-grid; place-items: end center; overflow: hidden;
+  border: 1.5px solid var(--ink); border-radius: 8px;
+}
+.portrait-frame.round { border-radius: 50%; border-width: 2px; box-shadow: 0 0 0 2px var(--paper-white), 0 0 0 3.5px var(--ink-3); }
+.portrait-frame.dead canvas { filter: grayscale(.6) sepia(.2); }
+
+/* placeholder pages */
+.placeholder { padding: 28px; text-align: center; color: var(--ink-2); }
+.placeholder h2 { font-size: 26px; margin-bottom: 8px; color: var(--ink); }
+
+/* user/model text: never let a long unbroken string blow out a layout */
+.ugc { overflow-wrap: anywhere; word-break: break-word; }

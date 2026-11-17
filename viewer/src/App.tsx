@@ -575,7 +575,7 @@ export default function App() {
 // this browser's localStorage after the first successful use.
 const TOKEN_KEY = "ohol-control-token";
 
-function RunControl({ status, open }: { status: "idle" | "running" | "halted"; open: boolean }) {
+function RunControl({ status, open }: { status: "idle" | "running" | "paused" | "halted"; open: boolean }) {
   const [busy, setBusy] = useState(false);
   const running = status === "running";
   const act = async () => {

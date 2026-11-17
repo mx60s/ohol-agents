@@ -1,0 +1,405 @@
+/* Ported from design/tokens.css. Fonts load via <link> in each HTML entry, not @import.
+   ohol-stream design tokens  ·  direction: "Parchment Gloss"
+   --------------------------------------------------------------------------
+   OHOL's world (parchment, scratchy ink, flat muted colour) is the paper.
+   Web 2.0 (glossy pills, gradient title bars, sticker badges, sparkles) is
+   the chrome we stick on top of it. Data and body text stay plain and modern.
+
+   Fonts (all Google Fonts, free, OFL):
+   USER DECISION 2026-11-16: Cherry Bomb One replaces Fredoka (display), Lexend replaces Nunito (body).
+   - Fredoka        display: wordmark, panel titles, big numbers. Round and
+                    bubbly like the Chicken Smoothie lettering, but clean.
+   - Nunito         UI + body. Rounded terminals match Fredoka, very legible
+                    at small sizes and on stream; has tabular figures.
+   - Patrick Hand   the in-world voice: speech bubbles and the chain of
+                    thought. Reads like OHOL's hand-lettered speech, still
+                    legible at 720p.
+   - Noticia Text   the narrator. A slightly old-fashioned news serif; nods to
+                    the earnest serif on the hypnosis site, and makes the dry
+                    documentary voice feel like a printed bulletin.
+   - IBM Plex Mono  raw numbers (trait values, ids, n counts) on research pages.
+   ========================================================================== */
+
+
+:root {
+  /* ---- type ---- */
+  --font-display: 'Cherry Bomb One', 'Lexend', system-ui, sans-serif;
+  --font-body: 'Lexend', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-hand: 'Patrick Hand', 'Comic Neue', 'Lexend', cursive;
+  --font-news: 'Noticia Text', Georgia, 'Times New Roman', serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* type scale (site). The stream overrides with --stream-* below. */
+  --fs-xs: 12px;
+  --fs-sm: 13.5px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 24px;
+  --fs-2xl: 32px;
+  --fs-3xl: 44px;
+
+  /* ---- paper & ink (sampled from the OHOL renders) ---- */
+  --parchment: #ebe1c8;        /* the game's own background, rgb(235,225,200) */
+  --parchment-hi: #f6f0e1;     /* panel fill */
+  --parchment-lo: #ddd0b0;     /* insets, table stripes, chart wells */
+  --parchment-edge: #c9b88f;   /* hairlines on parchment */
+  --ink: #1f1a14;              /* outlines and primary text, warm black */
+  --ink-2: #4a4136;            /* secondary text */
+  --ink-3: #6e6352;            /* muted text (>= 4.5:1 on --parchment-hi) */
+  --paper-white: #fffdf7;      /* photo frames, speech bubbles */
+
+  /* ---- world colours (flat, muted, from the sprites) ---- */
+  --grass: #8d985c;
+  --grass-dark: #4f5a2c;
+  --leaf: #6f8f3a;
+  --berry: #4a5aa8;            /* gooseberry blue */
+  --clay: #c0643a;
+  --dirt: #9a8a5e;
+  --stone: #8e8b84;
+  --fire: #e98a2a;
+
+  /* ---- web 2.0 chrome (glossy, a bit sweeter than the world) ---- */
+  --navy-1: #1f3a5f;           /* hypnosis-site header navy, warmed */
+  --navy-2: #335c8a;
+  --sky-1: #a9cbe6;
+  --sky-2: #e3eef6;
+  --mint: #a6dcc4;
+  --butter: #f4d77e;
+  --bubblegum: #f2a3be;
+  --lilac: #c7b5ea;
+
+  /* ---- status (reserved; always shown with an icon + word) ---- */
+  --alive: #4f8a2e;
+  --alive-soft: #dcebc4;
+  --dead: #7a6e5d;
+  --dead-soft: #e4dccb;
+  --danger: #b23a2a;           /* starving, freezing */
+  --danger-soft: #f6d3c8;
+  --warn: #c98a12;
+  --warn-soft: #f8e7b8;
+  --mock: #c2367a;             /* the MOCK sticker. Loud on purpose. */
+
+  /* ---- lineage categorical (validated on --parchment-hi:
+     adjacent CVD dE >= 8.5, normal dE >= 18, all >= 3:1 contrast).
+     Assigned in this fixed order by founding time; never cycled.
+     Always paired with a marker shape (--lin-N-shape) because
+     all-pairs CVD separation is NOT guaranteed (1 vs 5 fail for deutan). */
+  --lin-1: #c4573a;  /* clay   ● circle   */
+  --lin-2: #0e88a8;  /* teal   ■ square   */
+  --lin-3: #a07a1c;  /* ochre  ▲ triangle */
+  --lin-4: #6b5aa6;  /* violet ◆ diamond  */
+  --lin-5: #5f8a2e;  /* green  ▼ tri-down */
+  --lin-6: #c2648c;  /* rose   ✚ cross    */
+  --lin-other: #9a917f;
+
+  /* ---- radii ---- */
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  /* ---- lines ---- */
+  --ink-line: 2px solid var(--ink);
+  --hair-line: 1px solid var(--parchment-edge);
+
+  /* ---- shadows: a flat offset "sticker" shadow + a soft lift ---- */
+  --shadow-sticker: 3px 4px 0 rgba(31, 26, 20, .22);
+  --shadow-lift: 0 6px 18px rgba(60, 45, 20, .16);
+  --shadow-photo: 0 2px 0 rgba(31, 26, 20, .08), 0 8px 16px rgba(60, 45, 20, .22);
+  --shadow-inset: inset 0 2px 4px rgba(60, 45, 20, .18);
+
+  /* ---- gradients ---- */
+  /* the glass highlight, layered over any base colour */
+  --gloss: linear-gradient(180deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,.18) 48%, rgba(255,255,255,0) 52%, rgba(255,255,255,.08) 100%);
+  --grad-navy: linear-gradient(180deg, #3f6b9c 0%, #2a4d78 52%, #1f3a5f 100%);
+  --grad-sky: linear-gradient(180deg, #8fb9dd 0%, #cfe2f0 60%, #e9f1f3 100%);
+  /* leaf + clay darkened (same hues) so white title text is >= 4.5:1 across the text band, like navy */
+  --grad-leaf: linear-gradient(180deg, #5f7f2c 0%, #46621c 55%, #3b5417 100%);
+  --grad-berry: linear-gradient(180deg, #6b7cc8 0%, #4a5aa8 55%, #3b4a90 100%);
+  --grad-clay: linear-gradient(180deg, #b8603a 0%, #99451f 55%, #843a1a 100%);
+  --grad-butter: linear-gradient(180deg, #fbe7a6 0%, #f4d77e 55%, #e8c45c 100%);
+  --grad-mint: linear-gradient(180deg, #c9eedd 0%, #a6dcc4 55%, #8ccab0 100%);
+  --grad-bubblegum: linear-gradient(180deg, #f8c4d6 0%, #f2a3be 55%, #e488a8 100%);
+  --grad-ink: linear-gradient(180deg, #4a4136 0%, #2b241c 55%, #1f1a14 100%);
+
+  /* paper grain, used on body and big panels */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .28 0 0 0 0 .15 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  /* ---- spacing ---- */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: var(--font-body);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--grain), var(--parchment);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+a { color: var(--navy-2); text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
+a:hover { color: var(--clay); }
+h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; margin: 0; line-height: 1.15; letter-spacing: .005em; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.hand { font-family: var(--font-hand); }
+.news { font-family: var(--font-news); }
+.muted { color: var(--ink-3); }
+.caps { text-transform: uppercase; letter-spacing: .08em; font-weight: 800; font-size: var(--fs-xs); }
+
+/* ==========================================================================
+   Wordmark: bubble letters with a fat ink outline (Chicken Smoothie energy)
+   ========================================================================== */
+.wordmark {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 40px;
+  line-height: 1;
+  color: var(--butter);
+  -webkit-text-stroke: 7px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 3px 4px 0 rgba(31,26,20,.35);
+  letter-spacing: .01em;
+  display: inline-flex;
+  white-space: nowrap;
+}
+.wordmark span { display: inline-block; }
+.wordmark span:nth-child(3n+1) { transform: rotate(-4deg) translateY(1px); }
+.wordmark span:nth-child(3n+2) { transform: rotate(3deg) translateY(-2px); color: var(--paper-white); }
+.wordmark span:nth-child(3n)   { transform: rotate(-1deg); color: var(--mint); }
+.wordmark .sp { width: .28em; }
+
+/* ==========================================================================
+   Panels
+   ========================================================================== */
+.panel {
+  background: var(--parchment-hi);
+  border: var(--ink-line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sticker);
+  overflow: hidden;
+  position: relative;
+}
+.panel-body { padding: var(--sp-4); }
+
+/* glossy title bar. Pick a colour with .is-navy / .is-leaf / ... */
+.panel-head {
+  --bar: var(--grad-navy);
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: 7px 14px 8px;
+  background: var(--gloss), var(--bar);
+  border-bottom: var(--ink-line);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: .02em;
+  text-shadow: 0 1px 0 rgba(0,0,0,.35);
+}
+.panel-head .sub { margin-left: auto; font-family: var(--font-body); font-weight: 700; font-size: 12px; opacity: .92; letter-spacing: .02em; }
+.panel-head.is-leaf  { --bar: var(--grad-leaf); }
+.panel-head.is-berry { --bar: var(--grad-berry); }
+.panel-head.is-clay  { --bar: var(--grad-clay); }
+.panel-head.is-ink   { --bar: var(--grad-ink); }
+.panel-head.is-butter, .panel-head.is-mint, .panel-head.is-bubblegum { color: var(--ink); text-shadow: 0 1px 0 rgba(255,255,255,.6); }
+.panel-head.is-butter { --bar: var(--grad-butter); }
+.panel-head.is-mint   { --bar: var(--grad-mint); }
+.panel-head.is-bubblegum { --bar: var(--grad-bubblegum); }
+
+/* hypnosis-site ribbon: a banner whose ends fold behind the panel */
+.ribbon {
+  position: relative;
+  margin: 0 -10px;
+  padding: 6px 16px;
+  background: var(--gloss), var(--grad-navy);
+  color: #fff;
+  border: var(--ink-line);
+  font-family: var(--font-display); font-weight: 600; font-size: 20px;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(0,0,0,.35);
+}
+.ribbon::before, .ribbon::after {
+  content: ''; position: absolute; bottom: -10px; border-style: solid;
+}
+.ribbon::before { left: -2px; border-width: 0 8px 8px 0; border-color: transparent var(--ink) transparent transparent; }
+.ribbon::after { right: -2px; border-width: 0 0 8px 8px; border-color: transparent transparent transparent var(--ink); }
+
+/* small section label inside panels (CS "LATEST POSTS" style) */
+.label {
+  font-family: var(--font-body); font-weight: 800; font-size: 11.5px;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--ink-2);
+  border-bottom: 1.5px solid var(--parchment-edge); padding-bottom: 3px; margin-bottom: 8px;
+}
+
+/* ==========================================================================
+   Buttons, pills, badges, stickers
+   ========================================================================== */
+.btn {
+  --btn: var(--grad-berry);
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 16px 8px;
+  border: var(--ink-line);
+  border-radius: var(--r-pill);
+  background: var(--gloss), var(--btn);
+  color: #fff; text-decoration: none;
+  font-family: var(--font-display); font-weight: 600; font-size: 15px;
+  text-shadow: 0 1px 0 rgba(0,0,0,.3);
+  box-shadow: 0 2px 0 var(--ink), inset 0 1px 0 rgba(255,255,255,.6);
+  cursor: pointer;
+}
+.btn:hover { filter: brightness(1.06) saturate(1.05); color: #fff; }
+.btn.is-leaf { --btn: var(--grad-leaf); }
+.btn.is-clay { --btn: var(--grad-clay); }
+.btn.is-butter { --btn: var(--grad-butter); color: var(--ink); text-shadow: none; }
+.btn.is-ghost { background: var(--gloss), var(--parchment-hi); color: var(--ink); text-shadow: none; }
+
+/* segmented glossy nav (the hypnosis-site nav bar, rounded) */
+.navbar {
+  display: inline-flex; border: var(--ink-line); border-radius: var(--r-pill); overflow: hidden;
+  box-shadow: 0 2px 0 var(--ink);
+  background: var(--gloss), linear-gradient(180deg, #f4efe2, #d9ccab);
+}
+.navbar a {
+  padding: 7px 16px 8px; color: var(--ink); text-decoration: none;
+  font-family: var(--font-display); font-weight: 500; font-size: 15px;
+  border-right: 1.5px solid rgba(31,26,20,.35);
+}
+.navbar a:last-child { border-right: 0; }
+.navbar a.on { background: var(--gloss), var(--grad-butter); font-weight: 600; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 9px 2px; border-radius: var(--r-pill);
+  border: 1.5px solid var(--ink);
+  background: var(--gloss), var(--parchment-hi);
+  font-weight: 800; font-size: 12px; line-height: 1.5; white-space: nowrap;
+}
+.pill.alive { background: var(--gloss), var(--alive-soft); }
+.pill.dead { background: var(--dead-soft); color: var(--ink-2); }
+.pill.danger { background: var(--gloss), var(--danger-soft); color: #7a1f14; }
+.pill.warn { background: var(--gloss), var(--warn-soft); }
+.pill.navy { background: var(--gloss), var(--grad-navy); color: #fff; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1.5px solid var(--ink); flex: none; }
+
+/* starburst sticker: LIVE!, MOCK, NEW! */
+.burst {
+  --burst: var(--butter);
+  display: inline-grid; place-items: center;
+  width: 78px; height: 78px; padding: 10px;
+  background: var(--burst);
+  clip-path: polygon(50% 0%, 61% 13%, 77% 6%, 79% 23%, 95% 25%, 88% 40%, 100% 50%, 88% 60%, 95% 75%, 79% 77%, 77% 94%, 61% 87%, 50% 100%, 39% 87%, 23% 94%, 21% 77%, 5% 75%, 12% 60%, 0% 50%, 12% 40%, 5% 25%, 21% 23%, 23% 6%, 39% 13%);
+  font-family: var(--font-display); font-weight: 700; font-size: 15px; line-height: 1;
+  text-align: center; color: var(--ink);
+  transform: rotate(-10deg);
+  filter: drop-shadow(0 0 0 var(--ink)) drop-shadow(2px 3px 0 rgba(31,26,20,.3));
+}
+.burst.is-mock { --burst: var(--mock); color: #fff; }
+.burst.is-live { --burst: #e5452f; color: #fff; }
+
+/* inline MOCK tag for anything synthetic. Never remove until data is real. */
+.mock-tag {
+  display: inline-block; padding: 0 6px 1px; border-radius: 4px;
+  background: repeating-linear-gradient(-45deg, var(--mock) 0 6px, #a82a66 6px 12px);
+  color: #fff; font-family: var(--font-body); font-weight: 900; font-size: 10.5px; letter-spacing: .1em;
+  vertical-align: middle; border: 1.5px solid var(--ink); transform: rotate(-2deg);
+}
+
+/* sparkles. Use sparingly: titles and "new" moments, never on data. */
+.sparkle { position: relative; }
+.sparkle::after {
+  content: '✦'; position: absolute; top: -10px; right: -16px;
+  color: var(--bubblegum); font-size: 16px;
+  text-shadow: -9px 14px 0 var(--mint), 10px 16px 0 var(--butter);
+  -webkit-text-stroke: 1px var(--ink); paint-order: stroke fill;
+}
+
+/* ==========================================================================
+   Portraits: framed snapshots, like the hypnosis site's photo frames
+   ========================================================================== */
+.photo {
+  display: inline-block; background: var(--paper-white);
+  padding: 5px 5px 4px; border-radius: 4px;
+  box-shadow: var(--shadow-photo);
+  border: 1px solid rgba(31,26,20,.25);
+}
+.photo img { display: block; image-rendering: auto; }
+.photo .well { background: var(--grass); background-image: url(./assets/ground-tile.png); background-size: 256px; border-radius: 2px; }
+.photo.tilt-l { transform: rotate(-2.2deg); }
+.photo.tilt-r { transform: rotate(1.8deg); }
+.photo.dead .well { filter: grayscale(.55) sepia(.2) brightness(1.04); }
+
+/* small round avatar for rosters and feeds */
+.avatar {
+  width: 44px; height: 44px; border-radius: 50%; overflow: hidden; flex: none;
+  border: 2px solid var(--ink); background: var(--grass); background-image: url(./assets/ground-tile.png); background-size: 160px;
+  box-shadow: 0 0 0 2px var(--paper-white), 0 0 0 3.5px var(--lin, var(--ink-3));
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 0; }
+.avatar.dead { filter: grayscale(.6) sepia(.2); }
+
+/* ==========================================================================
+   In-world text: speech bubbles and thought clouds
+   ========================================================================== */
+.speech {
+  position: relative; display: inline-block;
+  background: var(--paper-white); border: var(--ink-line); border-radius: 16px;
+  padding: 4px 12px 5px; font-family: var(--font-hand); font-size: 20px; line-height: 1.2;
+  color: var(--ink); text-transform: uppercase; letter-spacing: .02em;
+  box-shadow: 2px 3px 0 rgba(31,26,20,.18);
+}
+.speech::after {
+  content: ''; position: absolute; left: 18px; bottom: -11px; width: 14px; height: 14px;
+  background: var(--paper-white); border-right: var(--ink-line); border-bottom: var(--ink-line);
+  transform: skewX(-25deg) rotate(45deg); border-bottom-right-radius: 3px;
+}
+.thought {
+  background: var(--paper-white); border: 2px dashed var(--ink-2); border-radius: 18px;
+  padding: 8px 12px; font-family: var(--font-hand); font-size: 18px; line-height: 1.3; color: var(--ink-2);
+}
+
+/* ==========================================================================
+   Data bits
+   ========================================================================== */
+.stat { display: flex; flex-direction: column; }
+.stat .n { font-family: var(--font-display); font-weight: 600; font-size: 30px; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat .k { font-weight: 800; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); margin-top: 4px; }
+.stat .d { font-size: 12px; color: var(--ink-3); }
+
+.bar-track { height: 10px; border-radius: 6px; background: var(--parchment-lo); border: 1.5px solid var(--ink); overflow: hidden; position: relative; }
+.bar-fill { height: 100%; background: var(--gloss), var(--grad-berry); border-right: 1.5px solid var(--ink); }
+
+table.data { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
+table.data th { text-align: left; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); font-weight: 800; padding: 6px 8px; border-bottom: 2px solid var(--ink); }
+table.data td { padding: 6px 8px; border-bottom: 1px solid var(--parchment-edge); }
+table.data tr:nth-child(even) td { background: rgba(221,208,176,.35); }
+
+/* chart text: always ink tokens, never the series colour */
+.chart text { font-family: var(--font-body); fill: var(--ink-2); font-size: 11.5px; }
+.chart .axis-title { font-weight: 800; fill: var(--ink); font-size: 12px; }
+.chart .grid line, .chart line.grid { stroke: var(--parchment-edge); stroke-width: 1; }
+.chart .axis line, .chart .axis path { stroke: var(--ink); stroke-width: 1.5; }
+.note { font-size: 12.5px; color: var(--ink-2); background: var(--parchment-lo); border-left: 4px solid var(--warn); padding: 6px 10px; border-radius: 0 6px 6px 0; }
+
+/* lineage swatches with shape (identity is never colour alone) */
+.lin { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
+.lin i { width: 12px; height: 12px; display: inline-block; background: var(--c); border: 1.5px solid var(--ink); }
+.lin.s1 i { border-radius: 50%; }
+.lin.s2 i { border-radius: 2px; }
+.lin.s3 i { clip-path: polygon(50% 0, 100% 100%, 0 100%); border: 0; background: var(--c); }
+.lin.s4 i { transform: rotate(45deg) scale(.85); border-radius: 1px; }
+.lin.extinct { color: var(--ink-3); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+
+/* ==========================================================================
+   Stream scale. The overlay is authored at 1920x1080; everything that must
+   survive a 720p downscale is >= 20px (body) / 16px (labels) at 1080p.
+   ========================================================================== */
+.stream {
+  --stream-label: 17px;
+  --stream-body: 22px;
+  --stream-big: 40px;
+}

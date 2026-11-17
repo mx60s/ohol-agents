@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ROWAN HOPE · Lifelines · mockup</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="site.css">
+<style>
+  .profile .top { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 16px; align-items: start; }
+  .profile .photo .well { width: 136px; height: 190px; display: grid; place-items: end center; padding-bottom: 6px; overflow: hidden; }
+  .profile .photo .well img { width: 106px; height: auto; }
+  .profile h1 { font-size: 30px; }
+  .profile .status { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
+  dl.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; font-size: 13.5px; }
+  dl.kv dt { font-weight: 800; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding-top: 2px; }
+  dl.kv dd { margin: 0; font-weight: 700; }
+  .looks { margin: 0 16px 16px; display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; background: var(--parchment-lo); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+  .sw { width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid var(--ink); }
+
+  .death { background: var(--parchment-hi); }
+  .death .panel-body { display: flex; flex-direction: column; gap: 10px; }
+  .death .cause { display: flex; align-items: center; gap: 12px; }
+  .death .cause .big { font-family: var(--font-display); font-weight: 600; font-size: 28px; }
+  .death .ico { width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--ink); display: grid; place-items: center; font-size: 24px; background: var(--gloss), linear-gradient(180deg, #d9ecf7, #a9cbe6); }
+  .death p { margin: 0; font-size: 14px; }
+  .obit { font-family: var(--font-news); font-style: italic; font-size: 14.5px; border-left: 3px solid var(--ink); padding-left: 10px; color: var(--ink-2); }
+  .meter-row { display: grid; grid-template-columns: 90px 1fr 46px; gap: 8px; align-items: center; font-size: 12.5px; font-weight: 700; }
+
+  /* traits */
+  .traits { display: grid; grid-template-columns: 1fr 250px; gap: 18px; align-items: start; }
+  .trow { display: grid; grid-template-columns: 150px 1fr 54px 60px; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--parchment-edge); }
+  .trow:last-child { border-bottom: 0; }
+  .trow .nm { font-weight: 800; font-size: 14px; }
+  .trow .val { font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; text-align: right; }
+  .trow .pct { font-size: 12px; color: var(--ink-3); text-align: right; }
+  .ttrack { position: relative; height: 16px; border-radius: 8px; background: var(--parchment-lo); border: 1.5px solid var(--ink); }
+  .ttrack .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px 0 0 6px; background: var(--gloss), var(--grad-berry); border-right: 1.5px solid var(--ink); }
+  .ttrack .pop { position: absolute; top: -4px; bottom: -4px; width: 0; border-left: 2px dashed var(--ink-2); }
+  .ttrack .lin-mean { position: absolute; top: -5px; width: 10px; height: 10px; margin-left: -5px; transform: rotate(45deg); background: var(--lin-1); border: 1.5px solid var(--ink); }
+  .summary { font-size: 15.5px; line-height: 1.5; margin: 0; }
+
+  .tiles6 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
+  .tiles6 .stat { padding: 12px 16px; border-right: 1.5px dashed var(--parchment-edge); border-bottom: 1.5px dashed var(--parchment-edge); }
+  .tiles6 .stat:nth-child(4n) { border-right: 0; }
+  .tiles6 .stat:nth-last-child(-n+4) { border-bottom: 0; }
+  .tiles6 .n { font-size: 26px; }
+  .tiles6 .n small { font-family: var(--font-body); font-size: 13px; font-weight: 800; color: var(--ink-2); }
+
+  .roles { display: flex; height: 26px; border: 2px solid var(--ink); border-radius: 8px; overflow: hidden; gap: 2px; background: var(--parchment-hi); }
+  .roles div { display: grid; place-items: center; font-size: 11.5px; font-weight: 800; color: var(--ink); }
+
+  /* tree */
+  .tree { display: flex; flex-direction: column; align-items: center; gap: 0; padding: 6px 0 4px; }
+  .tree .gen { display: flex; gap: 14px; justify-content: center; position: relative; padding-top: 16px; }
+  .tree .gen::before { content: ''; position: absolute; top: 0; left: 50%; height: 16px; border-left: 2px solid var(--ink); }
+  .tree .gen.first { padding-top: 0; } .tree .gen.first::before { display: none; }
+  .tree .gen .bar { position: absolute; top: 16px; height: 0; border-top: 2px solid var(--ink); left: 34px; right: 34px; }
+  .node { display: flex; flex-direction: column; align-items: center; width: 68px; position: relative; padding-top: 12px; }
+  .node::before { content: ''; position: absolute; top: 0; left: 50%; height: 12px; border-left: 2px solid var(--ink); }
+  .gen.first .node::before { display: none; }
+  .node .avatar { width: 50px; height: 50px; }
+  .node span { font-size: 11px; font-weight: 800; text-align: center; line-height: 1.15; margin-top: 4px; }
+  .node span em { font-style: normal; font-weight: 700; color: var(--ink-3); display: block; }
+  .node.me .avatar { box-shadow: 0 0 0 2px var(--paper-white), 0 0 0 5px var(--butter), 0 0 0 6.5px var(--ink); }
+  .node.dead span { color: var(--ink-3); }
+  .node.sub { opacity: .9; }
+
+  /* timeline */
+  .tl-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .tl { list-style: none; margin: 0; padding: 0 0 0 4px; position: relative; }
+  .tl::before { content: ''; position: absolute; left: 70px; top: 6px; bottom: 6px; border-left: 2px dotted var(--ink-3); }
+  .tl li { display: grid; grid-template-columns: 56px 28px 1fr; gap: 10px; align-items: start; padding: 6px 0; }
+  .tl time { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); text-align: right; padding-top: 4px; }
+  .tl .k { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--ink); display: grid; place-items: center; font-size: 15px; font-weight: 900; font-family: var(--font-display); line-height: 1; background: var(--parchment-hi); position: relative; z-index: 1; }
+  .tl .k.th { background: var(--gloss), var(--grad-mint); }
+  .tl .k.sp { background: var(--gloss), var(--grad-butter); }
+  .tl .k.ac { background: var(--gloss), linear-gradient(180deg, #eee6d2, #d6c7a4); }
+  .tl .k.ev { background: var(--gloss), var(--grad-bubblegum); }
+  .tl .k.dd { background: var(--grad-ink); color: #fff; }
+  .tl .body { font-size: 14px; }
+  .tl .thought { font-size: 16.5px; padding: 5px 10px; }
+  .tl .speech { font-size: 17px; padding: 2px 10px 3px; box-shadow: none; }
+  .tl .speech::after { display: none; }
+  .tl .who { font-size: 12px; color: var(--ink-3); font-weight: 700; margin-left: 6px; }
+  .tl .act { font-weight: 700; }
+  .tl .act code { font-family: var(--font-mono); font-size: 12px; background: var(--parchment-lo); padding: 1px 5px; border-radius: 4px; color: var(--ink-2); font-weight: 500; }
+  .tl .gap { color: var(--ink-3); font-size: 12px; font-style: italic; }
+</style>
+</head>
+<body>
+
+<header class="site-top">
+  <div class="in">
+    <div class="wordmark"><span>L</span><span>i</span><span>f</span><span>e</span><span>l</span><span>i</span><span>n</span><span>e</span><span>s</span></div>
+    <div class="tagline">How personality shapes a society of AI people in One Hour One Life</div>
+    <nav class="navbar"><a href="site-home.html">Live</a><a class="on" href="site-agent.html">People</a><a href="#">Families</a><a href="site-study.html">Study</a><a href="#">About</a></nav>
+    <a class="btn is-clay" href="stream.html">▶ Watch the stream</a>
+  </div>
+</header>
+<div class="runbar"><div class="in">
+  <span class="live"><span class="live-dot"></span><b>LIVE</b></span>
+  <span>Run <b class="mono">2026-11-16-a</b></span><span class="sep"></span>
+  <span>Life <b class="mono">#1003</b> · seat 3 · 412 LLM calls · $0.21</span><span class="sep"></span>
+  <span>Trait readout: <span class="mock-tag">MOCK</span> random, not from neurons yet</span>
+</div></div>
+
+<main class="page">
+  <div class="page-title">
+    <h1>ROWAN HOPE</h1>
+    <span class="crumbs"><a href="site-home.html">People</a> › <a href="#">HOPE family</a> › Rowan</span>
+    <span style="margin-left:auto; display:flex; gap:8px">
+      <a class="btn is-ghost" href="#">← Lark Hope</a><a class="btn is-ghost" href="#">Tess Hope →</a>
+    </span>
+  </div>
+
+  <div class="grid">
+    <!-- ================= LEFT ================= -->
+    <div class="span-4 stack">
+      <section class="panel profile">
+        <div class="panel-head is-clay">Profile <span class="sub">HOPE · gen 2</span></div>
+        <div class="top">
+          <div class="photo tilt-l dead"><div class="well"><img src="assets/people/rowan-hope-body.png" alt="Rowan Hope, age 16"></div></div>
+          <div>
+            <div class="status">
+              <span class="pill dead">† died at 16</span>
+              <span class="pill"><span class="dot" style="background:var(--lin-1)"></span>HOPE</span>
+            </div>
+            <dl class="kv">
+              <dt>Born</dt><dd>12:40 · to EVE HOPE</dd>
+              <dt>Died</dt><dd>31:05 · froze</dd>
+              <dt>Lived</dt><dd>18 min 25 s</dd>
+              <dt>Sex</dt><dd>male</dd>
+              <dt>Kids</dt><dd>none</dd>
+              <dt>Role</dt><dd>explorer</dd>
+            </dl>
+          </div>
+        </div>
+        <div class="looks">
+          <div class="sw" style="background:#2a9a9a"></div><div><b>Teal hair</b>, from his personality <span class="mock-tag">MOCK</span></div>
+          <div class="sw" style="background: var(--lin-1); border-radius:50%"></div><div><b>Hope curls and face</b>, from his family</div>
+        </div>
+      </section>
+
+      <section class="panel death">
+        <div class="panel-head is-ink">Cause of death <span class="sub">from server + last observation</span></div>
+        <div class="panel-body">
+          <div class="cause"><div class="ico">❄</div><div><div class="big">Cold</div><div class="muted" style="font-size:13px; font-weight:700">at night · 34 tiles north of the Hope camp</div></div></div>
+          <div class="meter-row"><span>Warmth</span><div class="bar-track"><div class="bar-fill" style="width:4%; background: var(--gloss), var(--grad-berry)"></div></div><span class="mono">0.04</span></div>
+          <div class="meter-row"><span>Food</span><div class="bar-track"><div class="bar-fill" style="width:56%; background: var(--gloss), var(--grad-clay)"></div></div><span class="mono">9/16</span></div>
+          <p>He was not hungry. He walked into snow biome looking for "where the stones come from", kept going after dark, and stopped replying to his own plan 2 min before death.</p>
+          <p style="display:flex; gap:8px; align-items:center"><span class="muted" style="font-size:12px; font-weight:800; letter-spacing:.06em">LAST WORDS</span><span class="speech" style="font-size:17px; padding:1px 10px 2px">COLD. GO HOME?</span></p>
+          <div class="obit">Rowan Hope, sixteen, went to see what was north. It was snow. He did not come back to say so.<br><span style="font-style:normal; font-size:12px; font-family: var(--font-body); font-weight:700">— the narrator, 31:20</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head is-leaf">Family <span class="sub">3 generations</span></div>
+        <div class="panel-body">
+          <div class="tree">
+            <div class="gen first">
+              <div class="node"><span class="avatar" style="--lin:var(--lin-1)"><img src="assets/people/eve-hope-head.png" alt=""></span><span>EVE HOPE<em>51 · alive</em></span></div>
+            </div>
+            <div class="gen"><div class="bar"></div>
+              <div class="node"><span class="avatar" style="--lin:var(--lin-1)"><img src="assets/people/joy-hope-head.png" alt=""></span><span>JOY<em>24</em></span></div>
+              <div class="node"><span class="avatar" style="--lin:var(--lin-1)"><img src="assets/people/tomas-hope-head.png" alt=""></span><span>TOMAS<em>19</em></span></div>
+              <div class="node me dead"><span class="avatar dead" style="--lin:var(--lin-1)"><img src="assets/people/rowan-hope-head.png" alt=""></span><span>ROWAN<em>† 16 · this page</em></span></div>
+              <div class="node dead"><span class="avatar dead" style="--lin:var(--lin-1)"><img src="assets/people/tess-hope-head.png" alt=""></span><span>TESS<em>† 7</em></span></div>
+              <div class="node dead"><span class="avatar dead" style="--lin:var(--lin-1)"><img src="assets/people/lark-hope-head.png" alt=""></span><span>LARK<em>† 0</em></span></div>
+            </div>
+          </div>
+          <p class="muted" style="font-size:12px; margin:8px 0 0; text-align:center">OHOL records mothers only. Joy's children (Faith, Abel †) are on her page.</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- ================= RIGHT ================= -->
+    <div class="span-8 stack">
+      <section class="panel">
+        <div class="panel-head is-bubblegum">Personality <span class="mock-tag" style="margin-left:6px">MOCK</span><span class="sub">read once, at birth · 5 traits in this readout</span></div>
+        <div class="panel-body traits">
+          <div>
+            <div class="legend" style="margin-bottom:6px">
+              <span><b>bar</b> = this person's raw value (0–1)</span>
+              <span style="display:inline-flex; align-items:center; gap:5px"><i style="display:inline-block;width:0;height:14px;border-left:2px dashed var(--ink-2)"></i> everyone's median</span>
+              <span style="display:inline-flex; align-items:center; gap:5px"><i style="display:inline-block;width:9px;height:9px;transform:rotate(45deg);background:var(--lin-1);border:1.5px solid var(--ink)"></i> HOPE mean</span>
+              <span style="margin-left:auto">pct = rank among 23 lives</span>
+            </div>
+            <div id="trows"></div>
+          </div>
+          <div id="radar"></div>
+        </div>
+        <div class="panel-body" style="padding-top:0">
+          <div class="label">Summary <span class="muted" style="text-transform:none; letter-spacing:0; font-weight:700">· generated from the numbers above</span></div>
+          <p class="summary">Curious and restless, the least agreeable Hope so far. Rowan spent most of his life walking away from the berry patch, talked to his sister Joy more than anyone, and made one sharp stone he carried until he died.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head is-navy">Life in numbers</div>
+        <div class="tiles6">
+          <div class="stat"><span class="n">18:25</span><span class="k">Lifetime</span><span class="d">median for HOPE: 11:40</span></div>
+          <div class="stat"><span class="n">612 <small>tiles</small></span><span class="k">Walked</span><span class="d">2nd most of 23</span></div>
+          <div class="stat"><span class="n">14</span><span class="k">Things eaten</span><span class="d">all gooseberries</span></div>
+          <div class="stat"><span class="n">1</span><span class="k">Things made</span><span class="d">sharp stone</span></div>
+          <div class="stat"><span class="n">37</span><span class="k">Lines said</span><span class="d">heard by 4 people</span></div>
+          <div class="stat"><span class="n">0</span><span class="k">Babies fed</span><span class="d">male; n/a</span></div>
+          <div class="stat"><span class="n">412</span><span class="k">Decisions</span><span class="d">1 every 2.7 s</span></div>
+          <div class="stat"><span class="n">3</span><span class="k">Close calls</span><span class="d">starving ×1, cold ×2</span></div>
+        </div>
+        <div class="panel-body" style="padding-top:6px">
+          <div class="label">How he spent his time <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:700">· share of actions, classified</span></div>
+          <div class="roles">
+            <div style="flex:52; background:#a9cbe6">explore 52%</div>
+            <div style="flex:21; background:#d9cba4">forage 21%</div>
+            <div style="flex:15; background:#e9c7d4">social 15%</div>
+            <div style="flex:8; background:#cfe0b6">craft 8%</div>
+            <div style="flex:4; background:#f3e3b5"></div>
+          </div>
+          <div class="legend" style="margin-top:6px"><span>caregiving 4% · n = 412 actions</span><span>role classifier is heuristic; see Study › Roles</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head is-butter">Timeline <span class="sub">thoughts, speech and actions · newest last</span></div>
+        <div class="panel-body">
+          <div class="tl-tools">
+            <div class="seg"><span class="on">All 412</span><span>… Thoughts 140</span><span>“ Speech 37</span><span>→ Actions 223</span><span>★ Events 12</span></div>
+            <div class="seg"><span>Whole life</span><span class="on">Last 5 min</span></div>
+            <a href="#" style="margin-left:auto; font-size:13px; font-weight:800">Raw JSONL ↗</a>
+          </div>
+          <ol class="tl">
+            <li><time>26:02</time><span class="k th">…</span><div class="body"><div class="thought">Joy has Faith and the berries. Nobody has gone north. Mother said stones come from the hills. I'll go look.</div></div></li>
+            <li><time>26:05</time><span class="k sp">“</span><div class="body"><span class="speech">I GO NORTH</span><span class="who">heard by Joy, Tomas</span></div></li>
+            <li><time>26:06</time><span class="k ac">→</span><div class="body act">Walk 15 tiles north <code>move(−12, 63)</code></div></li>
+            <li><time>27:40</time><span class="k ac">→</span><div class="body act">Eat Gooseberry <code>eat · food 7→10</code></div></li>
+            <li><time>28:58</time><span class="k ev">★</span><div class="body"><span class="pill warn">❄ Entered snow biome</span> <span class="gap">· night falls at 29:30</span></div></li>
+            <li><time>29:12</time><span class="k th">…</span><div class="body"><div class="thought">White ground. Very cold. Nothing to burn. Keep going a little, the hills are close.</div></div></li>
+            <li><time>29:50</time><span class="k ev">★</span><div class="body"><span class="pill danger">⚠ Freezing</span> <span class="gap">· warmth 0.21</span></div></li>
+            <li><time>30:31</time><span class="k sp">“</span><div class="body"><span class="speech">COLD. GO HOME?</span><span class="who">heard by no one</span></div></li>
+            <li><time>30:33</time><span class="k th">…</span><div class="body"><div class="thought">Home is far. Walk south.</div></div></li>
+            <li><time>30:34</time><span class="k ac">→</span><div class="body act">Walk 15 tiles south <code>move(−12, 81) · path blocked</code></div></li>
+            <li><time></time><span></span><div class="body gap">… 31 s with no reply from the model (rate-limited)</div></li>
+            <li><time>31:05</time><span class="k dd">†</span><div class="body"><b>Died of cold</b>, age 16, at (−11, 94). Holding: sharp stone.</div></li>
+          </ol>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer class="footer"><div class="in">
+  <span>Lifelines · a research pilot on agent societies</span>
+  <span>Game art: One Hour One Life, by Jason Rohrer (public domain)</span>
+  <span class="disclaimer">* Traits shown are mock. Individual results vary.</span>
+</div></footer>
+
+<script src="mock/data.js"></script>
+<script src="mock/charts.js"></script>
+<script>
+const { people, traits } = MOCK;
+const me = people.find(p => p.name === 'ROWAN HOPE');
+// make the mock person read like the summary
+Object.assign(me.traits, { t1: 0.81, t2: 0.44, t3: 0.47, t4: 0.31, t5: 0.38 });
+const hope = people.filter(p => p.lineage === 1);
+const med = (a) => { const s = [...a].sort((x, y) => x - y); const m = s.length / 2; return s.length % 2 ? s[Math.floor(m)] : (s[m - 1] + s[m]) / 2; };
+const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+document.getElementById('trows').innerHTML = traits.map(t => {
+  const v = me.traits[t.key];
+  const all = people.map(p => p.traits[t.key]);
+  const pct = Math.round(all.filter(x => x < v).length / all.length * 100);
+  return `<div class="trow"><span class="nm">${t.name}</span>
+    <div class="ttrack"><div class="fill" style="width:${v * 100}%"></div><div class="pop" style="left:${med(all) * 100}%"></div><div class="lin-mean" style="left:${mean(hope.map(p => p.traits[t.key])) * 100}%"></div></div>
+    <span class="val">${v.toFixed(2)}</span><span class="pct">${pct === 0 ? 'lowest' : pct + 'th pct'}</span></div>`;
+}).join('');
+// radar (works for any number of traits >= 3)
+(() => {
+  const W = 250, H = 236, cx = 125, cy = 120, R = 82, n = traits.length;
+  const ang = (i) => -Math.PI / 2 + i * 2 * Math.PI / n;
+  const pt = (i, v) => [cx + Math.cos(ang(i)) * R * v, cy + Math.sin(ang(i)) * R * v];
+  let s = '';
+  [.25, .5, .75, 1].forEach(r => s += `<polygon points="${traits.map((_, i) => pt(i, r).join(',')).join(' ')}" fill="none" stroke="var(--parchment-edge)" stroke-width="1"/>`);
+  traits.forEach((t, i) => { const [x, y] = pt(i, 1); s += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--parchment-edge)"/>`; const [lx, ly] = pt(i, 1.2); s += `<text x="${lx}" y="${ly + 4}" text-anchor="middle" style="font-weight:800">${t.short}</text>`; });
+  const hm = traits.map((t, i) => pt(i, mean(hope.map(p => p.traits[t.key]))).join(',')).join(' ');
+  s += `<polygon points="${hm}" fill="none" stroke="var(--lin-1)" stroke-width="2" stroke-dasharray="4 3"/>`;
+  const mine = traits.map((t, i) => pt(i, me.traits[t.key]).join(',')).join(' ');
+  s += `<polygon points="${mine}" fill="rgba(74,90,168,.22)" stroke="var(--berry)" stroke-width="2.5" stroke-linejoin="round"/>`;
+  traits.forEach((t, i) => { const [x, y] = pt(i, me.traits[t.key]); s += `<circle cx="${x}" cy="${y}" r="4" fill="var(--berry)" stroke="var(--parchment-hi)" stroke-width="1.5"/>`; });
+  s += `<text x="${W / 2}" y="${H - 2}" text-anchor="middle" style="font-size:11px">— Rowan · - - HOPE mean · rings at .25 steps</text>`;
+  CH.svg(document.getElementById('radar'), W, H, s);
+})();
+</script>
+</body>
+</html>

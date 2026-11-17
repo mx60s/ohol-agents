@@ -1,0 +1,67 @@
+/* Study page (study.html). Builds on theme tokens.css / site.css / components.css. */
+
+.study-banner { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 22px; align-items: center; padding: 12px 18px; }
+.study-banner .win { display: flex; gap: 16px; align-items: baseline; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.study-banner .win b { font-family: var(--font-mono); font-size: 17px; color: var(--ink); }
+.study-banner .win .mock-tag { align-self: center; }
+.study-banner .verdict { margin: 0; font-size: 13.5px; color: var(--ink-2); }
+.study-banner .verdict b { color: var(--ink); }
+.study-banner .csv { font-size: 13px; padding: 5px 14px; }
+.study-banner .csv:disabled { opacity: .5; cursor: default; }
+
+.controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 16px 0 2px; font-size: 13px; font-weight: 800; }
+.controls .seg button { font: inherit; padding: 3px 12px; border: 0; border-right: 1.5px solid var(--ink); background: var(--parchment-hi); color: var(--ink); cursor: pointer; }
+.controls .seg button:last-child { border-right: 0; }
+.controls .seg button.on { background: var(--gloss), var(--grad-butter); }
+.controls .seg button:focus-visible { outline: 2px solid var(--navy-2); outline-offset: -3px; }
+
+.q { margin-top: 26px; }
+.q-ribbon { max-width: 100%; margin: 0 6px 16px; text-align: left; display: flex; align-items: baseline; gap: 12px; font-size: 20px; }
+.q-ribbon .qn { background: var(--butter); color: var(--ink); text-shadow: none; border: 2px solid var(--ink); border-radius: 8px; padding: 0 8px; font-size: 16px; }
+
+.figure .panel-body { padding: 12px 16px 10px; }
+.figure .chart-head h3 { font-size: 17px; }
+.figure .foot { font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: space-between; margin-top: 6px; font-size: 11.5px; color: var(--ink-2); }
+.figure .key { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+
+.study-chart { display: block; overflow: visible; }
+.study-chart .ref-line { stroke: var(--leaf); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.study-chart .ref-label { font-weight: 800; fill: var(--grass-dark); }
+.study-chart .ci-band { fill: rgba(74, 90, 168, .18); stroke: none; }
+.study-chart .ci-band.clay { fill: rgba(192, 100, 58, .16); }
+.study-chart .fit-line { stroke: var(--berry); stroke-width: 2; }
+.study-chart .fit-line.clay { stroke: var(--clay); }
+.study-chart .identity { stroke: var(--ink-3); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.study-chart .pt { stroke: var(--parchment-hi); stroke-width: 1.5; }
+.study-chart .dot { fill: var(--ink-2); fill-opacity: .55; }
+.study-chart .median { stroke: var(--clay); stroke-width: 3; stroke-linecap: round; }
+.study-chart .bar { fill: var(--berry); }
+.study-chart .whisker { stroke: var(--ink); stroke-width: 2; }
+.study-chart .bar-kids { fill: var(--leaf); }
+.study-chart .bar-grand { fill: #b9cc8a; }
+.study-chart .zero-tick { stroke: var(--ink-3); stroke-width: 1.5; }
+.study-chart .open-tick { stroke: var(--warn); stroke-width: 2.5; }
+.study-chart .cell { stroke: var(--parchment-hi); stroke-width: 2; }
+.study-chart .cell-label { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; }
+.study-chart .null-band { fill: var(--parchment-lo); stroke: var(--ink-3); stroke-width: 1.5; }
+.study-chart .obs { fill: var(--parchment-hi); stroke: var(--ink); stroke-width: 2; }
+.study-chart .obs.beyond { fill: var(--berry); }
+.study-chart .val-label { font-weight: 800; fill: var(--ink); }
+.study-chart .cat-label { font-weight: 800; fill: var(--ink); }
+.study-chart .muted-label { fill: var(--ink-3); }
+.study-chart .mono-label { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; fill: var(--ink-2); }
+.study-chart .small { font-size: 10px; }
+.study-chart .empty-well { fill: var(--parchment-lo); fill-opacity: .5; stroke: var(--parchment-edge); stroke-dasharray: 6 5; }
+.study-chart .empty-title { font-family: var(--font-display); font-size: 20px; fill: var(--ink-2); }
+.study-chart .empty-why { font-size: 12.5px; fill: var(--ink-3); }
+
+.small-mult { display: grid; gap: 8px 14px; }
+.small-mult .t { font-weight: 800; font-size: 12.5px; text-align: center; margin-bottom: -2px; }
+
+.sw { display: inline-block; width: 12px; height: 9px; border-radius: 2px; vertical-align: -1px; margin-left: 4px; }
+.sw-kids { background: var(--leaf); }
+.sw-grand { background: #b9cc8a; }
+.divkey { display: inline-flex; align-items: center; gap: 6px; }
+.divkey .ramp { width: 120px; height: 10px; border-radius: 5px; border: 1px solid var(--ink-3); background: linear-gradient(90deg, rgb(59,74,144), rgb(236,228,208), rgb(178,74,44)); }
+
+.q4-note { margin-top: 14px; max-width: 980px; }

@@ -1,6 +1,8 @@
-# Static replay of a recorded run on GitHub Pages (https://mx60s.github.io/ohol-agents/).
-# The viewer is built in replay mode and plays recordings/showcase.jsonl.
-name: Deploy replay to Pages
+# The static site on GitHub Pages (https://mvonebers.com/ohol-agents/).
+#   /              site home (index.html), plus stream.html, agent.html, study.html:
+#                  live data from SITE_API_URL (the agents service; must allow CORS)
+#   /replay.html   the original dashboard replaying recordings/showcase.jsonl (no backend)
+name: Deploy site to Pages
 
 on:
   push:
@@ -11,6 +13,11 @@ permissions:
   contents: read
   pages: write
   id-token: write
+
+env:
+  # Public URL of the always-on agents service (Fly app "artificial-selection", see deploy/README.md);
+  # override with a repository variable SITE_API_URL. Any page also accepts ?api=<url>.
+  SITE_API_URL: ${{ vars.SITE_API_URL || 'https://artificial-selection.fly.dev' }}
 
 concurrency:
   group: pages
@@ -28,10 +35,21 @@ jobs:
           cache-dependency-path: viewer/package-lock.json
       - run: npm ci
         working-directory: viewer
+      - uses: actions/cache@v4
+        with:
+          path: viewer/.ohol-cache
+          key: ohol-data-OneLife_v437
+      - run: npm run assets
+        working-directory: viewer
+      - run: npm test
+        working-directory: viewer
       - run: npm run build
         working-directory: viewer
         env:
-          VITE_API_URL: replay
+          # the site pages talk to the live API ...
+          VITE_API_URL: ${{ env.SITE_API_URL }}
+          # ... while replay.html keeps playing the bundled recording
+          VITE_DASHBOARD_API_URL: replay
       - run: cp recordings/showcase.jsonl viewer/dist/replay.jsonl
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

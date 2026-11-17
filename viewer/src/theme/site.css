@@ -1,0 +1,57 @@
+/* Site chrome, ported from design/site.css. Builds on tokens.css. */
+
+.site-top {
+  background: var(--grain), var(--gloss), var(--grad-navy);
+  border-bottom: 3px solid var(--ink);
+  color: #fff;
+  position: relative;
+}
+.site-top .in {
+  max-width: 1440px; margin: 0 auto; padding: 14px 28px 14px;
+  display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+}
+.site-top .wordmark { font-size: 44px; }
+.site-top .tagline { font-weight: 700; font-size: 14px; line-height: 1.25; color: #dce8f4; max-width: 230px; }
+.site-top .navbar { margin-left: auto; }
+.runbar .live, .site-top .live {
+  display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 13px; color: #fff;
+}
+.live-dot { flex: none; display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: #ff5a3c; border: 2px solid #fff; box-shadow: 0 0 0 2px var(--ink); }
+
+/* thin run/status strip under the header: the honest bit */
+.runbar { background: var(--parchment-lo); border-bottom: 2px solid var(--ink); font-size: 13px; }
+.runbar .in { max-width: 1440px; margin: 0 auto; padding: 6px 28px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; color: var(--ink-2); }
+.runbar b { color: var(--ink); }
+.runbar .sep { width: 1px; height: 14px; background: var(--parchment-edge); }
+
+.page { max-width: 1440px; margin: 0 auto; padding: 22px 28px 48px; }
+.grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.span-3 { grid-column: span 3; } .span-4 { grid-column: span 4; } .span-5 { grid-column: span 5; }
+.span-6 { grid-column: span 6; } .span-7 { grid-column: span 7; } .span-8 { grid-column: span 8; }
+.span-9 { grid-column: span 9; } .span-12 { grid-column: span 12; }
+.stack { display: flex; flex-direction: column; gap: 20px; }
+
+.page-title { display: flex; align-items: flex-end; gap: 16px; margin: 4px 0 18px; }
+.page-title h1 { font-size: 34px; }
+.page-title .crumbs { font-size: 13px; font-weight: 700; color: var(--ink-3); }
+
+.footer { border-top: 3px solid var(--ink); background: var(--grain), var(--gloss), var(--grad-navy); color: #dce8f4; font-size: 13px; }
+.footer .in { max-width: 1440px; margin: 0 auto; padding: 18px 28px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+.footer .disclaimer { margin-left: auto; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; opacity: .85; }
+
+/* chart frame used on every page */
+.chart-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.chart-head h3 { font-size: 18px; }
+.chart-head .n { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+.chart-sub { font-size: 13px; color: var(--ink-2); margin: 0 0 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); align-items: center; }
+.legend .lin { font-weight: 700; color: var(--ink); }
+.seg { display: inline-flex; border: 1.5px solid var(--ink); border-radius: var(--r-pill); overflow: hidden; font-size: 12px; font-weight: 800; }
+.seg span { padding: 2px 10px; border-right: 1.5px solid var(--ink); background: var(--parchment-hi); }
+.seg span:last-child { border-right: 0; }
+.seg span.on { background: var(--gloss), var(--grad-butter); }
+
+@media (max-width: 1400px) {
+  .site-top .tagline { display: none; }
+}
+.runbar .live { color: var(--danger); }

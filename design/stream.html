@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stream overlay · 1920×1080 · mockup</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  html, body { width: 1920px; height: 1080px; overflow: hidden; }
+  body { background: var(--grain), var(--parchment); }
+  .frame {
+    width: 1920px; height: 1080px; padding: 14px 16px 16px;
+    display: grid; gap: 14px;
+    grid-template-columns: 1300px 1fr;
+    grid-template-rows: 96px minmax(0,1fr) 214px;
+    grid-template-areas: "top top" "cam side" "news story";
+  }
+
+  /* ---------- top bar ---------- */
+  .top {
+    grid-area: top; display: flex; align-items: center; gap: 18px;
+    padding: 0 18px 0 22px;
+    background: var(--gloss), var(--grad-navy);
+    border: 2.5px solid var(--ink); border-radius: 22px;
+    box-shadow: var(--shadow-sticker);
+    position: relative;
+  }
+  .top .wordmark { font-size: 46px; -webkit-text-stroke-width: 8px; }
+  .top .tag { color: #dfe9f4; font-weight: 800; font-size: 15px; line-height: 1.15; letter-spacing: .02em; max-width: 190px; }
+  .top .burst { width: 76px; height: 76px; font-size: 18px; margin: 0 2px 0 -6px; }
+  .stats { display: flex; gap: 10px; margin-left: auto; }
+  .chip {
+    display: flex; flex-direction: column; justify-content: center;
+    min-width: 128px; height: 70px; padding: 4px 14px 6px;
+    background: var(--gloss), linear-gradient(180deg, #fbf7ec, #e6dbbf);
+    border: 2px solid var(--ink); border-radius: 16px;
+  }
+  .chip .n { font-family: var(--font-display); font-weight: 600; font-size: 34px; line-height: 1; display: flex; align-items: baseline; gap: 6px; }
+  .chip .n small { font-family: var(--font-body); font-size: 15px; font-weight: 800; color: var(--ink-2); }
+  .chip .k { font-weight: 900; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+  .chip.alive { background: var(--gloss), linear-gradient(180deg, #eaf4d8, #c9e0a6); }
+  .chip.dead  { background: var(--gloss), linear-gradient(180deg, #f9e4dc, #eec3b3); }
+  .chip.gen   { background: var(--gloss), linear-gradient(180deg, #fdf1c9, #f2d98a); }
+  .chip.wide  { min-width: 236px; }
+  .chip .last { font-weight: 800; font-size: 15px; line-height: 1.15; }
+  .chip .last b { color: #7a1f14; }
+
+  /* ---------- camera ---------- */
+  .cam {
+    grid-area: cam; position: relative; border: 2.5px solid var(--ink); border-radius: 18px; overflow: hidden;
+    box-shadow: var(--shadow-sticker);
+    background: url(assets/world/scene-follow.png) -10px -40px / 1320px 780px no-repeat, var(--grass);
+  }
+  .cam::after { /* soft vignette so overlays stay readable */
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    box-shadow: inset 0 0 120px rgba(31,26,20,.28);
+  }
+  .follow-ring {
+    position: absolute; left: 582px; top: 488px; width: 120px; height: 34px;
+    border: 3px dashed var(--butter); border-radius: 50%;
+    filter: drop-shadow(0 0 1px var(--ink)) drop-shadow(0 0 1px var(--ink));
+  }
+  .nametag {
+    position: absolute; left: 553px; top: 528px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 3px 14px 4px 6px; border: 2px solid var(--ink); border-radius: var(--r-pill);
+    background: var(--gloss), var(--paper-white);
+    font-family: var(--font-display); font-weight: 600; font-size: 22px; box-shadow: 0 2px 0 var(--ink);
+  }
+  .nametag .swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--ink); background: var(--lin-1); }
+  .nametag.small { font-size: 17px; padding: 2px 10px 3px 4px; gap: 6px; box-shadow: none; opacity: .92; }
+  .nametag.small .swatch { width: 16px; height: 16px; }
+  .cam .speech { position: absolute; font-size: 25px; }
+  .director {
+    position: absolute; left: 22px; top: 20px; width: 400px;
+    background: #fff4b8; border: 2px solid var(--ink); border-radius: 6px;
+    padding: 10px 14px 12px; transform: rotate(-1.5deg);
+    box-shadow: 3px 5px 0 rgba(31,26,20,.25);
+  }
+  .director::before { /* tape */
+    content: ''; position: absolute; top: -12px; left: 150px; width: 92px; height: 24px;
+    background: rgba(255,255,255,.65); border: 1px solid rgba(31,26,20,.2); transform: rotate(3deg);
+  }
+  .director .k { font-weight: 900; font-size: 15px; letter-spacing: .1em; text-transform: uppercase; color: var(--clay); display: flex; align-items: center; gap: 8px; }
+  .director p { margin: 4px 0 0; font-weight: 700; font-size: 21px; line-height: 1.25; }
+  .camhud {
+    position: absolute; right: 16px; top: 16px; display: flex; gap: 8px;
+  }
+  .camhud .pill { font-size: 16px; padding: 3px 12px 4px; }
+  .camfoot {
+    position: absolute; left: 16px; bottom: 14px; right: 16px; display: flex; gap: 8px; align-items: center;
+  }
+  .camfoot .pill { font-size: 16px; padding: 3px 12px 4px; }
+
+  /* ---------- side: focused character ---------- */
+  .side { grid-area: side; display: flex; flex-direction: column; min-height: 0; }
+  .side .panel { flex: 1; display: flex; flex-direction: column; }
+  .side .panel-head { font-size: 22px; padding: 9px 16px 10px; }
+  .side .panel-head .sub { font-size: 15px; }
+  .who { display: grid; grid-template-columns: 164px 1fr; gap: 16px; padding: 14px 16px 10px; }
+  .who .photo .well { width: 150px; height: 150px; display: grid; place-items: end center; overflow: hidden; }
+  .who .photo img { width: 150px; height: 150px; }
+  .who .cap { font-family: var(--font-hand); font-size: 17px; text-align: center; color: var(--ink-2); margin-top: 2px; }
+  .who h2 { font-size: 34px; line-height: 1; letter-spacing: .01em; }
+  .facts { margin-top: 8px; display: grid; grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 3px; font-size: 18px; }
+  .facts dt { font-weight: 900; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding-top: 3px; }
+  .facts dd { margin: 0; font-weight: 700; }
+  .meters { display: flex; gap: 14px; margin-top: 10px; }
+  .meter { flex: 1; }
+  .meter .k { font-weight: 900; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); display: flex; justify-content: space-between; }
+  .meter .bar-track { height: 14px; }
+  .sec { padding: 8px 16px 0; }
+  .sec .label { font-size: 14px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .blurb { font-size: 20px; line-height: 1.3; font-weight: 600; margin: 0; }
+  .traitrow { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .traitrow .pill { font-size: 14px; }
+  .thinking { font-size: 21px; line-height: 1.28; padding: 8px 14px 10px; }
+  .thinking .t { display: block; font-family: var(--font-body); font-size: 13px; font-weight: 800; color: var(--ink-3); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 2px; }
+  .said { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .said li { display: flex; align-items: baseline; gap: 10px; font-size: 18px; }
+  .said .speech { font-size: 21px; padding: 1px 10px 2px; border-radius: 12px; box-shadow: none; }
+  .said .speech::after { display: none; }
+  .said time { font-weight: 800; font-size: 15px; color: var(--ink-3); min-width: 58px; }
+  .said .to { font-size: 15px; color: var(--ink-3); font-weight: 700; }
+
+  /* ---------- bottom: news + story ---------- */
+  .news { grid-area: news; display: flex; flex-direction: column; }
+  .news .panel { flex: 1; display: flex; flex-direction: column; }
+  .news .panel-head, .story .panel-head { font-size: 21px; padding: 7px 16px 8px; }
+  .news .panel-head .sub, .story .panel-head .sub { font-size: 15px; }
+  .feed { list-style: none; margin: 0; padding: 10px 18px 0; display: flex; flex-direction: column; gap: 6px; }
+  .feed li { display: grid; grid-template-columns: 70px 1fr; gap: 12px; font-family: var(--font-news); font-size: 21px; line-height: 1.3; color: var(--ink-2); }
+  .feed li.now { color: var(--ink); font-size: 23px; }
+  .feed time { font-family: var(--font-body); font-weight: 800; font-size: 16px; color: var(--ink-3); padding-top: 3px; }
+  .feed li.now time { color: var(--clay); }
+  .crawl {
+    margin-top: auto; display: flex; align-items: center; gap: 0; border-top: 2px solid var(--ink);
+    background: var(--gloss), var(--grad-butter); height: 36px; overflow: hidden; white-space: nowrap;
+  }
+  .crawl .lab { height: 100%; display: grid; place-items: center; padding: 0 14px; background: var(--gloss), var(--grad-clay); color: #fff; font-family: var(--font-display); font-weight: 600; font-size: 18px; border-right: 2px solid var(--ink); }
+  .crawl .txt { padding-left: 16px; font-weight: 800; font-size: 18px; }
+  .crawl .txt span { margin-right: 30px; }
+  .crawl .txt span::before { content: '✦ '; color: var(--clay); }
+  .story { grid-area: story; display: flex; flex-direction: column; }
+  .story .panel { flex: 1; }
+  .story p { margin: 0; padding: 10px 16px; font-family: var(--font-news); font-size: 19px; line-height: 1.36; }
+  .story p b { font-family: var(--font-body); font-weight: 900; font-size: 17px; letter-spacing: .02em; }
+</style>
+</head>
+<body class="stream">
+<div class="frame">
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="top">
+    <div class="wordmark"><span>L</span><span>i</span><span>f</span><span>e</span><span>l</span><span>i</span><span>n</span><span>e</span><span>s</span></div>
+    <div class="tag">AI people living one hour lives</div>
+    <div class="burst is-live">LIVE!</div>
+    <div class="stats">
+      <div class="chip alive"><div class="n">9 <small>alive</small></div><div class="k">♥ Players</div></div>
+      <div class="chip"><div class="n">19</div><div class="k">Births</div></div>
+      <div class="chip dead"><div class="n">14</div><div class="k">Deaths</div></div>
+      <div class="chip wide dead"><div class="k">Last death · 2 min ago</div><div class="last"><b>PIP KETTLE</b>, 2 y<br>starved</div></div>
+      <div class="chip gen"><div class="n">3 <small>deepest</small></div><div class="k">Generations</div></div>
+      <div class="chip"><div class="n">3 <small>/ 4</small></div><div class="k">Families left</div></div>
+      <div class="chip"><div class="n">41<small>:12</small></div><div class="k">Run time</div></div>
+    </div>
+  </header>
+
+  <!-- ============ CAMERA ============ -->
+  <section class="cam" aria-label="camera following Joy Hope">
+    <div class="director">
+      <div class="k">🎬 Why we're watching Joy</div>
+      <p>Her baby Faith hasn't eaten in 40 seconds, and Joy is the only Hope woman left who can feed her.</p>
+    </div>
+    <div class="camhud">
+      <span class="pill navy">● CAM 1 · following</span>
+      <span class="pill">Grassland · (−12, 48)</span>
+    </div>
+
+    <div class="speech" style="left: 598px; top: 292px;">FAITH. EAT NOW.</div>
+    <div class="speech" style="left: 960px; top: 268px; font-size: 22px;">I FIND BERRY</div>
+
+    <div class="follow-ring"></div>
+    <div class="nametag"><span class="swatch"></span>JOY HOPE <span class="muted" style="font-size:17px">24</span></div>
+    <div class="nametag small" style="left: 660px; top: 572px;"><span class="swatch"></span>FAITH · 0</div>
+    <div class="nametag small" style="left: 930px; top: 498px;"><span class="swatch"></span>TOMAS · 19</div>
+    <div class="nametag small" style="left: 440px; top: 336px;"><span class="swatch"></span>EVE HOPE · 51</div>
+
+    <div class="camfoot">
+      <span class="pill danger">⚠ Faith: hungry</span>
+      <span class="pill">Joy holding: nothing</span>
+      <span class="pill">Nearby: 4 gooseberry bushes · campfire</span>
+      <span class="pill" style="margin-left:auto">Next cut ≈ 1:30</span>
+    </div>
+  </section>
+
+  <!-- ============ FOCUSED CHARACTER ============ -->
+  <aside class="side">
+    <div class="panel">
+      <div class="panel-head is-clay"><span>★ Now following</span><span class="sub">Hope family · gen 2</span></div>
+      <div class="who">
+        <div>
+          <div class="photo tilt-l"><div class="well"><img src="assets/people/joy-hope-head.png" alt=""></div></div>
+          <div class="cap">red hair, Hope curls</div>
+        </div>
+        <div>
+          <h2>JOY HOPE</h2>
+          <dl class="facts">
+            <dt>Age</dt><dd>24 · adult, fertile</dd>
+            <dt>Mother</dt><dd>EVE HOPE (alive, 51)</dd>
+            <dt>Kids</dt><dd>FAITH (0) · ABEL † starved</dd>
+          </dl>
+          <div class="meters">
+            <div class="meter"><div class="k"><span>Food</span><span>6/16</span></div><div class="bar-track"><div class="bar-fill" style="width:38%; background: var(--gloss), var(--grad-clay)"></div></div></div>
+            <div class="meter"><div class="k"><span>Warmth</span><span>ok</span></div><div class="bar-track"><div class="bar-fill" style="width:64%; background: var(--gloss), var(--grad-leaf)"></div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="label">Personality <span class="mock-tag">MOCK</span></div>
+        <p class="blurb">Warm and dutiful, slow to wander. Talks to family more than anyone, and rarely leaves the berry patch.</p>
+        <div class="traitrow">
+          <span class="pill">very agreeable</span><span class="pill">steady</span><span class="pill">homebody</span><span class="pill">chatty</span>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div class="label">Thinking</div>
+        <div class="thought thinking"><span class="t">12 s ago</span>Faith is crying and my food is low too. Put her down by the bush, eat one berry, then feed her. Tomas could help.</div>
+      </div>
+
+      <div class="sec" style="padding-bottom: 14px;">
+        <div class="label">Said recently</div>
+        <ul class="said">
+          <li><time>0:08</time><span class="speech">FAITH. EAT NOW.</span></li>
+          <li><time>0:41</time><span class="speech">TOMAS HELP ME</span><span class="to">heard by Tomas, Eve</span></li>
+          <li><time>2:15</time><span class="speech">PIP DIED. NO FOOD</span><span class="to">heard by Eve</span></li>
+        </ul>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ NEWS ============ -->
+  <section class="news">
+    <div class="panel">
+      <div class="panel-head is-navy"><span>📻 World News</span><span class="sub">narrated · updates every 30 s</span></div>
+      <ul class="feed">
+        <li class="now"><time>41:02</time><span>Joy Hope has placed her daughter beside a gooseberry bush, which is how the Hopes have always done it, all two generations of them.</span></li>
+        <li><time>39:30</time><span>Pip Kettle, aged two, has starved. The Kettle line, founded thirty-one minutes ago with some confidence, is now extinct.</span></li>
+      </ul>
+      <div class="crawl"><div class="lab">ALSO</div><div class="txt"><span>Bram Ashgrove has made a sharp stone and is very pleased with it</span><span>Eve Moss walks north, alone, for the fourth time</span><span>Night is falling. It is getting cold</span></div></div>
+    </div>
+  </section>
+
+  <!-- ============ STORY SO FAR ============ -->
+  <section class="story">
+    <div class="panel">
+      <div class="panel-head is-berry"><span>📖 The story so far</span><span class="sub">41 min</span></div>
+      <p>Four Eves woke up in the grassland. <b>HOPE</b> stayed by the berries and is on its third generation. <b>ASHGROVE</b> learned to make tools. <b>MOSS</b> keeps wandering off. <b>KETTLE</b> had two children and lost both to hunger; it is gone.</p>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

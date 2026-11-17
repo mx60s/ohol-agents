@@ -4,6 +4,12 @@
 
 import type { ServerMessage, ObjStack, PlayerUpdate } from "../protocol/types.ts";
 import type { GameData } from "./gameData.ts";
+import { cleanText } from "../safety.ts";
+
+/** names come from in-game speech; they reach the public API, the stream and prompts */
+const NAME_MAX = 60;
+/** heard speech, as stored (the server limits speech length by age anyway) */
+const SPEECH_MAX = 200;
 
 export interface Cell {
   biome: number;
@@ -64,6 +70,9 @@ export interface WorldEvents {
   onAte?(foodId: number): void;
 }
 
+/** OHOL: everyone dies of old age at 60 */
+export const MAX_AGE = 60;
+
 const EMPTY: ObjStack = { id: 0, contained: [] };
 
 export class World {
@@ -122,9 +131,14 @@ export class World {
     return c ? [c.x, c.y] : [p.x, p.y];
   }
 
+  /**
+   * Age extrapolated from the last update, capped at OHOL's max age. Without
+   * the cap a stalled server or a sleeping host (wall time passes, no updates)
+   * made ages run past 60 (deaths were recorded at 82 and 84).
+   */
   currentAge(p: Player): number {
-    if (!p.ageRate) return p.age;
-    return p.age + (Date.now() - p.ageAt) / 1000 / p.ageRate;
+    if (!p.ageRate) return Math.min(p.age, MAX_AGE);
+    return Math.min(MAX_AGE, p.age + (Date.now() - p.ageAt) / 1000 / p.ageRate);
   }
 
   handle(m: ServerMessage) {
@@ -183,12 +197,12 @@ export class World {
       case "PS":
         for (const s of m.says) {
           const p = this.players.get(s.id);
-          const h: Heard = { t: now, speakerId: s.id, x: p?.x ?? 0, y: p?.y ?? 0, text: s.text };
+          const h: Heard = { t: now, speakerId: s.id, x: p?.x ?? 0, y: p?.y ?? 0, text: cleanText(s.text, SPEECH_MAX) };
           this.pushHeard(h);
         }
         break;
       case "LS":
-        for (const s of m.says) this.pushHeard({ t: now, speakerId: null, x: s.x, y: s.y, text: s.text });
+        for (const s of m.says) this.pushHeard({ t: now, speakerId: null, x: s.x, y: s.y, text: cleanText(s.text, SPEECH_MAX) });
         break;
       case "FX":
         if (m.food.lastAteId > 0 && this.food !== m.food.food) this.ev.onAte?.(m.food.lastAteId);
@@ -202,9 +216,11 @@ export class World {
         break;
       case "NM":
         for (const n of m.names) {
+          const name = cleanText([n.first, n.last].filter(Boolean).join(" "), NAME_MAX) || null;
           const p = this.players.get(n.id);
-          if (p) p.name = [n.first, n.last].filter(Boolean).join(" ");
-          this.names.set(n.id, [n.first, n.last].filter(Boolean).join(" "));
+          if (p) p.name = name;
+          if (name) this.names.set(n.id, name);
+          else this.names.delete(n.id);
         }
         break;
       case "LN":
@@ -255,7 +271,9 @@ export class World {
       if (u.id === this.selfId) {
         this.dead = true;
         this.deathReason = reason;
-        this.ev.onSelfDied?.(reason, p ? this.currentAge(p) : u.age);
+        // the death update's own age is the server's (authoritative) age at death
+        const age = Number.isFinite(u.age) && u.age > 0 ? Math.min(u.age, MAX_AGE) : p ? this.currentAge(p) : 0;
+        this.ev.onSelfDied?.(reason, age);
       } else if (p) {
         const [dx, dy] = this.posOf(p);
         this.deaths.push({ t: now, id: p.id, name: p.name ?? this.names.get(p.id) ?? null, female: p.female, age: this.currentAge(p), x: dx, y: dy, ancestors: p.ancestors, eveId: p.eveId });

@@ -46,12 +46,17 @@ class HttpSource implements DataSource {
 }
 
 // ?api=<url> overrides the build-time VITE_API_URL (handy for pointing a
-// deployed viewer at a different run)
+// deployed viewer at a different run). VITE_DASHBOARD_API_URL, if set, wins
+// over VITE_API_URL for this dashboard only (replay.html), so one static build
+// can point the site at a live API and the dashboard at a recording.
 const queryApi =
   typeof window !== "undefined"
     ? new URLSearchParams(window.location.search).get("api")
     : null;
-const envUrl = (queryApi ?? (import.meta.env.VITE_API_URL as string | undefined))?.trim();
+const envUrl = (
+  queryApi ??
+  ((import.meta.env.VITE_DASHBOARD_API_URL as string | undefined) || (import.meta.env.VITE_API_URL as string | undefined))
+)?.trim();
 const queryMock =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).has("mock");

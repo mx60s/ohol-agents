@@ -12,3 +12,10 @@ logs/
 # recorder output (published copy is committed explicitly)
 recordings/*
 !recordings/showcase.jsonl
+.claude/
+
+# OHOL art: data clone cache + generated assets (npm run assets in viewer/)
+viewer/.ohol-cache/
+viewer/public/ohol/
+agents/logs-dev/
+docs/private/

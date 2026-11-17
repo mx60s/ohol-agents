@@ -1,0 +1,16 @@
+# Study and build decisions
+
+Running log of design decisions, newest last. Each should be revisited if its "revisit" note applies.
+
+- **2026-11-16 · Traits are mock for now.** Each life gets a trait vector (default Big Five via `TRAIT_DIMS`), Eve ~ N(0,1) clipped ±2.5, child = mother + N(0, 0.15). Nothing uses them to steer behaviour yet. Labelled MOCK on the site. *Revisit:* the trait set will change to non-normative traits; hair colour mapping (`hairColorForTraits`) must change with it.
+- **2026-11-16 · Appearance.** Hair colour from personality (elders fade to a silvery pastel, grey capped at 60%); each lineage gets a distinct hairstyle + eyes/mouth; skin is always the server's (babies always take the mother's race: `childSameRaceLikelihood=1.0` pinned). Players can't choose their look. Genitals and pubic hair are never drawn.
+- **2026-11-16 · Always-on, no spend cap by default.** `CONTINUOUS=1`, `MAX_COST_USD` off in continuous mode; caps available as opt-in.
+- **2026-11-17 · New-player food bonus ON, as a declared condition.** Stock OHOL gives new players +18 s per food pip (off on our server because it depends on the stats server). Turned on to match what human newcomers get; listed under Interventions.
+- **2026-11-17 · No cross-life memory.** Each life starts fresh. Knowledge passes only in-game (speech, objects, the home marker), so inheritance isn't confounded by an agent slot carrying memories into an unrelated family.
+- **2026-11-17 · `craft <item>` macro: ON for now, TEMPORARY.** Walks the recipe graph (comparable to a human with the wiki open), listed under Interventions. **The user wants to strongly consider removing it later** — revisit before the main study runs, and treat runs with and without it as different conditions.
+- **2026-11-17 · Starting setup: few Eves, staggered logins.** ~2-4 Eves; other agents join over time and are born into families. (Forcing 20 simultaneous Eves would scatter one-woman camps ~50 tiles apart.)
+- **2026-11-17 · Statistics: the effective n is the number of families.** All trait tests use family-aware permutation; ~80 founding families is enough for one pre-registered moderate effect, not an all-traits FDR screen (~160 needed). Prefer more independent founders over longer runs; pre-register 1-2 primary tests.
+- **2026-11-17 · Scale the whole game clock to model reaction time.** One `TIME_SCALE` knob slows every game timer uniformly (aging, food and heat drain, decay and regrowth, movement), so all in-game ratios are preserved. Slowing only aging (an earlier attempt) just made agents starve faster. Declared intervention. Cost per generation scales with the factor.
+- **2026-11-17 · Talk to models in turns, not seconds.** Every duration in the prompt and observation is expressed in decision turns ("a newborn can be set down for 1 turn").
+- **2026-11-17 · Fixed decision cadence (`DECISION_CYCLE_MS`, ~8 s) in every condition,** so faster models don't act more often in game time (a confound found by the cost model).
+- **2026-11-17 · Assume the model is competent.** Remove every harness barrier (parsing, action reliability, hearing, information, time to think) before blaming the model; don't script play.

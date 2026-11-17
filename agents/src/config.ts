@@ -3,6 +3,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseTraitDims } from "./traits.ts";
 
 // load repo-root .env for local dev (Railway injects env directly)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -16,6 +17,9 @@ for (const f of [path.join(root, ".env"), path.join(root, "agents/.env")]) {
 
 const env = process.env;
 const num = (k: string, d: number) => (env[k] ? Number(env[k]) : d);
+/** CONTINUOUS=1: always-on; generation/lives/runtime limits are ignored */
+const continuous = env.CONTINUOUS === "1";
+if (env.TRAIT_SOURCE && env.TRAIT_SOURCE !== "mock") console.warn(`TRAIT_SOURCE=${env.TRAIT_SOURCE} is not supported yet (no steering); using "mock"`);
 
 export const config = {
   oholHost: env.OHOL_HOST ?? "127.0.0.1",
@@ -33,8 +37,11 @@ export const config = {
   decisionIntervalMs: num("DECISION_INTERVAL_MS", 2500),
   /** decisions while age < 2 (babies can do very little) */
   babyDecisionIntervalMs: num("BABY_DECISION_INTERVAL_MS", 15000),
-  /** hard spend cap for the run; agents stop calling the LLM past this */
-  maxCostUsd: num("MAX_COST_USD", 10),
+  /**
+   * hard spend cap for the run; the run halts past this. 0 = no cap.
+   * Default 10, or 0 (no cap) with CONTINUOUS=1 unless set explicitly.
+   */
+  maxCostUsd: num("MAX_COST_USD", continuous ? 0 : 10),
   // --- run limits: the run halts (all agents disconnect, no more LLM calls)
   // when any of these is hit. Restart the process to start a new run.
   /** halt once a character of a later generation than this is born */
@@ -46,6 +53,20 @@ export const config = {
   /** omniscient broadcast narrator; 0 disables */
   narratorIntervalMs: num("NARRATOR_INTERVAL_MS", 30000),
   narratorModel: env.NARRATOR_MODEL || undefined,
+  // --- stream director (picks the one character the stream camera follows); see director.ts
+  /** ms between director decisions; 0 disables the director (focus stays null) */
+  directorIntervalMs: num("DIRECTOR_INTERVAL_MS", 10000),
+  /** model for the director; default LLM_MODEL */
+  directorModel: env.DIRECTOR_MODEL || undefined,
+  /** min ms on one character before switching (not applied on death/disconnect) */
+  directorMinDwellMs: num("DIRECTOR_MIN_DWELL_MS", 45000),
+  /** ms to stay on a character after they die, so viewers see it */
+  directorDeathHoldMs: num("DIRECTOR_DEATH_HOLD_MS", 8000),
+  // --- "story so far" (rolling world summary, persisted in LOG_DIR/story.jsonl); see story.ts
+  /** ms between story refreshes; 0 disables */
+  storyIntervalMs: num("STORY_INTERVAL_MS", 300000),
+  /** model for the story; default NARRATOR_MODEL, then LLM_MODEL */
+  storyModel: env.STORY_MODEL || env.NARRATOR_MODEL || undefined,
   /** 0 = process starts idle; begin the run with POST /api/start?token=... */
   autostart: env.AUTOSTART !== "0",
   /** 1 = anyone can start/stop runs from the dashboard (no password) */
@@ -55,9 +76,23 @@ export const config = {
   /** if set, POST /api/halt?token=<this> halts the run */
   controlToken: env.CONTROL_TOKEN ?? "",
   port: num("PORT", 8787),
+  /** max concurrent SSE (/api/stream) clients; more get 503 */
+  sseMaxClients: num("SSE_MAX_CLIENTS", 200),
   logDir: env.LOG_DIR ?? path.join(root, "agents/logs"),
+  /** raw per-run log files (llm.jsonl, events.jsonl, ...) rotate to <file>.1 past this many MB; 0 = never */
+  logMaxFileMb: num("LOG_MAX_FILE_MB", 32),
   /** ms between agent logins, so the first one becomes Eve and others are born to her */
   loginStaggerMs: num("LOGIN_STAGGER_MS", 20000),
+  // --- always-on mode and research data (see README "Research data")
+  continuous,
+  /** rolling-24h LLM spend cap across runs and restarts; past it LLM calls pause until the window has room. 0 = off */
+  dailyCostUsd: num("DAILY_COST_USD", 0),
+  /** trait dimension names (comma-separated) */
+  traitDims: parseTraitDims(env.TRAIT_DIMS),
+  /** only "mock" exists for now: traits are recorded and inherited but don't affect behaviour */
+  traitSource: "mock" as "mock" | "steered",
+  /** SD of the per-dimension mutation added to the mother's traits */
+  traitMutationSd: num("TRAIT_MUTATION_SD", 0.15),
 };
 
 export type Config = typeof config;

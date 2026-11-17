@@ -1,0 +1,88 @@
+# Fly.io config for the always-on Artificial Selection world.
+# One machine runs both processes (deploy/start.sh): the OHOL game server on
+# 127.0.0.1:8005 and the agents service (viewer at /, API at /api) on :8787.
+# See deploy/README.md for the commands, secrets and costs.
+#
+# Secrets (fly secrets set, never in this file):
+#   OPENROUTER_API_KEY   required; the agents service exits without it
+#   CONTROL_TOKEN        password for POST /api/start and /api/halt
+
+app = "artificial-selection"
+primary_region = "sjc"
+# start.sh traps SIGTERM: agents stop first (research snapshot), then the
+# game server quits gracefully. Leave time for both before the hard kill.
+kill_signal = "SIGTERM"
+kill_timeout = "60s"
+
+[build]
+  dockerfile = "deploy/Dockerfile"
+
+[env]
+  # always-on: no generation/lives/runtime limits, run starts at boot
+  CONTINUOUS = "1"
+  AUTOSTART = "1"
+  # start/stop from the dashboard needs CONTROL_TOKEN
+  OPEN_CONTROL = "0"
+  AGENT_COUNT = "4"
+  LLM_MODEL = "google/gemini-3.8-flash"
+  MEMORY_MODE = "per-life"
+  RECIPE_HINTS = "1"
+  NARRATOR_INTERVAL_MS = "30000"
+  # stream director + "story so far" (defaults from .env.example)
+  DIRECTOR_INTERVAL_MS = "10000"
+  DIRECTOR_MIN_DWELL_MS = "45000"
+  DIRECTOR_DEATH_HOLD_MS = "8000"
+  STORY_INTERVAL_MS = "300000"
+  # spend guards: 0 = off. Set e.g. DAILY_COST_USD = "5" to pause LLM calls
+  # once the rolling 24h spend reaches it (survives restarts, kept in LOG_DIR).
+  DAILY_COST_USD = "0"
+  MAX_TOTAL_COST_USD = "0"
+  # paths on the volume (start.sh defaults, spelled out for clarity)
+  DATA_DIR = "/data"
+  LOG_DIR = "/data/logs"
+  PORT = "8787"
+
+[[mounts]]
+  source = "as_data"
+  destination = "/data"
+  initial_size = "3gb"
+  snapshot_retention = 7
+  # grow the volume instead of filling it (game logs + research data only grow)
+  auto_extend_size_threshold = 80
+  auto_extend_size_increment = "1GB"
+  auto_extend_size_limit = "10GB"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  # the world must keep running with nobody watching
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  [http_service.concurrency]
+    # SSE clients (/api/stream) hold a connection each
+    type = "connections"
+    soft_limit = 500
+    hard_limit = 1000
+
+  [[http_service.checks]]
+    grace_period = "60s"
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/health"
+
+  [[http_service.checks]]
+    grace_period = "60s"
+    interval = "60s"
+    timeout = "10s"
+    method = "GET"
+    path = "/api/state"
+
+# start.sh exits non-zero if either process dies; always bring the machine back
+[[restart]]
+  policy = "always"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

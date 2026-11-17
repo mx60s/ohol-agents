@@ -1,0 +1,110 @@
+P_BASE=2877  overhead gemini @20 living $2.85/h, @3.5 $0.64/h
+model                          $/slot-h  calls   $/call         24h agents p50 [95%] cached p50                    total p50 [80%] [95%]  slot-h/$200 runs/$200
+Qwen3 32B                         0.091    187   0.493m      $44 [$25-$70]        $44      $51 [$40-$66] [$35-$76]        2201       369
+DeepSeek V4 Flash                 0.111    268   0.422m      $53 [$28-$91]        $44      $60 [$43-$82] [$36-$97]        1809       320
+DeepSeek V4.1 Flash               0.203    289   0.715m      $98 [$59-$156]        $80     $109 [$84-$143] [$73-$166]         984       175
+Claude Haiku 5.5                  0.271    660   0.412m     $130 [$89-$192]       $103     $137 [$107-$175] [$95-$199]         737       140
+GLM-5.3                           0.242    172   1.448m     $116 [$80-$171]       $116     $140 [$109-$181] [$96-$207]         826       135
+Qwen3.6 35B-A3B                   0.316    270   1.163m     $152 [$107-$215]       $142     $170 [$137-$214] [$122-$241]         633       112
+gpt-oss-120b                      0.399    496   0.806m     $192 [$136-$273]       $175     $205 [$165-$255] [$148-$286]         501        93
+Gemini 3.1 Flash-Lite             0.745    581   1.256m     $357 [$243-$522]       $298     $378 [$297-$482] [$260-$549]         269        51
+Kimi K2.6                         0.787    139   5.638m     $378 [$239-$566]       $346     $470 [$375-$582] [$333-$652]         254        40
+Llama 4 Maverick                  0.939    683   1.377m     $451 [$304-$672]       $395     $472 [$369-$608] [$324-$695]         213        41
+Gemini 3.8 Flash (current)        1.500    328   4.570m     $720 [$514-$1,017]       $620     $790 [$645-$974] [$582-$1,089]         133        24
+GPT-5.4 mini                      1.755    381   4.577m     $843 [$601-$1,190]       $727     $918 [$745-$1,134] [$669-$1,271]         114        21
+Claude Sonnet 5.5                 4.600    553   8.318m   $2,208 [$1,527-$3,222]     $1,734   $2,337 [$1,858-$2,956] [$1,650-$3,356]          43         8
+
+Sensitivity (Spearman rho with $/slot-h, caching on):
+  google/gemini-3.8-flash {'provider latency': -0.71, 'prompt growth (crowding)': 0.5, 'action/wait time per cycle': -0.29, 'baby share': -0.25, 'alive share': 0.15, 'completion tokens (reasoning)': 0.06}
+  deepseek/deepseek-v4-flash {'completion tokens (reasoning)': -0.69, 'provider latency': -0.47, 'prompt growth (crowding)': 0.43, 'action/wait time per cycle': -0.14, 'alive share': 0.1, 'baby share': -0.08}
+  anthropic/claude-haiku-5.5 {'prompt growth (crowding)': 0.67, 'action/wait time per cycle': -0.54, 'baby share': -0.31, 'provider latency': -0.26, 'alive share': 0.13, 'completion tokens (reasoning)': 0.01}
+
+Levers:
+  google/gemini-3.8-flash
+    baseline (no caching)                                       $720     -0%  calls/slot-h 328
+    prompt caching on, system prompt only (1.1k static)         $620     14%  calls/slot-h 328
+    caching + restructure prompt so ~2.0k is static             $538     25%  calls/slot-h 328
+    min decision interval 2.5 s -> 6 s                          $720      0%  calls/slot-h 328
+    min decision interval 2.5 s -> 10 s                         $674      6%  calls/slot-h 313
+    event-driven: skip ~25% of calls (waits/repeats)            $540     25%  calls/slot-h 246
+    no LLM for babies (<2 y scripted)                           $646     10%  calls/slot-h 286
+    shorter observations (-30% prompt)                          $595     17%  calls/slot-h 328
+    reasoning off (latency falls -> more calls)                 $705      2%  calls/slot-h 492
+    reasoning off + 6 s interval                                $683      5%  calls/slot-h 482
+    flex tier (-50% price, ~1.5x latency)                       $280     61%  calls/slot-h 257
+    combo: cache(2k) + 6 s + event-driven + no-baby LLM         $365     49%  calls/slot-h 215
+  deepseek/deepseek-v4-flash
+    baseline (no caching)                                        $53     -0%  calls/slot-h 268
+    prompt caching on, system prompt only (1.1k static)          $44     16%  calls/slot-h 268
+    caching + restructure prompt so ~2.0k is static              $37     30%  calls/slot-h 268
+    min decision interval 2.5 s -> 6 s                           $53      0%  calls/slot-h 269
+    min decision interval 2.5 s -> 10 s                          $51      3%  calls/slot-h 268
+    event-driven: skip ~25% of calls (waits/repeats)             $40     25%  calls/slot-h 200
+    no LLM for babies (<2 y scripted)                            $45     14%  calls/slot-h 225
+    shorter observations (-30% prompt)                           $41     23%  calls/slot-h 267
+    reasoning off (latency falls -> more calls)                  $90    -71%  calls/slot-h 542
+    reasoning off + 6 s interval                                 $83    -56%  calls/slot-h 501
+    flex tier (-50% price, ~1.5x latency)                        $20     61%  calls/slot-h 208
+    combo: cache(2k) + 6 s + event-driven + no-baby LLM          $24     55%  calls/slot-h 169
+  anthropic/claude-haiku-5.5
+    baseline (no caching)                                       $130      0%  calls/slot-h 661
+    prompt caching on, system prompt only (1.1k static)         $103     21%  calls/slot-h 660
+    caching + restructure prompt so ~2.0k is static              $82     37%  calls/slot-h 660
+    min decision interval 2.5 s -> 6 s                          $100     23%  calls/slot-h 511
+    min decision interval 2.5 s -> 10 s                          $63     51%  calls/slot-h 323
+    event-driven: skip ~25% of calls (waits/repeats)             $98     25%  calls/slot-h 495
+    no LLM for babies (<2 y scripted)                           $122      6%  calls/slot-h 621
+    shorter observations (-30% prompt)                           $97     26%  calls/slot-h 660
+    reasoning off (latency falls -> more calls)                 $130      0%  calls/slot-h 660
+    reasoning off + 6 s interval                                $100     23%  calls/slot-h 511
+    flex tier (-50% price, ~1.5x latency)                        $57     56%  calls/slot-h 582
+    combo: cache(2k) + 6 s + event-driven + no-baby LLM          $43     67%  calls/slot-h 354
+  qwen/qwen3-32b
+    baseline (no caching)                                        $44     -0%  calls/slot-h 187
+    prompt caching on, system prompt only (1.1k static)          $43      0%  calls/slot-h 187
+    caching + restructure prompt so ~2.0k is static              $44     -0%  calls/slot-h 187
+    min decision interval 2.5 s -> 6 s                           $44     -0%  calls/slot-h 187
+    min decision interval 2.5 s -> 10 s                          $44     -0%  calls/slot-h 187
+    event-driven: skip ~25% of calls (waits/repeats)             $33     25%  calls/slot-h 140
+    no LLM for babies (<2 y scripted)                            $36     18%  calls/slot-h 144
+    shorter observations (-30% prompt)                           $36     17%  calls/slot-h 186
+    reasoning off (latency falls -> more calls)                  $87    -99%  calls/slot-h 575
+    reasoning off + 6 s interval                                 $76    -74%  calls/slot-h 507
+    combo: cache(2k) + 6 s + event-driven + no-baby LLM          $27     39%  calls/slot-h 108
+
+Self-hosted:
+  8B thinking=False interval=2.5 slots=20       $24h comm=74 secure=121 [p90 242] util(H100)=0.53 [0.34-0.82] nH100 p50=1 p90=2 rps=4.1 lat=0.8s calls/slot-h=739
+  8B thinking=False interval=2.5 slots=40       $24h comm=148 secure=242 [p90 363] util(H100)=1.05 [0.68-1.63] nH100 p50=2 p90=3 rps=8.2 lat=0.8s calls/slot-h=739
+  8B thinking=False interval=10.0 slots=20      $24h comm=74 secure=121 [p90 121] util(H100)=0.23 [0.15-0.35] nH100 p50=1 p90=1 rps=1.8 lat=0.8s calls/slot-h=323
+  8B thinking=False interval=10.0 slots=40      $24h comm=74 secure=121 [p90 121] util(H100)=0.46 [0.31-0.69] nH100 p50=1 p90=1 rps=3.6 lat=0.8s calls/slot-h=323
+  8B thinking=True interval=2.5 slots=20        $24h comm=74 secure=121 [p90 242] util(H100)=0.59 [0.40-0.89] nH100 p50=1 p90=2 rps=1.9 lat=6.2s calls/slot-h=334
+  8B thinking=True interval=2.5 slots=40        $24h comm=148 secure=242 [p90 363] util(H100)=1.19 [0.80-1.79] nH100 p50=2 p90=3 rps=3.7 lat=6.3s calls/slot-h=333
+  8B thinking=True interval=10.0 slots=20       $24h comm=74 secure=121 [p90 242] util(H100)=0.53 [0.35-0.80] nH100 p50=1 p90=2 rps=1.7 lat=6.3s calls/slot-h=310
+  8B thinking=True interval=10.0 slots=40       $24h comm=148 secure=242 [p90 363] util(H100)=1.05 [0.69-1.60] nH100 p50=2 p90=3 rps=3.4 lat=6.3s calls/slot-h=310
+  32B thinking=False interval=2.5 slots=20      $24h comm=148 secure=242 [p90 363] util(H100)=0.93 [0.61-1.42] nH100 p50=2 p90=3 rps=3.6 lat=1.3s calls/slot-h=652
+  32B thinking=False interval=2.5 slots=40      $24h comm=223 secure=363 [p90 606] util(H100)=1.86 [1.22-2.84] nH100 p50=3 p90=5 rps=7.2 lat=1.3s calls/slot-h=651
+  32B thinking=False interval=10.0 slots=20     $24h comm=74 secure=121 [p90 121] util(H100)=0.46 [0.31-0.69] nH100 p50=1 p90=1 rps=1.8 lat=1.3s calls/slot-h=323
+  32B thinking=False interval=10.0 slots=40     $24h comm=148 secure=242 [p90 242] util(H100)=0.91 [0.61-1.38] nH100 p50=2 p90=2 rps=3.6 lat=1.3s calls/slot-h=323
+  32B thinking=True interval=2.5 slots=20       $24h comm=148 secure=242 [p90 242] util(H100)=0.82 [0.54-1.23] nH100 p50=2 p90=2 rps=1.3 lat=11.4s calls/slot-h=232
+  32B thinking=True interval=2.5 slots=40       $24h comm=223 secure=363 [p90 485] util(H100)=1.63 [1.09-2.44] nH100 p50=3 p90=4 rps=2.6 lat=11.4s calls/slot-h=232
+  32B thinking=True interval=10.0 slots=20      $24h comm=148 secure=242 [p90 242] util(H100)=0.80 [0.54-1.19] nH100 p50=2 p90=2 rps=1.3 lat=11.4s calls/slot-h=232
+  32B thinking=True interval=10.0 slots=40      $24h comm=223 secure=363 [p90 485] util(H100)=1.61 [1.07-2.40] nH100 p50=3 p90=4 rps=2.6 lat=11.3s calls/slot-h=233
+
+@8s cadence $/slot-h: {'DeepSeek V4 Flash': 0.11, 'DeepSeek V4.1 Flash': 0.201, 'Qwen3 32B': 0.091, 'Qwen3.6 35B-A3B': 0.311, 'gpt-oss-120b': 0.312, 'GLM-5.3': 0.242, 'Kimi K2.6': 0.787, 'Llama 4 Maverick': 0.539, 'Gemini 3.8 Flash (current)': 1.496, 'Gemini 3.1 Flash-Lite': 0.49, 'Claude Haiku 5.5': 0.161, 'GPT-5.4 mini': 1.62, 'Claude Sonnet 5.5': 3.254}
+
+  DeepSeek V4 Flash                                       day p50 $60 p90 $82  3x24h $179  long run 98.7 d (at p90 cost 70.9 d)
+  DeepSeek V4.1 Flash                                     day p50 $109 p90 $143  3x24h $327  long run 52.5 d (at p90 cost 39.4 d)
+  Qwen3 32B                                               day p50 $51 p90 $66  3x24h $154  long run 114.7 d (at p90 cost 88.4 d)
+  Qwen3.6 35B-A3B                                         day p50 $170 p90 $214  3x24h $511  long run 32.6 d (at p90 cost 25.3 d)
+  gpt-oss-120b                                            day p50 $205 p90 $255  3x24h $614  long run 26.6 d (at p90 cost 20.8 d)
+  GLM-5.3                                                 day p50 $140 p90 $181  3x24h $420  long run 40.3 d (at p90 cost 30.4 d)
+  Kimi K2.6                                               day p50 $470 p90 $582  3x24h $1411  long run 9.9 d (at p90 cost 7.4 d)
+  Llama 4 Maverick                                        day p50 $472 p90 $608  3x24h $1416  long run 9.8 d (at p90 cost 7.0 d)
+  Gemini 3.8 Flash (current)                              day p50 $790 p90 $974  3x24h $2371  long run 4.7 d (at p90 cost 3.2 d)
+  Gemini 3.1 Flash-Lite                                   day p50 $378 p90 $482  3x24h $1133  long run 13.0 d (at p90 cost 9.6 d)
+  Claude Haiku 5.5                                        day p50 $137 p90 $175  3x24h $410  long run 41.3 d (at p90 cost 31.7 d)
+  GPT-5.4 mini                                            day p50 $918 p90 $1134  3x24h $2755  long run 3.6 d (at p90 cost 2.3 d)
+  Claude Sonnet 5.5                                       day p50 $2337 p90 $2956  3x24h $7012  long run -0.4 d (at p90 cost -0.9 d)
+  self-host 32B thinking=False interval=10.0 slots=20     day p50 $121 p90 $121  3x24h $363  long run 42.1 d (at p90 cost 42.1 d)
+  self-host 8B thinking=False interval=10.0 slots=20      day p50 $121 p90 $121  3x24h $363  long run 42.1 d (at p90 cost 42.1 d)
+  self-host 32B thinking=True interval=10.0 slots=20      day p50 $242 p90 $242  3x24h $727  long run 19.5 d (at p90 cost 19.5 d)

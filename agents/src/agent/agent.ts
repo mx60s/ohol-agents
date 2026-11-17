@@ -12,6 +12,7 @@ import type { AgentView } from "../api-types.ts";
 import { Llm, parseJsonReply, type ChatMessage } from "./llm.ts";
 import { buildObservation } from "./observe.ts";
 import { SYSTEM_PROMPT } from "./prompt.ts";
+import { cleanText } from "../safety.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -156,6 +157,7 @@ export class Agent {
     const age = world.currentAge(me);
     this.ev("birth", isEve ? `${this.id} appeared as an Eve (age ${age.toFixed(0)})` : `${this.id} was born to mother #${me.ancestors[0]}`, {
       playerId: me.id, motherId: me.ancestors[0] ?? null, eve: isEve, generation: me.ancestors.length + 1, lifeIndex: this.lifeIndex, x: me.x, y: me.y,
+      age: Math.round(age * 100) / 100, female: me.female, displayId: me.displayId,
     });
     this.log.write("lives.jsonl", { t: Date.now(), agentId: this.id, lifeIndex: this.lifeIndex, playerId: me.id, eve: isEve, motherId: me.ancestors[0] ?? null, eveId: me.eveId, x: me.x, y: me.y });
 
@@ -206,9 +208,10 @@ export class Agent {
     // to travel; and don't retry the reflex more than every 20s.
     if (world.food <= 2 && world.currentAge(me) >= 3 && world.food < world.foodCapacity && Date.now() - this.lastReflexAt > 20000) {
       this.lastReflexAt = Date.now();
+      const before = this.actionContext();
       const r = await body.forage();
       this.record("forage (reflex: starving)", r);
-      this.ev("action", `reflex forage -> ${r}`, { reflex: true });
+      this.ev("action", `reflex forage -> ${r}`, { reflex: true, ...this.actionData(before) });
       if (!r.startsWith("no food")) return;
     }
 
@@ -246,30 +249,45 @@ export class Agent {
       completionTokens: llmRes.completionTokens, costUsd: llmRes.costUsd, model: llmRes.model,
     });
 
-    if (typeof reply.thought === "string") {
-      const thought: string = reply.thought.slice(0, 400);
+    // model output is untrusted: it reaches the public API, the stream and other prompts
+    if (reply == null || typeof reply !== "object") reply = {};
+    const thought = cleanText(reply.thought, 400);
+    if (thought) {
       this.lastThought = thought;
       this.ev("thought", thought);
     }
-    if (typeof reply.goal === "string" && reply.goal.trim() && reply.goal !== this.goal) {
-      this.goal = reply.goal.slice(0, 200);
-    }
-    if (typeof reply.note === "string" && reply.note.trim()) {
-      this.notebook.push(reply.note.slice(0, 200));
+    const goal = cleanText(reply.goal, 200);
+    if (goal && goal !== this.goal) this.goal = goal;
+    const note = cleanText(reply.note, 200);
+    if (note) {
+      this.notebook.push(note);
       if (this.notebook.length > 30) this.notebook.shift();
     }
-    if (typeof reply.say === "string" && reply.say.trim()) {
-      const r = body.say(reply.say);
-      this.record(`say "${reply.say}"`, r);
+    const say = cleanText(reply.say, 200);
+    if (say) {
+      const r = body.say(say);
+      this.record(`say "${say}"`, r);
     }
-    const action: Action | undefined = reply.action;
-    if (action && typeof action.type === "string") {
+    const action = sanitizeAction(reply.action);
+    if (action) {
       const desc = describeAction(action);
       this.lastAction = desc;
+      const before = this.actionContext();
       const result = await this.execute(action);
       this.record(desc, result);
-      if (action.type !== "wait") this.ev("action", `${desc} -> ${result}`, { action });
+      if (action.type !== "wait") this.ev("action", `${desc} -> ${result}`, { action, ...this.actionData(before) });
     }
+  }
+
+  // position and held item before/after an action, for the per-life activity tally (lives.ts)
+  private actionContext(): { from: [number, number] | null; heldBefore: string | null } {
+    const me = this.world?.self;
+    return { from: me ? this.world!.posOf(me) : null, heldBefore: me ? this.body?.heldName() ?? null : null };
+  }
+
+  private actionData(before: { from: [number, number] | null; heldBefore: string | null }) {
+    const me = this.world?.self;
+    return { ...before, to: me ? this.world!.posOf(me) : null, heldAfter: me ? this.body?.heldName() ?? null : null };
   }
 
   private record(action: string, result: string) {
@@ -331,7 +349,8 @@ export class Agent {
     }
   }
 
-  view(): AgentView {
+  /** life/lineage/trait fields are added by Population from the LifeStore */
+  view(): Omit<AgentView, "lifeId" | "lineageId" | "traits"> {
     const w = this.world;
     const me = w?.self;
     const alive = this.status === "alive" && !!me;
@@ -358,6 +377,25 @@ export class Agent {
       lastSaid: this.lastSaid,
     };
   }
+}
+
+/**
+ * The model's action reduced to known fields with sane types: type is a short
+ * identifier (an arbitrary string here used to flow, unquoted, into action
+ * event text and from there into the narrator's prompt and the stream).
+ */
+export function sanitizeAction(v: unknown): Action | null {
+  if (!v || typeof v !== "object") return null;
+  const a = v as Record<string, unknown>;
+  if (typeof a.type !== "string") return null;
+  const type = /^[a-z_]{1,24}$/.test(a.type.trim()) ? a.type.trim() : "invalid";
+  const out: Action = { type };
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : typeof x === "string" && /^-?\d{1,9}(\.\d+)?$/.test(x.trim()) ? Number(x) : undefined);
+  for (const k of ["x", "y", "person", "slot", "seconds"] as const) {
+    const val = n(a[k]);
+    if (val !== undefined) out[k] = val;
+  }
+  return out;
 }
 
 function describeAction(a: Action): string {

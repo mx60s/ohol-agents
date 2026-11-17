@@ -325,7 +325,8 @@ export class Body {
   }
 
   say(text: string): string {
-    const clean = text.replace(/[#\n\r]/g, " ").toUpperCase().trim();
+    // printable ASCII only: '#' ends a protocol message, and the game font has nothing else
+    const clean = text.toUpperCase().replace(/[^\x20-\x22\x24-\x7E]/g, " ").replace(/\s+/g, " ").trim();
     if (!clean) return "said nothing";
     const s = this.world.self;
     const limit = s ? Math.floor(this.world.currentAge(s)) + 1 : 10;
