@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "model": "anthropic/claude-haiku-5.5",
+  "runId": "cal1-1794886778-r1-mwk58uy2-2026-11-17T03-39-39-818Z",
+  "startedAt": 1794886779000,
+  "endedAt": 1794887982000,
+  "wallMinutes": 20.05,
+  "gameYears": 10.03,
+  "agentCount": 8,
+  "timeScale": 2,
+  "decisionCycleMs": 4700,
+  "settings": {
+    "reasoningEffort": "mild cap (LLM_REASONING_CAP=1, 300 reasoning / 800 total)",
+    "maxTokens": 800,
+    "providerSort": null,
+    "providerOrder": [],
+    "allowFallbacks": null,
+    "stream": true
+  },
+  "turnMs": {
+    "n": 613,
+    "p50": 2954,
+    "p90": 5189,
+    "p99": 7785
+  },
+  "llm": {
+    "calls": 1011,
+    "callErrors": 0,
+    "promptTokens": 4309400,
+    "completionTokens": 447795,
+    "cachedTokens": 2041210,
+    "reasoningTokens": 363300,
+    "cacheHitRate": 0.4737,
+    "costUsd": 0.472446,
+    "totalCostUsd": 0.5234,
+    "costPerAgentHourUsd": 0.1958,
+    "latencyMsP50": 2696,
+    "latencyMsP90": 4734,
+    "latencyMsP99": 7564,
+    "ttftMsP50": 2262,
+    "ttftMsP90": 4304,
+    "reasoningTokensPerCall": 359.3,
+    "completionTokensPerCall": 442.9,
+    "providers": {
+      "Claude Platform on AWS": 1011
+    },
+    "jsonErrors": 0,
+    "jsonErrorRate": 0,
+    "agentOnlyCostPerAgentHourUsd": 0.1767
+  },
+  "decisions": {
+    "total": 1011,
+    "perWallMinute": 50.424,
+    "perAgentWallMinute": 6.303,
+    "perGameYear": 100.848,
+    "perAgentGameYear": 12.606
+  },
+  "actions": {
+    "total": 674,
+    "failed": 166,
+    "failureRate": 0.2463,
+    "reflex": 9
+  },
+  "lives": {
+    "lives": 8,
+    "eves": 2,
+    "babies": 6,
+    "deaths": 0,
+    "deathsByCause": {},
+    "maxGeneration": 2,
+    "babiesAtRisk": 6,
+    "babiesSurvivedPast3": 6,
+    "babySurvivalPast3Rate": 1,
+    "perWallMinute": {
+      "births": 0.399,
+      "deaths": 0
+    },
+    "perGameYear": {
+      "births": 0.798,
+      "deaths": 0
+    }
+  },
+  "firsts": {
+    "sharpStone": {
+      "wallMin": 0.41,
+      "gameYears": 0.2,
+      "what": "Sharp Stone"
+    },
+    "fire": null,
+    "clothing": null
+  },
+  "notes": {
+    "narratorDirectorStory": "on, default overhead model google/gemini-3.1-flash-lite",
+    "foodBonus": "on",
+    "continuous": true,
+    "initialEves": 2,
+    "finalState": {
+      "alive": 8,
+      "births": 8,
+      "deaths": 0,
+      "status": "running",
+      "haltReason": null
+    }
+  }
+}

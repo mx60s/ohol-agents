@@ -19,12 +19,12 @@ function About() {
               <h2 className="about-h">Many Members, One Body</h2>
               <p>How does personality shape survival, inheritance and specialisation in a society of agents?</p>
               <p>
-                Each agent gets a naturalistic, somewhat random personality steering. Tribes of these different agents live together, and we follow them across generations.
-                A child inherits its mother's steering coefficients, with small mutations.
+                The design: each agent gets a naturalistic, somewhat random personality steering (not switched on yet, see Current status). Tribes of these different agents
+                live together, and we follow them across generations. A child inherits its mother's steering coefficients, with small mutations.
               </p>
               <p>We want to know:</p>
               <ul>
-                <li>Do the steered traits affect who survives, who leaves descendants, and who takes on roles like exploring, caregiving or coordinating?</li>
+                <li>Once steering is on, do the traits affect who survives, who leaves descendants, and who takes on roles like exploring, caregiving or coordinating?</li>
                 <li>Do social and environmental pressures make traits persist, drift or converge over the generations?</li>
               </ul>
               <p>

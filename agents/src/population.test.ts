@@ -47,6 +47,10 @@ test("continuous mode: no generation/lives halts", () => {
   });
 });
 
+test("RunInfo.timeScale reports TIME_SCALE (game year = 60 s x k)", () => {
+  withPop({ timeScale: 3 }, { paused: null }, (pop) => assert.equal(pop.state().run.timeScale, 3));
+});
+
 test("daily cap shows status paused with reason and resume time, then running again", () => {
   const gate = { paused: "daily spend cap reached" as string | null };
   withPop({ continuous: true, dailyCostUsd: 10 }, gate, (pop) => {
@@ -74,7 +78,7 @@ test("LLM provider failures: llmStatus in /api/state, one announcement each way,
     const health = new LlmHealth();
     const log = new EventLog(dir, "t");
     const pop = new Population(cfg, gd, log, { llmHealth: health });
-    assert.deepEqual(pop.state().run.llmStatus, { ok: true, lastError: null, since: null, consecutiveFailures: 0, retryAt: null });
+    assert.deepEqual(pop.state().run.llmStatus, { ok: true, lastError: null, since: null, consecutiveFailures: 0, retryAt: null, outageSince: null });
     const sys = () => log.recent.filter((e) => e.kind === "system").map((e) => e.text);
     health.failure(new LlmHttpError(402, "Insufficient credits"));
     health.failure(new LlmHttpError(402, "Insufficient credits"));
@@ -138,4 +142,18 @@ test("config: CONTINUOUS=1 turns spend caps off by default; explicit values stil
   assert.equal(read({ CONTINUOUS: "0", MAX_COST_USD: "" }).max, 10);
   const explicit = read({ CONTINUOUS: "1", MAX_COST_USD: "25", DAILY_COST_USD: "40", TRAIT_DIMS: "x,y" });
   assert.deepEqual([explicit.max, explicit.daily, explicit.dims], [25, 40, ["x", "y"]]);
+});
+
+test("speechScrambled: never below 15 alive (server minActivePlayersForLanguages); at 15+ the hearer's words differ from the speaker's echo", () => {
+  withPop({}, { paused: null }, (pop) => {
+    const agent = (playerId: number) => ({ id: `a${playerId}`, status: "alive", world: { selfId: playerId }, emit: () => {} }) as never;
+    const P = pop as unknown as { agents: unknown[] };
+    for (let i = 1; i <= 8; i++) P.agents.push(agent(i));
+    pop.spoke(agent(1), "HELLO SISTER", 0, 0);
+    assert.equal(pop.speechScrambled(1, "HOBA KESTEL"), false, "8 players: nothing is scrambled");
+    for (let i = 9; i <= 15; i++) P.agents.push(agent(i));
+    assert.equal(pop.speechScrambled(1, "HELLO SISTER"), false, "same words as said");
+    assert.equal(pop.speechScrambled(1, "HOBA KESTEL"), true);
+    assert.equal(pop.speechScrambled(2, "HOBA"), null, "never heard #2 speak");
+  });
 });

@@ -89,6 +89,8 @@ function artProps(p: LifeArtProps) {
     livingLineageIds: site.order,
     traits: life.traits,
     traitDims: site.dims,
+    lifeId: life.lifeId,
+    flower: site.flowerOf(life.lifeId),
     dead: life.status === "dead",
     title: displayName(life.name),
   };

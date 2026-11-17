@@ -39,6 +39,9 @@ a.wordmark-link { text-decoration: none; }
 .conn { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; }
 .conn .live-dot.off { background: var(--stone); }
 .conn.offline { color: var(--danger); }
+/* "paused: model provider unavailable · 4 min" next to the status chip */
+.runbar .pause { font-weight: 700; color: var(--ink-2); }
+.runbar .pause.is-provider { color: var(--danger); }
 
 /* footer credit sits on the left, disclaimer on the right */
 .footer .credit { max-width: 760px; }
@@ -58,4 +61,5 @@ a.wordmark-link { text-decoration: none; }
 .placeholder h2 { font-size: 26px; margin-bottom: 8px; color: var(--ink); }
 
 /* user/model text: never let a long unbroken string blow out a layout */
-.ugc { overflow-wrap: anywhere; word-break: break-word; }
+/* user/model text: wrap anywhere, and keep any bidi trickery inside its own element */
+.ugc { overflow-wrap: anywhere; word-break: break-word; unicode-bidi: isolate; }

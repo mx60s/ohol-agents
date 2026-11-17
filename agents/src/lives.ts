@@ -7,11 +7,19 @@
 // inherited per the study design but never used to steer behaviour.
 
 import type { DeathRecord, LifeActivity, LifeRecord, LineageRecord, RunEvent, TraitSource, Traits } from "./api-types.ts";
+import { config } from "./config.ts";
+import { canonicalFlower, isKnownFlower, pickFlower, type Flower } from "./flowers.ts";
 import { inheritTraits, sampleEveTraits, type Rng } from "./traits.ts";
 
 /** OHOL: one in-game year per real minute, death of old age at 60. */
 export const LIFESPAN_YEARS = 60;
-const YEAR_MS = 60_000;
+/** wall ms per game year at stock speed (TIME_SCALE 1) */
+export const BASE_YEAR_MS = 60_000;
+/** wall ms per game year of this life: the game clock ran timeScale x slower when it was born (old records: 1) */
+export function yearMsOf(l: Pick<LifeCore, "timeScale">): number {
+  const k = l.timeScale;
+  return BASE_YEAR_MS * (typeof k === "number" && k > 0 ? k : 1);
+}
 /** an Eve appears at about this age */
 const EVE_AGE = 14;
 
@@ -42,7 +50,7 @@ export function lifeIdOf(runId: string, playerId: number) {
 /** Latest time a character that we stopped watching can still be alive. */
 export function presumedEndAt(l: LifeCore): number {
   const age0 = l.ageAtBirth ?? (l.generation === 1 ? EVE_AGE : 0);
-  return l.bornAt + Math.max(0, LIFESPAN_YEARS - age0) * YEAR_MS;
+  return l.bornAt + Math.max(0, LIFESPAN_YEARS - age0) * yearMsOf(l);
 }
 
 /** Alive anywhere in the world, as far as we know. */
@@ -56,15 +64,24 @@ export function toRecord(l: LifeCore): LifeRecord {
   const { logPath, ...rest } = l;
   return {
     ...rest,
+    timeScale: yearMsOf(l) / BASE_YEAR_MS,
     status: l.diedAt != null ? "dead" : l.lostAt != null ? "lost" : "alive",
     presumedEndAt: l.diedAt == null && l.lostAt != null ? presumedEndAt(l) : null,
+    outage: l.outage === true,
+    validForStudy: validForStudy(l),
   };
+}
+
+/** false = exclude from study analyses (alive during an LLM outage that paused the run) */
+export function validForStudy(l: Pick<LifeCore, "outage" | "validForStudy">): boolean {
+  return l.validForStudy ?? l.outage !== true;
 }
 
 export function toDeath(l: LifeCore): DeathRecord {
   return {
     lifeId: l.lifeId, lineageId: l.lineageId, agentId: l.agentId, name: l.name, female: l.female, generation: l.generation,
-    bornAt: l.bornAt, diedAt: l.diedAt!, ageAtDeath: l.ageAtDeath, deathReason: l.deathReason, traits: l.traits, inherited: l.inherited,
+    bornAt: l.bornAt, diedAt: l.diedAt!, timeScale: yearMsOf(l) / BASE_YEAR_MS, ageAtDeath: l.ageAtDeath, deathReason: l.deathReason, traits: l.traits, inherited: l.inherited,
+    validForStudy: validForStudy(l),
   };
 }
 
@@ -146,6 +163,8 @@ export interface LifeBookOptions {
   mutationSd: number;
   traitSource: TraitSource;
   rng: Rng;
+  /** game clock slowdown k stamped on new lives (default config.timeScale) */
+  timeScale?: number;
 }
 
 export interface ApplyResult {
@@ -178,6 +197,8 @@ export class LifeBook {
 
   /** Insert or replace a stored record (rebuild from disk). Children links are taken as stored. */
   load(l: LifeCore) {
+    // records written before lives carried their time scale ran at stock speed
+    if (!(typeof l.timeScale === "number" && l.timeScale > 0)) l.timeScale = 1;
     // records written before ages were capped
     if (l.ageAtDeath != null && l.ageAtDeath > LIFESPAN_YEARS) l.ageAtDeath = LIFESPAN_YEARS;
     const prev = this.lives.get(l.lifeId);
@@ -241,9 +262,37 @@ export class LifeBook {
     return best;
   }
 
+  /**
+   * Would a login of `agentId` that landed in `playerId` at age `age` be the
+   * run's still-open life again (a reconnect, e.g. after an agents-service
+   * restart) rather than a new character? Same test as birth().
+   */
+  reconnectOf(runId: string, agentId: string, playerId: number, t: number, age: number | null): LifeCore | null {
+    const l = this.byRunPlayer(runId, playerId);
+    if (!l || l.bornAt < this.epochStart || !sameBody(l, agentId, t, age)) return null;
+    return l;
+  }
+
+  /**
+   * Resume a run after a restart: its open lives become their slots' current
+   * lives again (so a slot that gets a new body marks the old one lost).
+   * Returns the agent ids that have an open life.
+   */
+  resumeRun(runId: string): string[] {
+    const latest = new Map<string, LifeCore>();
+    for (const l of this.lives.values()) {
+      if (l.runId !== runId || l.diedAt != null || l.lostAt != null) continue;
+      const cur = latest.get(l.agentId);
+      if (!cur || cur.bornAt < l.bornAt) latest.set(l.agentId, l);
+    }
+    for (const [agentId, l] of latest) this.slotLife.set(`${runId}|${agentId}`, l.lifeId);
+    return [...latest.keys()].sort();
+  }
+
   apply(runId: string, ev: RunEvent): ApplyResult {
     if (!ev.agentId) return NOTHING;
-    if (ev.kind === "birth") return this.birth(runId, ev);
+    // a reconnect (system event with data.reconnect) goes through birth(), which resumes the open life
+    if (ev.kind === "birth" || (ev.kind === "system" && ev.data?.reconnect === true)) return this.birth(runId, ev);
 
     const pid = Number(ev.data?.playerId ?? ev.playerId);
     const life = (Number.isFinite(pid) ? this.byRunPlayer(runId, pid) : null) ?? this.current(runId, ev.agentId);
@@ -338,6 +387,10 @@ export class LifeBook {
       ? inheritTraits(mother.traits, this.opts.dims, this.opts.mutationSd, this.opts.rng)
       : inheritTraits(null, this.opts.dims, this.opts.mutationSd, this.opts.rng);
     const gen = num(d.generation);
+    const lineageId = mother ? mother.lineageId : lifeId;
+    // a flower no living relative wears (lost relatives count until their presumed end)
+    const taken: Flower[] = [];
+    for (const l of this.lives.values()) if (l.lineageId === lineageId && l.flower && possiblyAlive(l, ev.t)) taken.push(l.flower);
     const life: LifeCore = {
       lifeId, runId, agentId,
       lifeIndex: num(d.lifeIndex),
@@ -345,17 +398,19 @@ export class LifeBook {
       name: ev.name ?? null,
       female: typeof d.female === "boolean" ? d.female : null,
       displayId: num(d.displayId),
-      lineageId: mother ? mother.lineageId : lifeId,
+      lineageId,
       motherLifeId: mother?.lifeId ?? null,
       motherPlayerId: motherPlayerId != null && Number.isFinite(motherPlayerId) ? motherPlayerId : null,
       generation: gen ?? (mother ? mother.generation + 1 : 1),
       traits, inherited, traitSource: this.opts.traitSource,
       bornAt: ev.t,
+      timeScale: this.opts.timeScale ?? config.timeScale,
       ageAtBirth: age != null ? clampAge(age) : null,
       birthX: num(d.x), birthY: num(d.y),
       diedAt: null, ageAtDeath: null, deathReason: null, lostAt: null,
       childLifeIds: [],
       activity: emptyActivity(),
+      flower: pickFlower(lifeId, taken),
       updatedAt: ev.t,
       logPath: null,
     };
@@ -367,6 +422,56 @@ export class LifeBook {
       changed.push(mother);
     }
     return { life, changed, important: true, loggable: true, created: true };
+  }
+
+  /**
+   * Bring stored flowers up to date with the catalogue. A retired shape id (flowers.ts
+   * LEGACY_FLOWER_SHAPES, e.g. the old bellflower) becomes its replacement, same colour. Lives
+   * still without a valid flower (records from before flowers existed) get one, oldest birth first:
+   * one no same-lineage life wore that was born at or before it and still alive at its birth (lost
+   * lives count until their presumed end). Returns the changed lives.
+   */
+  assignMissingFlowers(): LifeCore[] {
+    const all = [...this.lives.values()].sort((a, b) => a.bornAt - b.bornAt);
+    const out: LifeCore[] = [];
+    for (const l of all) {
+      if (l.flower == null || isKnownFlower(l.flower)) continue;
+      const migrated = canonicalFlower(l.flower);
+      if (!migrated) continue;
+      l.flower = migrated;
+      out.push(l);
+    }
+    for (const l of all) {
+      if (isKnownFlower(l.flower)) continue;
+      const taken: Flower[] = [];
+      for (const o of all) {
+        if (o.bornAt > l.bornAt) break;
+        if (o === l || o.lineageId !== l.lineageId || !isKnownFlower(o.flower)) continue;
+        const end = o.diedAt ?? (o.lostAt != null ? presumedEndAt(o) : Infinity);
+        if (end > l.bornAt) taken.push(o.flower);
+      }
+      l.flower = pickFlower(l.lifeId, taken);
+      out.push(l);
+    }
+    return out;
+  }
+
+  /**
+   * Flag every life of `runId` that was alive at some point in [from, to]
+   * (born by `to`, not dead or lost before `from`) as outage / not valid for
+   * study. Returns the newly flagged lives.
+   */
+  markOutage(runId: string, from: number, to: number): LifeCore[] {
+    const out: LifeCore[] = [];
+    for (const l of this.lives.values()) {
+      if (l.runId !== runId || l.outage === true || l.bornAt > to) continue;
+      if ((l.diedAt ?? Infinity) < from || (l.lostAt ?? Infinity) < from) continue;
+      l.outage = true;
+      l.validForStudy = false;
+      l.updatedAt = Math.max(l.updatedAt, to);
+      out.push(l);
+    }
+    return out;
   }
 
   /** Mark open lives matching `pred` as lost at time t (or at their last update if t is null). */
@@ -392,7 +497,7 @@ function sameBody(l: LifeCore, agentId: string, t: number, age: number | null): 
   if (l.diedAt != null || l.agentId !== agentId) return false;
   if (t > presumedEndAt(l) + 5 * 60_000) return false;
   if (age != null && l.ageAtBirth != null) {
-    const expected = Math.min(LIFESPAN_YEARS, l.ageAtBirth + (t - l.bornAt) / YEAR_MS);
+    const expected = Math.min(LIFESPAN_YEARS, l.ageAtBirth + (t - l.bornAt) / yearMsOf(l));
     if (Math.abs(age - expected) > 3) return false;
   }
   return true;

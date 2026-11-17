@@ -3,6 +3,7 @@
 // Use getClient(); the hooks in ./hooks.ts sit on top of this.
 
 import type {
+  AgentSpecResponse,
   DeathsResponse,
   LifeLogResponse,
   LifeRecord,
@@ -12,9 +13,11 @@ import type {
   RunEvent,
   StateResponse,
   StoryHistoryResponse,
+  InventionsResponse,
 } from "../api-types.ts";
 import { dataMode, type DataMode } from "./config.ts";
 import {
+  normAgentSpec,
   normDeaths,
   normEvent,
   normEvents,
@@ -26,6 +29,7 @@ import {
   normNames,
   normState,
   normStoryHistory,
+  normInventions,
 } from "./normalize.ts";
 
 export class ApiError extends Error {
@@ -66,6 +70,10 @@ export interface ApiClient {
   lineages(): Promise<LineagesResponse>;
   deaths(q?: { limit?: number }): Promise<DeathsResponse>;
   storyHistory(q?: { limit?: number }): Promise<StoryHistoryResponse>;
+  /** first time each technology item was made in the current run, newest first (empty from older servers) */
+  inventions(q?: { limit?: number }): Promise<InventionsResponse>;
+  /** GET /api/agent-spec (what agents are told and can do); null if the service is older than it */
+  agentSpec?(): Promise<AgentSpecResponse | null>;
 }
 
 const qs = (o: Record<string, number | null | undefined>) => {
@@ -87,14 +95,14 @@ export class HttpClient implements ApiClient {
     this.mode = { kind: "http", base };
   }
 
-  private async get(path: string, allow404 = false): Promise<unknown> {
+  private async get(path: string, allow404 = false, raw = false): Promise<unknown> {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), this.timeoutMs);
     try {
       const res = await fetch(`${this.base}${path}`, { signal: ctl.signal, headers: { accept: "application/json" } });
       if (allow404 && res.status === 404) return null;
       if (!res.ok) throw new ApiError(`GET ${path} -> HTTP ${res.status}`, res.status);
-      return await res.json();
+      return raw ? await res.text() : await res.json();
     } catch (e) {
       if (e instanceof ApiError) throw e;
       throw new ApiError(`GET ${path} failed: ${(e as Error)?.message ?? e}`, null);
@@ -104,7 +112,25 @@ export class HttpClient implements ApiClient {
   }
 
   async state() { return normState(await this.get("/api/state")); }
-  async map() { return normMap(await this.get("/api/map")); }
+  private lastMap: { text: string; map: MapResponse } | null = null;
+  /**
+   * The map is re-sent whole every poll and grows all run (10^5 cells after a long run).
+   * An unchanged body returns the previous object, so nothing downstream re-parses,
+   * re-indexes or redraws it.
+   */
+  async map() {
+    const text = (await this.get("/api/map", false, true)) as string;
+    if (this.lastMap && this.lastMap.text === text) return this.lastMap.map;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      throw new ApiError(`GET /api/map: bad JSON (${(e as Error).message})`, null);
+    }
+    const map = normMap(parsed);
+    this.lastMap = { text, map };
+    return map;
+  }
   async events(since = 0) { return normEvents(await this.get(`/api/events${qs({ since })}`)); }
   async objects() {
     const r = (await this.get("/api/objects")) as { names?: unknown } | null;
@@ -120,6 +146,8 @@ export class HttpClient implements ApiClient {
   async lineages() { return normLineages(await this.get("/api/lineages")); }
   async deaths(q: { limit?: number } = {}) { return normDeaths(await this.get(`/api/deaths${qs(q)}`)); }
   async storyHistory(q: { limit?: number } = {}) { return normStoryHistory(await this.get(`/api/story/history${qs(q)}`)); }
+  async inventions(q: { limit?: number } = {}) { return normInventions(await this.get(`/api/inventions${qs(q)}`, true)); }
+  async agentSpec() { return normAgentSpec(await this.get("/api/agent-spec", true)); }
 
   stream(h: StreamHandlers): () => void {
     let es: EventSource | null = null;
@@ -166,7 +194,8 @@ export class HttpClient implements ApiClient {
 /**
  * Files written by scripts/capture-fixture.mjs into viewer/fixtures/<name>/:
  *   state.json map.json events.json objects.json lives.json lineages.json deaths.json
- *   story-history.json meta.json  life/<safeId>.json  log/<safeId>.json
+ *   story-history.json inventions.json meta.json  life/<safeId>.json  log/<safeId>.json
+ *   story-history.json meta.json agent-spec.json  life/<safeId>.json  log/<safeId>.json
  * They are bundled as lazy chunks (import.meta.glob), so fixture mode makes no API calls.
  */
 export function fixtureFileId(lifeId: string): string {
@@ -243,6 +272,11 @@ export class FixtureClient implements ApiClient {
     const h = normStoryHistory(await this.load("story-history.json", true));
     return { history: h.history.slice(0, q.limit ?? 20) };
   }
+  async inventions(q: { limit?: number } = {}) {
+    const r = normInventions(await this.load("inventions.json", true));
+    return { inventions: r.inventions.slice(0, q.limit ?? 20) };
+  }
+  async agentSpec() { return normAgentSpec(await this.load("agent-spec.json", true)); }
   stream(h: StreamHandlers): () => void {
     // a snapshot has no live stream; report "open" so the UI shows connected
     const t = setTimeout(() => h.onStatus?.("open"), 0);

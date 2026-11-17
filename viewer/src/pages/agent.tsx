@@ -2,8 +2,7 @@
 import { useMemo, useState } from "react";
 import type { LifeRecord, RunEvent } from "../api-types.ts";
 import { pageHref, queryParam, useLife, useLifeLog, useNow, useWorldState, type LifeLogState } from "../data/index.ts";
-import { hairColorForTraits } from "../ohol/index.ts";
-import { deathReasonText, displayName, formatAge, formatClock, formatCount, formatDuration, formatTrait, personalityText } from "../shared/index.ts";
+import { deathReasonText, displayName, firstNameOf, formatAge, formatClock, formatCount, formatDuration, formatTrait, personalityText } from "../shared/index.ts";
 import { DEATH_ICON } from "../site/Deaths.tsx";
 import { FamilyTree, TreeScroll } from "../site/FamilyTree.tsx";
 import {
@@ -32,7 +31,7 @@ const MOCK_TITLE = "Mock: traits are assigned and inherited as designed, but not
 
 function firstName(n: string | null) {
   const d = displayName(n);
-  return d.split(/\s+/)[0] || d;
+  return firstNameOf(d) || d;
 }
 
 // ------------------------------------------------------------------ profile
@@ -42,7 +41,6 @@ function Profile({ life, site, now }: { life: LifeRecord; site: SiteData; now: n
   const role = deriveRole(life.activity);
   const age = site.ageOf(life);
   const lived = lifetimeMs(life, now);
-  const hair = life.traits ? hairColorForTraits(life.traits, site.dims) : null;
   const famName = site.famName(life.lineageId);
   return (
     <section className="panel profile">
@@ -96,18 +94,14 @@ function Profile({ life, site, now }: { life: LifeRecord; site: SiteData; now: n
             <dd>{formatDuration(lived)}</dd>
             <dt>Sex</dt>
             <dd>{life.female == null ? "?" : life.female ? "female" : "male"}</dd>
+            <dt>Flower</dt>
+            <dd>{site.flowerOf(life.lifeId)?.label ?? "none"}</dd>
             <dt>Kids</dt>
             <dd>{fam.children.length || life.childLifeIds.length || "none"}</dd>
             <dt>Role</dt>
             <dd>{role ?? "too early to say"}</dd>
           </dl>
         </div>
-      </div>
-      <div className="looks">
-        <span className="sw" style={{ background: hair ?? "var(--parchment-edge)" }} />
-        <span>Hair colour, from personality</span>
-        <span className="sw face">☺</span>
-        <span className="ugc">Hairstyle and face, from the {famName} family</span>
       </div>
     </section>
   );
@@ -357,7 +351,8 @@ function Timeline({ life, site, log }: { life: LifeRecord; site: SiteData; log: 
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
     const ss = String(s % 60).padStart(2, "0");
-    return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+    // "+" so it can't be read as a clock time (BORN shows one just above)
+    return h ? `+${h}:${String(m).padStart(2, "0")}:${ss}` : `+${m}:${ss}`;
   };
   return (
     <Panel title="Timeline" variant="yellow" id="timeline">

@@ -4,7 +4,7 @@ import { lineageName } from "../shared/lineage.ts";
 import { formatCount } from "../shared/format.ts";
 import { MockBadge, SiteLayout } from "../theme/index.ts";
 import type { LifeRecord } from "../api-types.ts";
-import { ADULT_AGE, computeStudy, dataWindow, MIN_FAMILIES, MIN_N_FOR_CLAIMS, traitTests, verdict, YEAR_MS, type StudyRequest, type StudyResult } from "./analysis.ts";
+import { ADULT_AGE, computeStudy, dataWindow, MIN_FAMILIES, MIN_N_FOR_CLAIMS, shortestYearMs, studyLives, traitTests, verdict, type StudyRequest, type StudyResult } from "./analysis.ts";
 import { fmt } from "./charts.tsx";
 import { downloadText, livesCsv } from "./csv.ts";
 import { Ribbon } from "./Figure.tsx";
@@ -61,11 +61,15 @@ function useStudyResults(lives: LifeRecord[], dims: string[], now: number): Stud
 export function StudyPage() {
   const L = useLives();
   const lin = useLineages();
-  const lives = L.lives;
+  const all = L.lives;
+  // lives the backend flagged (alive during an LLM outage, ...) are left out of every analysis and count
+  const split = useMemo(() => studyLives(all), [all]);
+  const lives = split.valid;
   const dims = useMemo(() => (L.traitDims.length ? L.traitDims : Object.keys(lives.find((l) => l.traits)?.traits ?? {})), [L.traitDims, lives]);
-  // ages depend on "now": recompute at most once a game year (one real minute)
+  // ages depend on "now": recompute at most once a game year (60 s x TIME_SCALE; the shortest year among the lives)
   const now = L.now ?? 0;
-  const nowBucket = Math.ceil(now / YEAR_MS) * YEAR_MS;
+  const step = useMemo(() => shortestYearMs(all), [all]);
+  const nowBucket = Math.ceil(now / step) * step;
 
   const [dim, setDim] = useState<string | null>(() => queryParam("trait"));
   const sel = dim && dims.includes(dim) ? dim : (dims[0] ?? null);
@@ -76,7 +80,7 @@ export function StudyPage() {
     window.history.replaceState(null, "", u);
   }, [dim, sel]);
 
-  const study = useStudyResults(lives, dims, nowBucket);
+  const study = useStudyResults(all, dims, nowBucket);
   const per = useMemo(() => study?.per ?? {}, [study]);
   const q3 = study?.q3 ?? null;
   const win = useMemo(() => dataWindow(lives), [lives]);
@@ -95,7 +99,7 @@ export function StudyPage() {
   }, [lin.data, lives]);
 
   const r = sel ? per[sel] : null;
-  const loading = (L.loading && !lives.length) || (!study && lives.length > 0);
+  const loading = (L.loading && !all.length) || (!study && all.length > 0);
 
   return (
     <SiteLayout active="study">
@@ -121,6 +125,11 @@ export function StudyPage() {
           {win.lost > 0 && (
             <span>
               <b>{formatCount(win.lost)}</b> lost
+            </span>
+          )}
+          {split.excluded.length > 0 && (
+            <span title={split.outage === split.excluded.length ? "alive while the model provider was down, so they couldn't think for part of their life" : "flagged by the agents service as not comparable (e.g. alive during a model-provider outage)"}>
+              <b>{formatCount(split.excluded.length)}</b> excluded{split.outage === split.excluded.length ? " (outage)" : ""}
             </span>
           )}
         </div>
@@ -151,7 +160,7 @@ export function StudyPage() {
           <span className="muted">p-values permute family trait centres between families, so n is effectively the number of families.</span>
           {win.outOfRange > 0 && <span className="muted"> {win.outOfRange} out-of-range trait values ignored.</span>}
         </p>
-        <button type="button" className="btn is-ghost csv" disabled={!lives.length} onClick={() => downloadText(`artificial-selection-lives-${new Date(now || Date.now()).toISOString().slice(0, 10)}.csv`, livesCsv(lives, dims, nowBucket))}>
+        <button type="button" className="btn is-ghost csv" disabled={!all.length} onClick={() => downloadText(`artificial-selection-lives-${new Date(now || Date.now()).toISOString().slice(0, 10)}.csv`, livesCsv(all, dims, nowBucket))}>
           Download CSV
         </button>
       </section>

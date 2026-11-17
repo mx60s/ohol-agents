@@ -78,15 +78,18 @@ function WorldStatus({ site }: { site: SiteData }) {
     };
   }, [site]);
   const d = (v: number | null) => (v == null ? "–" : v);
+  // no data yet (loading, or the API was down from the start): dashes, not a world of zeros
+  const none = site.lives.length === 0 && (site.loading || site.failed);
+  const n = (v: number) => (none ? "–" : v);
   return (
     <Panel title="World status" bare>
       <StatTiles cols={4}>
-        <StatTile tone="good" value={s.alive} label="Alive now" />
-        <StatTile value={s.lives} label="Lives so far" />
-        <StatTile tone="bad" value={s.deaths} label="Deaths" />
+        <StatTile tone="good" value={n(s.alive)} label="Alive now" />
+        <StatTile value={n(s.lives)} label="Lives so far" />
+        <StatTile tone="bad" value={n(s.deaths)} label="Deaths" />
         <StatTile value={s.gen || "–"} label="Deepest generation" />
-        <StatTile value={s.famLiving} suffix={`/ ${s.famAll}`} label="Families alive" />
-        <StatTile value={s.grownUp} suffix={`/ ${s.babies}`} label="Babies who grew up" />
+        <StatTile value={n(s.famLiving)} suffix={none ? undefined : `/ ${s.famAll}`} label="Families alive" />
+        <StatTile value={n(s.grownUp)} suffix={none ? undefined : `/ ${s.babies}`} label="Babies who grew up" />
         <StatTile value={s.medAge == null ? "–" : s.medAge.toFixed(1)} suffix={s.medAge == null ? undefined : "y"} label="Median age at death" />
         <StatTile value={d(s.oldest == null ? null : Math.floor(s.oldest))} suffix={s.oldest == null ? undefined : "y"} label="Oldest alive" />
       </StatTiles>

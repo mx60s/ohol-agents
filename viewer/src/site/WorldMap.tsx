@@ -6,20 +6,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MapCellTuple, PlayerView } from "../api-types.ts";
 import { pageHref, useMap, useWorldState } from "../data/index.ts";
 import { appearanceFor, drawGround, drawObject, drawPerson, getOholAssets, loadOholAssets, onOholSpriteLoaded } from "../ohol/index.ts";
-import { displayName } from "../shared/index.ts";
+import { displayName, firstNameOf } from "../shared/index.ts";
 import type { SiteData } from "./useSite.ts";
 
-/** muted biome colours that sit on the parchment palette */
-export const BIOME_FILL: Record<number, string> = {
-  0: "#8d985c", // grassland
-  1: "#5f6b48", // swamp
-  2: "#c4b46a", // prairie
-  3: "#9a8f80", // badlands
-  4: "#e2e5df", // tundra / snow
-  5: "#d8bb83", // desert
-  6: "#4f6f34", // jungle
-};
-const UNKNOWN_FILL = "#b9ab88";
+import { BIOME_FILL, UNKNOWN_FILL } from "./logic.ts";
+
+export { BIOME_FILL };
 
 /** px per tile above which we draw textures and sprites */
 const ART_ZOOM = 18;
@@ -173,7 +165,16 @@ export function WorldMap({ site, height = 360, focusLifeId }: { site: SiteData; 
         const lineageId = life?.lineageId ?? p.lineageId ?? null;
         const female = life?.female ?? p.female ?? true;
         const appearance = lineageId
-          ? appearanceFor({ displayId: p.displayId, female, lineageId, traits: life?.traits ?? {}, traitDims: site.dims, livingLineageIds: site.order })
+          ? appearanceFor({
+              displayId: p.displayId,
+              female,
+              lineageId,
+              traits: life?.traits ?? {},
+              traitDims: site.dims,
+              livingLineageIds: site.order,
+              lifeId: p.lifeId ?? null,
+              flower: p.flower ?? (p.lifeId ? site.flowerOf(p.lifeId) : null),
+            })
           : null;
         const did = getOholAssets()?.manifest.objects[p.displayId]?.person ? p.displayId : female ? 19 : 347;
         drawPerson(g, { displayId: did, age: Math.max(0, Math.min(60, p.age)), facingLeft: false, heldObjectId: null, appearance }, sx, sy + z * 0.3, scale);
@@ -338,6 +339,6 @@ function zoomAt(v: View, f: number, mx: number, my: number, W: number, H: number
 function shortName(live: string | null, rec: string | null | undefined): string {
   const n = displayName(rec ?? live, "");
   if (!n) return "";
-  const first = Array.from(n.split(/\s+/)[0] ?? n);
+  const first = Array.from(firstNameOf(n));
   return first.length > 12 ? `${first.slice(0, 11).join("")}…` : first.join("");
 }

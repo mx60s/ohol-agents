@@ -4,13 +4,16 @@
 # See deploy/README.md for the commands, secrets and costs.
 #
 # Secrets (fly secrets set, never in this file):
-#   OPENROUTER_API_KEY   required; the agents service exits without it
+#   OPENROUTER_API_KEY   narrator, story, director (Jev); also the agents' key when LLM_BASE_URL is unset
+#   LLM_BASE_URL         the agents' endpoint, e.g. https://<pod>-8000.proxy.runpod.net/v1 (unset = OpenRouter)
+#   LLM_API_KEY          the agents' endpoint key (the vLLM --api-key)
 #   CONTROL_TOKEN        password for POST /api/start and /api/halt
 
 app = "artificial-selection"
 primary_region = "sjc"
 # start.sh traps SIGTERM: agents stop first (research snapshot), then the
 # game server quits gracefully. Leave time for both before the hard kill.
+# SIGUSR1 restarts only the agents service (deploy/hot-update.sh).
 kill_signal = "SIGTERM"
 kill_timeout = "60s"
 
@@ -20,19 +23,36 @@ kill_timeout = "60s"
 [env]
   # always-on: no generation/lives/runtime limits, run starts at boot
   CONTINUOUS = "1"
+  # the game server saves living characters (mtsPlayerSaves), so a server restart keeps the run and agents log back in
+  RESUME_ACROSS_SERVER_RESTART = "1"
   AUTOSTART = "1"
   # start/stop from the dashboard needs CONTROL_TOKEN
   OPEN_CONTROL = "0"
-  AGENT_COUNT = "4"
-  LLM_MODEL = "google/gemini-3.8-flash"
+  AGENT_COUNT = "10"
+  INITIAL_EVES = "2"
+  # agents: self-hosted Qwen3.8-27B-FP8 + MTP on one RunPod H200 (deploy/gpu/launch-qwen.sh,
+  # docs/research/selfhost-optimize.md). LLM_BASE_URL and LLM_API_KEY are secrets (pod URL changes per pod).
+  # Narrator, story and director stay on OpenRouter (OPENROUTER_API_KEY): Gemini 3.1 Flash-Lite and Jev.
+  LLM_MODEL = "m"
+  LLM_MODEL_NAME = "Qwen/Qwen3.8-27B"
+  # mild reasoning: thinking on, 300-token thinking budget inside 800 tokens (vLLM thinking_token_budget)
+  LLM_REASONING_MAX_TOKENS = "300"
+  LLM_DECISION_MAX_TOKENS = "800"
+  # the whole game clock runs 3x slower (server and agents read the same value)
+  TIME_SCALE = "3"
+  DECISION_CYCLE_MS = "8000"
+  CRAFT_MACRO = "1"
   MEMORY_MODE = "per-life"
   RECIPE_HINTS = "1"
-  NARRATOR_INTERVAL_MS = "30000"
+  # actions per reply, back to back: 4 fits the ember chain (drill, swap, leaf, tinder) in one list
+  ACTION_LIST_MAX = "4"
+  NARRATOR_INTERVAL_MS = "90000"
   # stream director + "story so far" (defaults from .env.example)
+  DIRECTOR_ENGINE = "jev"
   DIRECTOR_INTERVAL_MS = "10000"
   DIRECTOR_MIN_DWELL_MS = "45000"
   DIRECTOR_DEATH_HOLD_MS = "8000"
-  STORY_INTERVAL_MS = "300000"
+  STORY_INTERVAL_MS = "900000"
   # spend guards: 0 = off. Set e.g. DAILY_COST_USD = "5" to pause LLM calls
   # once the rolling 24h spend reaches it (survives restarts, kept in LOG_DIR).
   DAILY_COST_USD = "0"
@@ -79,7 +99,8 @@ kill_timeout = "60s"
     method = "GET"
     path = "/api/state"
 
-# start.sh exits non-zero if either process dies; always bring the machine back
+# start.sh restarts a crashed agents service itself (the world stays up) and
+# exits non-zero only if the game server dies; then bring the machine back
 [[restart]]
   policy = "always"
 

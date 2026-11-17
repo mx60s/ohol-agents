@@ -1,11 +1,12 @@
 // Small React components matching the approved design (design/*.html). Styles: tokens.css, site.css, components.css.
 // All text props render as React text (escaped); never inject raw HTML.
 
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, type CSSProperties, type ReactNode } from "react";
 import { pageHref, type SitePage } from "../data/config.ts";
 import { getClient } from "../data/client.ts";
 import { useNow, useWorldState } from "../data/hooks.ts";
 import { formatClock, formatDuration, formatRelative } from "../shared/format.ts";
+import { thinkingLabel, thinkingState } from "../shared/runStatus.ts";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -158,11 +159,12 @@ export function Wordmark({ size, text = SITE_NAME }: { size?: "sm" | "md" | "lg"
   );
 }
 
-export type NavKey = "live" | "people" | "families" | "study" | "about";
+export type NavKey = "live" | "people" | "families" | "agents" | "study" | "about";
 export const NAV_ITEMS: { key: NavKey; label: string; page: SitePage; hash?: string }[] = [
   { key: "live", label: "Live", page: "home" },
   { key: "people", label: "People", page: "people" },
   { key: "families", label: "Families", page: "families" },
+  { key: "agents", label: "How agents work", page: "agents" },
   { key: "study", label: "Study", page: "study" },
   { key: "about", label: "About", page: "about" },
 ];
@@ -215,6 +217,10 @@ export function RunBar() {
   const status = snapshot ? "SNAPSHOT" : w.connection === "offline" ? "OFFLINE" : w.connection === "connecting" ? "CONNECTING" : run?.status === "paused" ? "PAUSED" : run?.status === "halted" ? "ENDED" : run?.status === "idle" ? "IDLE" : "LIVE";
   const live = status === "LIVE";
   const agents = w.state?.agents.length ?? 0;
+  // paused for a provider outage / the spend cap, or provider calls failing: say so, with how long
+  const thinking = snapshot ? { kind: "ok" as const } : thinkingState(run);
+  const pause = thinkingLabel(thinking, formatDuration, now);
+  const pauseTitle = thinking.kind === "daily-cap" ? (run?.pauseReason ?? undefined) : thinking.kind !== "ok" ? (run?.llmStatus?.lastError ?? undefined) : undefined;
   return (
     <div className="runbar">
       <div className="in">
@@ -222,6 +228,11 @@ export function RunBar() {
           <span className={cx("live-dot", !live && "off")} />
           <b>{status}</b>
         </span>
+        {pause && (
+          <span className={cx("pause", thinking.kind !== "daily-cap" && "is-provider")} title={pauseTitle} role="status">
+            {pause}
+          </span>
+        )}
         {run && (
           <>
             <span>
@@ -258,8 +269,39 @@ export function Footer({ disclaimer = null }: { disclaimer?: string | null }) {
   );
 }
 
+/**
+ * Links like families.html#deaths point at panels that only render once data has loaded, after
+ * the browser has already given up on the hash. Scroll to the target when it appears (once,
+ * within a few seconds, and not if the reader has scrolled meanwhile).
+ */
+function useLateHashScroll() {
+  useEffect(() => {
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    if (!id) return;
+    let done = false;
+    const tryScroll = () => {
+      if (done) return;
+      const el = document.getElementById(id);
+      if (!el) return;
+      done = true;
+      if (window.scrollY < 40) el.scrollIntoView({ block: "start" });
+      stop();
+    };
+    const mo = new MutationObserver(tryScroll);
+    mo.observe(document.body, { childList: true, subtree: true });
+    const t = setTimeout(() => stop(), 8000);
+    function stop() {
+      mo.disconnect();
+      clearTimeout(t);
+    }
+    tryScroll();
+    return stop;
+  }, []);
+}
+
 /** Header + run bar + <main className="page"> + footer. */
 export function SiteLayout({ active, children, runbar = true, wide }: { active?: NavKey; children: ReactNode; runbar?: boolean; wide?: boolean }) {
+  useLateHashScroll();
   return (
     <>
       <SiteHeader active={active} />

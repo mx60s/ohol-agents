@@ -25,6 +25,7 @@ export class Poller<T> {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private inFlight = false;
   private fetchedOnce = false;
+  private fails = 0;
   constructor(
     private fetcher: (c: ApiClient, prev: T | null) => Promise<T>,
     private intervalMs: number,
@@ -65,8 +66,16 @@ export class Poller<T> {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     const c = getClient();
-    if (this.listeners.size === 0 || this.intervalMs <= 0 || (c.isStatic && this.fetchedOnce)) return;
-    this.timer = setTimeout(() => void this.tick(), this.intervalMs);
+    if (this.listeners.size === 0 || (c.isStatic && this.fetchedOnce)) return;
+    if (this.intervalMs <= 0) {
+      // fetch-once resources (object names, the fixture clock) still retry until the first success,
+      // or a page opened while the API was down would never get them
+      if (this.fetchedOnce) return;
+      this.timer = setTimeout(() => void this.tick(true), Math.min(60_000, 2000 * 2 ** Math.min(5, this.fails - 1)));
+      return;
+    }
+    // after an error retry sooner than a slow poll (the 30 s story) so pages recover quickly
+    this.timer = setTimeout(() => void this.tick(), this.snap.error ? Math.min(this.intervalMs, 5000) : this.intervalMs);
   }
 
   private async tick(force = false) {
@@ -77,8 +86,12 @@ export class Poller<T> {
     try {
       const data = await this.fetcher(c, this.snap.data);
       this.fetchedOnce = true;
-      this.set({ data, error: null, loading: false, updatedAt: Date.now() });
+      this.fails = 0;
+      // same object back (e.g. an unchanged map, a lives poll with nothing new): no re-render
+      if (data === this.snap.data && !this.snap.error && !this.snap.loading) this.snap.updatedAt = Date.now();
+      else this.set({ data, error: null, loading: false, updatedAt: Date.now() });
     } catch (e) {
+      this.fails++;
       this.set({ error: e instanceof Error ? e : new Error(String(e)), loading: false });
     } finally {
       this.inFlight = false;

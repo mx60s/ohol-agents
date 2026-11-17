@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "model": "anthropic/claude-haiku-5.5",
+  "runId": "cal2-1794888034-r1-mwk5zr55-2026-11-17T04-00-34-601Z",
+  "startedAt": 1794888034000,
+  "endedAt": 1794889234000,
+  "wallMinutes": 20,
+  "gameYears": 6.67,
+  "agentCount": 8,
+  "timeScale": 3,
+  "decisionCycleMs": 6000,
+  "settings": {
+    "reasoningEffort": "mild cap (LLM_REASONING_CAP=1, 300 reasoning / 800 total)",
+    "maxTokens": 800,
+    "providerSort": null,
+    "providerOrder": [],
+    "allowFallbacks": null,
+    "stream": true
+  },
+  "turnMs": {
+    "n": 395,
+    "p50": 3103,
+    "p90": 6462,
+    "p99": 10219
+  },
+  "llm": {
+    "calls": 653,
+    "callErrors": 0,
+    "promptTokens": 2710830,
+    "completionTokens": 309802,
+    "cachedTokens": 1317692,
+    "reasoningTokens": 250198,
+    "cacheHitRate": 0.4861,
+    "costUsd": 0.308658,
+    "totalCostUsd": 0.3541,
+    "costPerAgentHourUsd": 0.1328,
+    "latencyMsP50": 2584,
+    "latencyMsP90": 5588,
+    "latencyMsP99": 10115,
+    "ttftMsP50": 2144,
+    "ttftMsP90": 4891,
+    "reasoningTokensPerCall": 383.2,
+    "completionTokensPerCall": 474.4,
+    "providers": {
+      "Claude Platform on AWS": 653
+    },
+    "jsonErrors": 0,
+    "jsonErrorRate": 0,
+    "agentOnlyCostPerAgentHourUsd": 0.1157
+  },
+  "decisions": {
+    "total": 653,
+    "perWallMinute": 32.65,
+    "perAgentWallMinute": 4.081,
+    "perGameYear": 97.95,
+    "perAgentGameYear": 12.244
+  },
+  "actions": {
+    "total": 516,
+    "failed": 111,
+    "failureRate": 0.2151,
+    "reflex": 0
+  },
+  "lives": {
+    "lives": 8,
+    "eves": 2,
+    "babies": 6,
+    "deaths": 0,
+    "deathsByCause": {},
+    "maxGeneration": 2,
+    "babiesAtRisk": 4,
+    "babiesSurvivedPast3": 4,
+    "babySurvivalPast3Rate": 1,
+    "perWallMinute": {
+      "births": 0.4,
+      "deaths": 0
+    },
+    "perGameYear": {
+      "births": 1.2,
+      "deaths": 0
+    }
+  },
+  "firsts": {
+    "sharpStone": {
+      "wallMin": 4.06,
+      "gameYears": 1.35,
+      "what": "Sharp Stone"
+    },
+    "fire": null,
+    "clothing": {
+      "wallMin": 11.62,
+      "gameYears": 3.87,
+      "what": "Reed Skirt)"
+    }
+  },
+  "notes": {
+    "narratorDirectorStory": "on, default overhead model google/gemini-3.1-flash-lite",
+    "foodBonus": "on",
+    "continuous": true,
+    "initialEves": 2,
+    "finalState": {
+      "alive": 8,
+      "births": 8,
+      "deaths": 0,
+      "status": "running",
+      "haltReason": null
+    }
+  }
+}

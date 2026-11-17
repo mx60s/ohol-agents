@@ -4,6 +4,7 @@
 
 import type { Appearance } from "./appearance.ts";
 import { hairTintAtAge } from "./appearance.ts";
+import { FLOWER_ART, flowerSizeAtAge } from "./flower.ts";
 import type { Clothing, Layer, ObjectRec, OholManifest } from "./types.ts";
 
 export type Blend = "normal" | "multiply" | "additive";
@@ -23,6 +24,11 @@ export interface DrawOp {
   hairTint: string | null;
   /** hair sprite that is multiplicative in the game; recoloured into an alpha sprite (see hairTint.ts) */
   hairLines?: boolean;
+  /**
+   * A person's flower (flower.ts): drawn centred on (x, y), its larger side `size` world units.
+   * `sprite` is its OHOL sprite id, or -1 for a generated one (public/flowers/).
+   */
+  flower?: { shape: string; color: string; size: number };
 }
 
 /** Genital/pubic sprites. Already removed by the asset build; filtered again here regardless. */
@@ -101,6 +107,51 @@ export function composeObject(m: OholManifest, id: number, opts: ObjectOpts = {}
     ops.push(layerOp(m, L, x, y, flipH, inRot));
   });
   return ops;
+}
+
+/** screen-space axis-aligned box (canvas px, y down) */
+export interface Box {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const;
+
+/**
+ * Screen bounds of the visible pixels of `ops` drawn with the object origin at canvas (x, y), as
+ * render.ts drawOps places them (translate, rotate, scale with flip). Multiplicative sprites
+ * (shadows, tints) are left out: they don't cover anything. null if nothing visible.
+ */
+export function opsBounds(m: Pick<OholManifest, "sprites">, ops: readonly DrawOp[], x: number, y: number, scale: number): Box | null {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const op of ops) {
+    const sm = m.sprites[op.sprite];
+    if (op.flower || !sm || sm.m || op.blend === "multiply" || !(sm.vw > 0) || !(sm.vh > 0)) continue;
+    const a = op.rot ? op.rot * 2 * Math.PI : 0;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    const tx = x + op.x * scale;
+    const ty = y - op.y * scale;
+    const cx = -sm.ax + sm.cx;
+    const cy = -sm.ay + sm.cy;
+    for (const [dx, dy] of CORNERS) {
+      // local (y-down) corner of the visible rect, then flip+scale, rotate, translate
+      const lx = (cx + (dx * sm.vw) / 2) * (op.flip ? -scale : scale);
+      const ly = (cy + (dy * sm.vh) / 2) * scale;
+      const px = tx + lx * cos - ly * sin;
+      const py = ty + lx * sin + ly * cos;
+      if (px < x0) x0 = px;
+      if (px > x1) x1 = px;
+      if (py < y0) y0 = py;
+      if (py > y1) y1 = py;
+    }
+  }
+  return x0 < x1 && y0 < y1 ? { x0, y0, x1, y1 } : null;
 }
 
 /** getObjectCenterOffset (objectBank.cpp): centre of the widest non-multiplicative sprite. */
@@ -310,6 +361,43 @@ function limbChain(layers: Layer[], hand: number): number[] {
   return out;
 }
 
+/**
+ * Where a person's flower sits, as fractions of the head sprite's visible box from its centre
+ * (x toward the back of the head, y up): on top of the skull, behind the crown, where hair
+ * tucks over the ear. It follows the head layer, so the age offsets (babies' low heads, elders'
+ * stoop) and the facing flip carry it along; on every hairstyle it overlaps hair or scalp.
+ */
+export const FLOWER_SPOT = { back: 0.22, up: 0.3 };
+
+/** The flower draw op for a person (see FLOWER_SPOT, flowerSizeAtAge). */
+export function flowerOp(
+  m: OholManifest,
+  headLayer: Layer,
+  headPos: [number, number],
+  flipH: boolean,
+  age: number,
+  flower: { shape: string; color: string },
+): DrawOp | null {
+  const hs = m.sprites[headLayer.s];
+  if (!hs) return null;
+  const sx = flipH ? -1 : 1;
+  // visible centre of the head sprite (y-up), as drawOps places it
+  const hx = headPos[0] + sx * (-hs.ax + hs.cx);
+  const hy = headPos[1] + hs.ay - hs.cy;
+  const art = FLOWER_ART[flower.shape];
+  return {
+    sprite: art?.sprite ?? -1,
+    x: hx - sx * FLOWER_SPOT.back * hs.vw,
+    y: hy + FLOWER_SPOT.up * hs.vh,
+    rot: 0,
+    flip: flipH,
+    color: null,
+    blend: "normal",
+    hairTint: null,
+    flower: { shape: flower.shape, color: flower.color, size: flowerSizeAtAge(age) * (art?.scale ?? 1) },
+  };
+}
+
 /** Ops for a person, with clothing, held object and appearance, following drawObjectAnim. */
 export function composePerson(m: OholManifest, spec: PersonSpec): DrawOp[] {
   const base = m.objects[spec.displayId];
@@ -390,6 +478,11 @@ export function composePerson(m: OholManifest, spec: PersonSpec): DrawOp[] {
   });
   // hat on top of everything, relative to the (aged) head
   ops.push(...clothingOps(cl.hat, finalPos[head]));
+  // the person's flower, above hair and hat (like a flower in a hatband)
+  if (ap?.flower) {
+    const f = flowerOp(m, layers[head], finalPos[head], flipH, age, ap.flower);
+    if (f) ops.push(f);
+  }
 
   if (spec.heldObjectId) {
     const r = resolveObject(m, spec.heldObjectId);

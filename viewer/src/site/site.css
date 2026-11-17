@@ -49,9 +49,9 @@ th.sortable.on { color: var(--ink); }
 td.clip { display: table-cell; max-width: 160px; }
 td.when { white-space: nowrap; font-size: 12.5px; }
 .st { font-weight: 800; font-size: 12.5px; white-space: nowrap; }
-.st.alive { color: var(--alive); }
+.st.alive { color: var(--alive-ink); }
 .st.dead { color: var(--ink-3); }
-.st.lost { color: var(--warn); }
+.st.lost { color: var(--warn-ink); }
 tr.is-dead .name-cell a { color: var(--ink-2); }
 .people-table td.trait { font-size: 12px; min-width: 52px; }
 .people-table th.trait { min-width: 52px; }
@@ -199,9 +199,6 @@ a.fbody:hover .fn { text-decoration: underline; }
 dl.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 12px; margin: 0; font-size: 13.5px; }
 dl.kv dt { font-weight: 800; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding-top: 2px; }
 dl.kv dd { margin: 0; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
-.looks { margin: 0 16px 16px; display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; background: var(--parchment-lo); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
-.sw { width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid var(--ink); display: inline-grid; place-items: center; }
-.sw.face { background: var(--paper-white); font-size: 15px; line-height: 1; }
 .meter-row { display: grid; grid-template-columns: 64px 1fr 52px; gap: 8px; align-items: center; font-size: 12.5px; font-weight: 700; margin-bottom: 8px; }
 .meter-row .mono { text-align: right; }
 .bar-fill.is-food { background: var(--gloss), var(--grad-clay); }
@@ -302,12 +299,6 @@ dl.kv dd { margin: 0; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
 }
 @media (max-width: 760px) {
   .page { padding: 14px 10px 32px; }
-  .site-top .in { padding: 10px 12px; gap: 10px; }
-  .site-top .wordmark { font-size: 30px; }
-  .site-top .navbar { margin-left: 0; order: 3; width: 100%; overflow-x: auto; }
-  .site-top .navbar a { padding: 6px 11px; font-size: 13px; }
-  .site-top .watch { margin-left: auto; padding: 5px 10px; font-size: 12.5px; }
-  .runbar .in { padding: 5px 12px; gap: 8px 12px; font-size: 12px; }
   .hero { height: 200px; }
   .hero-people { left: 0; right: 0; top: 4px; bottom: auto; height: 110px; }
   .hero-people .hp { transform: scale(.75) !important; transform-origin: bottom; }

@@ -46,6 +46,8 @@ fetch OneLifeData7 "$DATA_REF" objects transitions categories tutorialMaps conte
 
 echo "== applying patches"
 git -C OneLife checkout -q -- .
+rm -f OneLife/server/mtsGameTime.h  # created by time-scale.patch (untracked)
+rm -f OneLife/server/mtsPlayerSaves.h  # created by player-saves.patch
 for p in "$HERE"/patches/*.patch; do
   git -C OneLife apply "$p"
   echo "applied $(basename "$p")"

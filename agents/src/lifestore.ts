@@ -7,13 +7,15 @@
 //   <run dir>/lives/<playerId>.jsonl  per-life event log (birth/death/thought/say/action/craft),
 //                                  read from disk on request, never held in memory
 // Startup: snapshot + journal replay, then lives that were still open are
-// marked lost (we can't reconnect to them after a restart), then compaction.
+// marked lost, except those of a resumed continuous run (load(keepOpen)),
+// whose agents log back into the same bodies; then compaction.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { LifeLogResponse, LifeRecord, LineageRecord, DeathRecord, RunEvent, TraitSource } from "./api-types.ts";
 import { LifeBook, computeLineages, possiblyAlive, toDeath, toRecord, type LifeCore } from "./lives.ts";
 import type { Rng } from "./traits.ts";
+import { firstNameKey, surnameOf } from "./agent/naming.ts";
 
 export interface LifeStoreOptions {
   logDir: string;
@@ -22,6 +24,8 @@ export interface LifeStoreOptions {
   traitSource: TraitSource;
   rng?: Rng;
   now?: () => number;
+  /** game clock slowdown k stamped on new lives (default config.timeScale) */
+  timeScale?: number;
 }
 
 /** Anything that emits RunEvents and has a run dir (EventLog). */
@@ -51,7 +55,7 @@ export class LifeStore {
     this.dims = opts.dims;
     this.traitSource = opts.traitSource;
     this.now = opts.now ?? Date.now;
-    this.book = new LifeBook({ dims: opts.dims, mutationSd: opts.mutationSd, traitSource: opts.traitSource, rng: opts.rng ?? Math.random });
+    this.book = new LifeBook({ dims: opts.dims, mutationSd: opts.mutationSd, traitSource: opts.traitSource, rng: opts.rng ?? Math.random, timeScale: opts.timeScale });
   }
 
   private get snapshotFile() {
@@ -65,8 +69,12 @@ export class LifeStore {
     return path.join(this.dir, "lives.journal.jsonl");
   }
 
-  /** Rebuild from disk. Returns the number of lives loaded. */
-  load(): number {
+  /**
+   * Rebuild from disk. Returns the number of lives loaded. Open lives are
+   * marked lost unless keepOpen says they will be reconnected (a resumed
+   * continuous run, see runstate.ts).
+   */
+  load(keepOpen: (l: LifeCore) => boolean = () => false): number {
     if (!this.loadSnapshot(this.snapshotFile, true)) this.loadSnapshot(this.prevSnapshotFile, false);
     if (existsSync(this.journalFile)) {
       for (const line of readFileSync(this.journalFile, "utf8").split("\n")) {
@@ -79,8 +87,10 @@ export class LifeStore {
       }
     }
     this.book.rebuildEpochs();
-    // nothing from before this process is still being played
-    this.book.markLost(() => true, null);
+    // records from before per-person flowers get one (persisted by the snapshot below)
+    this.book.assignMissingFlowers();
+    // nothing from before this process is still being played, unless its run is being resumed
+    this.book.markLost((l) => !keepOpen(l), null);
     this.snapshot(true);
     return this.book.lives.size;
   }
@@ -159,6 +169,18 @@ export class LifeStore {
     this.flush();
   }
 
+  /**
+   * An LLM outage paused the run: flag the run's lives that were alive at any
+   * point from `from` (outage start) to `to` (now). Idempotent. Returns how
+   * many lives were newly flagged.
+   */
+  markOutage(runId: string, from: number, to = this.now()): number {
+    const flagged = this.book.markOutage(runId, from, to);
+    for (const l of flagged) this.dirty.add(l.lifeId);
+    this.flush();
+    return flagged.length;
+  }
+
   /** Append changed records to the journal. */
   flush() {
     if (!this.dirty.size) return;
@@ -221,6 +243,32 @@ export class LifeStore {
     return computeLineages(this.book.lives.values(), this.dims, this.now());
   }
 
+  /**
+   * Every family surname any of our lives ever carried (living or dead, all
+   * runs), most recently born first. The naming rule: no family name twice.
+   */
+  takenSurnames(): string[] {
+    const out = new Set<string>();
+    for (const l of [...this.book.lives.values()].sort((a, b) => b.bornAt - a.bornAt)) {
+      const s = surnameOf(l.name);
+      if (s) out.add(s);
+    }
+    return [...out];
+  }
+
+  /** First names ("AURORA", "AURORA II") used in the lineage of our life with this player id in this run. */
+  familyFirstNames(runId: string, playerId: number): string[] {
+    const me = this.book.byRunPlayer(runId, playerId);
+    if (!me) return [];
+    const out = new Set<string>();
+    for (const l of this.book.lives.values()) {
+      if (l.lineageId !== me.lineageId) continue;
+      const k = firstNameKey(l.name);
+      if (k) out.add(k);
+    }
+    return [...out];
+  }
+
   deaths(limit: number): DeathRecord[] {
     return [...this.book.lives.values()]
       .filter((l) => l.diedAt != null)
@@ -255,13 +303,23 @@ export class LifeStore {
   /** Fields for AgentView. */
   agentFields(runId: string, agentId: string, playerId: number | null) {
     const l = playerId != null ? this.book.byRunPlayer(runId, playerId) ?? this.book.current(runId, agentId) : null;
-    return { lifeId: l?.lifeId ?? null, lineageId: l?.lineageId ?? null, traits: l?.traits ?? null };
+    return { lifeId: l?.lifeId ?? null, lineageId: l?.lineageId ?? null, traits: l?.traits ?? null, flower: l?.flower ?? null };
   }
 
   /** Fields for PlayerView: our life (any run) with this player id that may be alive now. */
   playerFields(playerId: number) {
+    const l = this.livingByPlayer(playerId);
+    return l ? { lifeId: l.lifeId, lineageId: l.lineageId, flower: l.flower ?? null } : { lifeId: null, lineageId: null, flower: null };
+  }
+
+  /** The flower label ("blue daisy") of our life with this player id that may be alive now, else null. */
+  flowerLabel(playerId: number): string | null {
+    return this.livingByPlayer(playerId)?.flower?.label ?? null;
+  }
+
+  private livingByPlayer(playerId: number): LifeCore | null {
     const now = this.now();
     const l = this.book.findByPlayer(playerId, now);
-    return l && possiblyAlive(l, now) ? { lifeId: l.lifeId, lineageId: l.lineageId } : { lifeId: null, lineageId: null };
+    return l && possiblyAlive(l, now) ? l : null;
   }
 }

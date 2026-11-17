@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { buildNarratorInput, NARRATOR_SYSTEM, PERSONA_NAME } from "./narrator.ts";
 import { FIXTURES } from "./tools/narrator-examples.ts";
 
-test("persona: own name, no real presenter named", () => {
+test("persona: Dolores Pike, voiced after Philomena Cunk", () => {
   assert.ok(NARRATOR_SYSTEM.includes(PERSONA_NAME));
-  assert.ok(!/cunk|diane morgan|philomena/i.test(NARRATOR_SYSTEM));
+  // the voice is explicitly modelled on Philomena Cunk (user decision); the on-screen persona is Dolores Pike
+  assert.ok(/Philomena Cunk/.test(NARRATOR_SYSTEM) && /Dolores Pike/.test(NARRATOR_SYSTEM));
 });
 
 test("fixtures render with names and events", () => {

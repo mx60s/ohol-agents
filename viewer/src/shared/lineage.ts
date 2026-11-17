@@ -4,7 +4,7 @@
 // cloud): no colour dots/markers on people cards, death rows or legends.
 
 import type { LineageRecord } from "../api-types.ts";
-import { displayName } from "./format.ts";
+import { displayName, surnameOf } from "./format.ts";
 
 export interface LineageStyle {
   /** 1..6, or 0 for "other" */
@@ -78,8 +78,10 @@ export function lineageOrder(lineages: readonly LineageRecord[]): string[] {
 export function lineageName(l: Pick<LineageRecord, "eveName" | "lineageId"> | null | undefined): string {
   if (!l) return "Unknown family";
   const name = displayName(l.eveName, "");
-  const parts = name.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return parts[parts.length - 1];
-  if (parts.length === 1) return parts[0];
+  // "Aurora II Dawn" -> "Dawn"; a lone "Aurora II" (no family name yet) -> "Aurora"
+  const surname = surnameOf(name);
+  if (surname) return surname;
+  const first = name.split(/\s+/).filter(Boolean)[0];
+  if (first) return first;
   return `Family ${l.lineageId.split(":").pop() ?? l.lineageId}`;
 }

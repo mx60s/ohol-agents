@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "model": "google/gemini-3.8-flash",
+  "runId": "cal4-1794890440-r1-mwk7fbrg-2026-11-17T04-40-40-780Z",
+  "startedAt": 1794890440000,
+  "endedAt": 1794891643000,
+  "wallMinutes": 20.05,
+  "gameYears": 6.68,
+  "agentCount": 8,
+  "timeScale": 3,
+  "decisionCycleMs": 5800,
+  "settings": {
+    "reasoningEffort": "mild cap (LLM_REASONING_CAP=1, 300 reasoning / 800 total)",
+    "maxTokens": 800,
+    "providerSort": null,
+    "providerOrder": [],
+    "allowFallbacks": null,
+    "stream": true
+  },
+  "turnMs": {
+    "n": 116,
+    "p50": 3592,
+    "p90": 7309,
+    "p99": 14510
+  },
+  "llm": {
+    "calls": 261,
+    "callErrors": 0,
+    "promptTokens": 704352,
+    "completionTokens": 10357,
+    "cachedTokens": 28560,
+    "reasoningTokens": 248,
+    "cacheHitRate": 0.0405,
+    "costUsd": 0.548063,
+    "totalCostUsd": 0.5543,
+    "costPerAgentHourUsd": 0.2073,
+    "latencyMsP50": 3591,
+    "latencyMsP90": 9339,
+    "latencyMsP99": 14507,
+    "ttftMsP50": 3211,
+    "ttftMsP90": 9172,
+    "reasoningTokensPerCall": 1,
+    "completionTokensPerCall": 39.7,
+    "providers": {
+      "Google": 241,
+      "Google AI Studio": 20
+    },
+    "jsonErrors": 0,
+    "jsonErrorRate": 0,
+    "agentOnlyCostPerAgentHourUsd": 0.205
+  },
+  "decisions": {
+    "total": 261,
+    "perWallMinute": 13.017,
+    "perAgentWallMinute": 1.627,
+    "perGameYear": 39.052,
+    "perAgentGameYear": 4.882
+  },
+  "actions": {
+    "total": 128,
+    "failed": 12,
+    "failureRate": 0.0938,
+    "reflex": 1
+  },
+  "lives": {
+    "lives": 8,
+    "eves": 2,
+    "babies": 6,
+    "deaths": 0,
+    "deathsByCause": {},
+    "maxGeneration": 2,
+    "babiesAtRisk": 4,
+    "babiesSurvivedPast3": 4,
+    "babySurvivalPast3Rate": 1,
+    "perWallMinute": {
+      "births": 0.399,
+      "deaths": 0
+    },
+    "perGameYear": {
+      "births": 1.197,
+      "deaths": 0
+    }
+  },
+  "firsts": {
+    "sharpStone": {
+      "wallMin": 0.3,
+      "gameYears": 0.1,
+      "what": "Sharp Stone)"
+    },
+    "fire": {
+      "wallMin": 18.1,
+      "gameYears": 6.03,
+      "what": "Fire)"
+    },
+    "clothing": null
+  },
+  "notes": {
+    "narratorDirectorStory": "on, default overhead model google/gemini-3.1-flash-lite",
+    "foodBonus": "on",
+    "continuous": true,
+    "initialEves": 2,
+    "finalState": {
+      "alive": 8,
+      "births": 8,
+      "deaths": 0,
+      "status": "running",
+      "haltReason": null
+    }
+  }
+}

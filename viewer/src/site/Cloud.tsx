@@ -66,6 +66,32 @@ export function PersonalityCloud({ site, highlight }: { site: SiteData; highligh
   const xLab = isPca && model ? `PC1 · ${Math.round(model.explained[0] * 100)}% · ${loadingHint(model.components[0], dims)}` : traitLabel(x);
   const yLab = isPca && model ? `PC2 · ${Math.round(model.explained[1] * 100)}% · ${loadingHint(model.components[1], dims)}` : traitLabel(y ?? "");
 
+  // the points are memoised: with thousands of lives, re-creating them on every hover or 2 s state
+  // poll made React reconcile every <a><circle> each time
+  const dots = useMemo(
+    () =>
+      pts.map((p) => {
+        const me = p.life.lifeId === highlight;
+        const r = me ? 8 : 6;
+        return (
+          <a key={p.life.lifeId} href={pageHref("agent", { life: p.life.lifeId })} aria-label={displayName(p.life.name)} onMouseEnter={() => setHover(p)} onFocus={() => setHover(p)}>
+            <circle
+              cx={sx(p.x)}
+              cy={sy(p.y)}
+              r={r}
+              fill={p.alive ? p.color : "var(--parchment-hi)"}
+              stroke={p.alive ? "var(--ink)" : p.color}
+              strokeWidth={p.alive ? 1.5 : 2.2}
+              className={me ? "pt me" : "pt"}
+            />
+            {me && <circle cx={sx(p.x)} cy={sy(p.y)} r={r + 5} fill="none" stroke="var(--ink)" strokeWidth={1.5} strokeDasharray="3 2" />}
+          </a>
+        );
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pts, highlight, lim],
+  );
+
   if (!dims.length) return <p className="site-note">No trait data yet.</p>;
 
   const xOpts = [...dims.map((d) => ({ key: d, label: traitShort(d), title: traitLabel(d) })), { key: PCA, label: "PCA", title: "Project every trait onto the 2 main axes of variation" }];
@@ -111,24 +137,7 @@ export function PersonalityCloud({ site, highlight }: { site: SiteData; highligh
           <text className="axis-title" transform={`translate(13 ${(m.t + H - m.b) / 2}) rotate(-90)`} textAnchor="middle">
             {yLab} →
           </text>
-          {pts.map((p) => {
-            const me = p.life.lifeId === highlight;
-            const r = me ? 8 : 6;
-            return (
-              <a key={p.life.lifeId} href={pageHref("agent", { life: p.life.lifeId })} aria-label={displayName(p.life.name)} onMouseEnter={() => setHover(p)} onFocus={() => setHover(p)}>
-                <circle
-                  cx={sx(p.x)}
-                  cy={sy(p.y)}
-                  r={r}
-                  fill={p.alive ? p.color : "var(--parchment-hi)"}
-                  stroke={p.alive ? "var(--ink)" : p.color}
-                  strokeWidth={p.alive ? 1.5 : 2.2}
-                  className={me ? "pt me" : "pt"}
-                />
-                {me && <circle cx={sx(p.x)} cy={sy(p.y)} r={r + 5} fill="none" stroke="var(--ink)" strokeWidth={1.5} strokeDasharray="3 2" />}
-              </a>
-            );
-          })}
+          {dots}
         </svg>
         {hover && (
           <div className="cloud-card" style={{ left: `${(sx(hover.x) / W) * 100}%`, top: `${(sy(hover.y) / H) * 100}%` }} aria-hidden>

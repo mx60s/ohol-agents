@@ -21,8 +21,10 @@ export class EventLog extends EventEmitter {
   private lastWriteError = 0;
 
   /** maxFileBytes: rotate each raw file past this size (0 = never); keeps disk use per file under ~2x this */
-  constructor(logDir: string, runId: string, private maxFileBytes = LOG_MAX_FILE_BYTES) {
+  /** startSeq: continue a resumed run's event seq (see runstate.ts readLastSeq) */
+  constructor(logDir: string, runId: string, private maxFileBytes = LOG_MAX_FILE_BYTES, startSeq = 0) {
     super();
+    this.seq = Math.max(0, Math.floor(startSeq));
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     this.dir = path.join(logDir, `${runId}-${stamp}`);
     mkdirSync(this.dir, { recursive: true });

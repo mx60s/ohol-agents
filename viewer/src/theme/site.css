@@ -54,4 +54,16 @@
 @media (max-width: 1400px) {
   .site-top .tagline { display: none; }
 }
+/* phone header: every page (study does not load site/site.css), so it lives here, after the base rules */
+@media (max-width: 760px) {
+  .site-top .in { padding: 10px 12px; gap: 10px; }
+  .site-top .wordmark { font-size: 30px; -webkit-text-stroke-width: 6px; }
+  .site-top .navbar { margin-left: 0; order: 3; width: 100%; overflow-x: auto; }
+  .site-top .navbar a { padding: 6px 11px; font-size: 13px; }
+  .site-top .watch { margin-left: auto; padding: 5px 10px; font-size: 12.5px; }
+  .runbar .in { padding: 5px 12px; gap: 8px 12px; font-size: 12px; }
+}
+@media (max-width: 420px) {
+  .site-top .wordmark { font-size: 25px; -webkit-text-stroke-width: 5px; }
+}
 .runbar .live { color: var(--danger); }

@@ -5,6 +5,7 @@
 import type { ServerMessage, ObjStack, PlayerUpdate } from "../protocol/types.ts";
 import type { GameData } from "./gameData.ts";
 import { cleanText } from "../safety.ts";
+import { config } from "../config.ts";
 
 /** names come from in-game speech; they reach the public API, the stream and prompts */
 const NAME_MAX = 60;
@@ -16,19 +17,39 @@ export interface Cell {
   floor: number;
   obj: ObjStack;
   t: number; // ms when last updated
+  /** player whose action last changed this cell (MX responsible id), if any */
+  by?: number;
+  /** wall ms since the object here has been this id (for decay timers) */
+  since?: number;
+  /** true if we saw it appear (MX); false if it was already there when first seen */
+  sinceExact?: boolean;
 }
+
+/** When an object came to be, as far as this client knows: wall ms, and whether we saw it happen. */
+export interface Since {
+  t: number;
+  exact: boolean;
+}
+
+/** an object that left a cell or our hands within this many ms is the same one turning up elsewhere */
+const HANDOFF_MS = 3000;
 
 export interface Player {
   id: number;
   displayId: number;
   x: number;
   y: number;
-  /** destination if moving */
+  /** x,y are the destination while moving */
   moving: boolean;
   moveEndsAt: number;
+  /** the current walk (from PM): start tile, waypoints, wall ms it takes in total */
+  move?: { from: [number, number]; path: [number, number][]; totalMs: number };
   age: number;
   ageAt: number; // ms when age was reported
+  /** wall seconds per game year, as the server reports it (60 x TIME_SCALE) */
   ageRate: number;
+  /** tiles per wall second, as the server reports it (0 = unknown) */
+  moveSpeed: number;
   held: ObjStack;
   clothing: ObjStack[];
   heat: number;
@@ -46,6 +67,8 @@ export interface Heard {
   x: number;
   y: number;
   text: string;
+  /** a server notice (MS), not speech */
+  notice?: boolean;
 }
 
 export interface SeenDeath {
@@ -73,6 +96,24 @@ export interface WorldEvents {
 /** OHOL: everyone dies of old age at 60 */
 export const MAX_AGE = 60;
 
+// --- time scale (TIME_SCALE; see server/patches/time-scale.patch) ---
+// The server reports every duration and speed in wall seconds (PU age_r and
+// move_speed, PM eta, HX food_time), so ages, move ETAs and food ETAs below
+// use those numbers as-is. Only client-side constants scale with timeScale.
+/** stock adult walking speed, tiles per game second */
+export const STOCK_MOVE_SPEED = 3.75;
+/** stock seconds per game year */
+export const STOCK_SECONDS_PER_YEAR = 60;
+
+/**
+ * Wall ms to walk `tiles` at `speed` tiles per wall second (server-reported;
+ * falls back to the stock speed slowed by timeScale when unknown).
+ */
+export function walkMs(tiles: number, speed: number, timeScale = config.timeScale): number {
+  const v = speed > 0 ? speed : STOCK_MOVE_SPEED / timeScale;
+  return (tiles / v) * 1000;
+}
+
 const EMPTY: ObjStack = { id: 0, contained: [] };
 
 export class World {
@@ -96,12 +137,58 @@ export class World {
   doneMovingSeq = 0;
   /** set when server forced our position; must FORCE-ack before acting */
   forcedPos: [number, number] | null = null;
+  /**
+   * Home, as the official client tracks it: the Home Marker nearest the
+   * centre of the first map chunk (within 16 tiles; a child born near its
+   * family's marker inherits it), or a marker this character placed itself.
+   */
+  home: { x: number; y: number } | null = null;
+  /** where this character's body first appeared (birth spot, or where an Eve spawned) */
+  birthPos: [number, number] | null = null;
   private firstPU = true;
+  /** client-side copy of TIME_SCALE (the server's game clock slowdown) */
+  timeScale = config.timeScale;
+  private warnedTimeScale = false;
+  private firstChunk = true;
+  /** when our held object became the one we hold (decay timers; a picked-up item keeps its timer) */
+  heldSince: Since | null = null;
+  /** objects that just left a cell or our hands, by id: their timers carry over when they turn up again */
+  private handoff = new Map<number, Since & { at: number }>();
 
   constructor(private gd: GameData, private ev: WorldEvents = {}) {}
 
   get self(): Player | undefined {
     return this.selfId == null ? undefined : this.players.get(this.selfId);
+  }
+
+  /**
+   * When an object that just turned up (in a cell or in our hands) came to
+   * be: if the same kind just left our hands or a cell (picked up, dropped),
+   * it's that object and keeps its age; if `near` (our tile) has one next to
+   * it, the pickup's map update hasn't arrived yet; else it is new now.
+   */
+  private arrivalOf(id: number, now: number, near?: [number, number]): Since {
+    if (!(id > 0)) return { t: now, exact: true };
+    const h = this.handoff.get(id);
+    if (h && now - h.at < HANDOFF_MS) {
+      this.handoff.delete(id);
+      return { t: h.t, exact: h.exact };
+    }
+    const me = this.self;
+    if (!near && me && me.held.id === id && this.heldSince) return { ...this.heldSince };
+    if (near)
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const c = this.cells.get(`${near[0] + dx},${near[1] + dy}`);
+          if (c && c.obj.id === id && c.since != null) return { t: c.since, exact: !!c.sinceExact };
+        }
+    return { t: now, exact: true };
+  }
+
+  /** When the object at x,y came to be (null if unknown). */
+  sinceAt(x: number, y: number): Since | null {
+    const c = this.cell(x, y);
+    return c && c.since != null ? { t: c.since, exact: !!c.sinceExact } : null;
   }
 
   cell(x: number, y: number): Cell | undefined {
@@ -125,10 +212,30 @@ export class World {
     return undefined;
   }
 
-  /** Position, accounting for being carried (carried babies move with the carrier). */
-  posOf(p: Player): [number, number] {
+  /** Wall ms to walk `tiles` at our own server-reported speed. */
+  walkMs(tiles: number): number {
+    return walkMs(tiles, this.self?.moveSpeed ?? 0, this.timeScale);
+  }
+
+  /**
+   * Where someone is now: a carried baby is with its carrier; someone else
+   * mid-walk is at their interpolated spot along the path (x,y already hold
+   * the destination). Our own x,y is exact (actions wait for done_moving).
+   */
+  posOf(p: Player, now = Date.now()): [number, number] {
     const c = this.carrierOf(p);
-    return c ? [c.x, c.y] : [p.x, p.y];
+    if (c) return this.posOf(c, now);
+    if (p.id === this.selfId || !this.isWalking(p, now) || !p.move) return [p.x, p.y];
+    const { from, path, totalMs } = p.move;
+    const left = (p.moveEndsAt - now) / Math.max(1, totalMs);
+    const steps = path.length;
+    const done = Math.max(0, Math.min(steps, Math.floor((1 - left) * steps)));
+    return done === 0 ? from : path[done - 1];
+  }
+
+  /** someone else is walking right now (their x,y is where they're going) */
+  isWalking(p: Player, now = Date.now()): boolean {
+    return p.moving && now < p.moveEndsAt;
   }
 
   /**
@@ -138,6 +245,7 @@ export class World {
    */
   currentAge(p: Player): number {
     if (!p.ageRate) return Math.min(p.age, MAX_AGE);
+    // ageRate is wall s/year from the server, so this already follows TIME_SCALE
     return Math.min(MAX_AGE, p.age + (Date.now() - p.ageAt) / 1000 / p.ageRate);
   }
 
@@ -149,21 +257,34 @@ export class World {
         for (let cy = 0; cy < chunk.h; cy++)
           for (let cx = 0; cx < chunk.w; cx++) {
             const c = chunk.cells[cy * chunk.w + cx];
-            if (c) this.cells.set(`${chunk.x + cx},${chunk.y + cy}`, { biome: c.biome, floor: c.floor, obj: c.obj, t: now });
+            if (!c) continue;
+            const k = `${chunk.x + cx},${chunk.y + cy}`;
+            const prev = this.cells.get(k);
+            const keep = prev && prev.obj.id === c.obj.id && prev.since != null;
+            this.cells.set(k, { biome: c.biome, floor: c.floor, obj: c.obj, t: now, since: keep ? prev.since : now, sinceExact: keep ? prev.sinceExact : false });
           }
+        if (this.firstChunk) {
+          this.firstChunk = false;
+          this.findStartingHome(chunk);
+        }
         break;
       }
       case "MX":
         for (const ch of m.changes) {
           const k = `${ch.x},${ch.y}`;
           const prev = this.cells.get(k);
-          this.cells.set(k, { biome: prev?.biome ?? -1, floor: ch.floor, obj: ch.obj, t: now });
+          const by = ch.responsibleId < -1 ? -ch.responsibleId : ch.responsibleId;
+          const same = prev && prev.obj.id === ch.obj.id && prev.since != null;
+          if (!same && prev && prev.obj.id > 0 && prev.since != null) this.handoff.set(prev.obj.id, { t: prev.since, exact: !!prev.sinceExact, at: now });
+          const since = same ? { t: prev.since!, exact: !!prev.sinceExact } : this.arrivalOf(ch.obj.id, now);
+          this.cells.set(k, { biome: prev?.biome ?? -1, floor: ch.floor, obj: ch.obj, t: now, by: by > 0 ? by : undefined, since: since.t, sinceExact: since.exact });
           if (ch.from) {
             // moving object (animal) left its old cell
             const fk = `${ch.from.x},${ch.from.y}`;
             const fc = this.cells.get(fk);
-            if (fc && fc.obj.id === ch.obj.id) this.cells.set(fk, { ...fc, obj: EMPTY, t: now });
+            if (fc && fc.obj.id === ch.obj.id) this.cells.set(fk, { ...fc, obj: EMPTY, t: now, since: now, sinceExact: true });
           }
+          this.trackPlacedHome(ch.x, ch.y, prev?.obj.id ?? 0, ch.obj.id, ch.responsibleId);
           this.ev.onMapChange?.(ch.x, ch.y, prev?.obj ?? null, ch.obj, ch.responsibleId);
         }
         break;
@@ -185,7 +306,8 @@ export class World {
           p.x = dest[0];
           p.y = dest[1];
           p.moving = true;
-          p.moveEndsAt = now + mv.etaSec * 1000;
+          p.moveEndsAt = now + mv.etaSec * 1000; // etaSec: wall seconds (TIME_SCALE applied by the server)
+          p.move = { from: mv.start, path: mv.path, totalMs: Math.max(mv.totalSec, mv.etaSec) * 1000 };
           p.lastSeen = now;
         }
         break;
@@ -212,7 +334,7 @@ export class World {
         break;
       case "HX":
         this.heat = m.heat.heat;
-        this.foodTime = m.heat.foodTime;
+        this.foodTime = m.heat.foodTime; // wall seconds per food pip (TIME_SCALE applied by the server)
         break;
       case "NM":
         for (const n of m.names) {
@@ -251,7 +373,34 @@ export class World {
       case "LR":
         for (const id of m.toolIds) this.learnedTools.add(id);
         break;
+      case "MS":
+        // shown to the player as an on-screen notice by the client
+        this.pushHeard({ t: now, speakerId: null, x: 0, y: 0, text: cleanText(m.text, SPEECH_MAX), notice: true });
+        break;
     }
+  }
+
+  // LivingLifePage.cpp: "Found starting home marker" (closest to the birth chunk centre, dist^2 < 16*16)
+  private findStartingHome(chunk: { x: number; y: number; w: number; h: number }) {
+    const cx = chunk.x + Math.floor(chunk.w / 2), cy = chunk.y + Math.floor(chunk.h / 2);
+    let best = 16 * 16;
+    for (let y = chunk.y; y < chunk.y + chunk.h; y++)
+      for (let x = chunk.x; x < chunk.x + chunk.w; x++) {
+        if (!this.gd.isHomeMarker?.(this.objAt(x, y).id)) continue;
+        const d = (x - cx) ** 2 + (y - cy) ** 2;
+        if (d < best) {
+          best = d;
+          this.home = { x, y };
+        }
+      }
+  }
+
+  // the client adds a home when we place a marker, and drops it when we remove ours
+  private trackPlacedHome(x: number, y: number, before: number, after: number, responsibleId: number) {
+    const rid = responsibleId < -1 ? -responsibleId : responsibleId;
+    if (this.selfId == null || rid !== this.selfId || !this.gd.isHomeMarker) return;
+    if (this.gd.isHomeMarker(after)) this.home = { x, y };
+    else if (this.gd.isHomeMarker(before) && this.home?.x === x && this.home?.y === y) this.home = null;
   }
 
   /** names and lineage persist even when players go out of range */
@@ -289,7 +438,7 @@ export class World {
       const lin = this.lineage.get(u.id);
       p = {
         id: u.id, displayId: u.displayId, x: u.x, y: u.y, moving: false, moveEndsAt: 0,
-        age: u.age, ageAt: now, ageRate: u.ageRate, held: u.held, clothing: u.clothing, heat: u.heat,
+        age: u.age, ageAt: now, ageRate: u.ageRate, moveSpeed: u.moveSpeed, held: u.held, clothing: u.clothing, heat: u.heat,
         name: this.names.get(u.id) ?? null, female: this.gd.isFemaleDisplay(u.displayId), dying: false,
         lastSeen: now, ancestors: lin?.ancestors ?? [], eveId: lin?.eveId ?? null,
       };
@@ -300,6 +449,16 @@ export class World {
     p.age = u.age;
     p.ageAt = now;
     p.ageRate = u.ageRate;
+    p.moveSpeed = u.moveSpeed;
+    // the server's seconds per year says which time scale it runs at
+    if (!this.warnedTimeScale && u.ageRate > 0 && Math.abs(u.ageRate / (STOCK_SECONDS_PER_YEAR * this.timeScale) - 1) > 0.05) {
+      this.warnedTimeScale = true;
+      console.warn(`TIME_SCALE mismatch: server reports ${u.ageRate} s/year, client TIME_SCALE=${this.timeScale} expects ${STOCK_SECONDS_PER_YEAR * this.timeScale}`);
+    }
+    if (u.id === this.selfId && (isNew || p.held.id !== u.held.id || !this.heldSince)) {
+      if (!isNew && p.held.id > 0 && this.heldSince) this.handoff.set(p.held.id, { ...this.heldSince, at: now });
+      this.heldSince = isNew && u.held.id > 0 ? { t: now, exact: false } : this.arrivalOf(u.held.id, now, [u.x, u.y]);
+    }
     p.held = u.held;
     p.clothing = u.clothing;
     p.heat = u.heat;
@@ -308,11 +467,14 @@ export class World {
       p.x = u.x;
       p.y = u.y;
       p.moving = false;
-    } else if (!p.moving) {
+    } else if (!p.moving || now > p.moveEndsAt + 500) {
+      // a move the server ended without done_moving (e.g. picked up mid-crawl) mustn't freeze the position
       p.x = u.x;
       p.y = u.y;
+      p.moving = false;
     }
     if (u.id === this.selfId) {
+      if (!this.birthPos) this.birthPos = [u.x, u.y];
       if (u.doneMovingSeq > 0) this.doneMovingSeq = u.doneMovingSeq;
       if (u.forced) this.forcedPos = [u.x, u.y];
       this.ev.onSelfUpdate?.(u);

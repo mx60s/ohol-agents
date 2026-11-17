@@ -32,6 +32,13 @@ for f in "$HERE"/settings/*.ini; do
   cp "$f" settings/
 done
 
+# TIME_SCALE=k (same var the agents read): game clock runs k x slower, see
+# server/patches/time-scale.patch. OHOL_SETTING_timeScale wins if both set.
+if [ -n "${TIME_SCALE:-}" ]; then
+  printf '%s' "$TIME_SCALE" > settings/timeScale.ini
+  echo "setting override: timeScale=$TIME_SCALE (TIME_SCALE)"
+fi
+
 # Env overrides: OHOL_SETTING_<name>=<value> writes settings/<name>.ini
 # e.g. OHOL_SETTING_maxPlayers=80
 while IFS='=' read -r key value; do

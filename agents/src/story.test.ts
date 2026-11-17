@@ -88,14 +88,14 @@ test("no spending allowed: skipped, events kept for later", async () => {
   rmSync(dir, { recursive: true });
 });
 
-test("output is sanitized and capped at 150 words", async () => {
+test("output is sanitized and capped at 80 words", async () => {
   const dir = tmp();
   const s = setup(dir);
   s.ev("narration", "x");
   s.llm.replies.push("## Title\u0007\n" + "word ".repeat(400) + " see https://evil.example/x");
   await s.k.tick();
   const t = s.k.current()!.text;
-  assert.ok(t.split(/\s+/).length <= 150, String(t.split(/\s+/).length));
+  assert.ok(t.split(/\s+/).length <= 80, String(t.split(/\s+/).length));
   assert.ok(!/[\u0000-\u001f#]|https?:/.test(t), t);
   rmSync(dir, { recursive: true });
 });

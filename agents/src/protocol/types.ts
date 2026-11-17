@@ -157,6 +157,8 @@ export type ServerMessage =
   | { type: "FW"; follows: Follow[] }
   | { type: "GV"; graves: Grave[] }
   | { type: "LR"; toolIds: number[] }
+  /** a server notice to this player (tool slots, inheritance, property...); "_" = space, "**" = line break */
+  | { type: "MS"; text: string }
   | { type: "TS"; used: number; total: number }
   | { type: "FM" }
   | { type: "PONG"; id: string }

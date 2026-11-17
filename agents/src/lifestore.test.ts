@@ -193,3 +193,114 @@ test("journal append failure (disk full): records stay dirty and a torn line doe
     cleanup();
   }
 });
+
+test("a life's time scale is persisted and survives a reload", () => {
+  const { dir, f, cleanup } = setup();
+  try {
+    const mk = (k: number) => new LifeStore({ logDir: dir, dims: DIMS, mutationSd: 0.15, traitSource: "mock", rng: seededRng(1), now: () => f.t, timeScale: k });
+    const a = mk(2);
+    a.load();
+    a.handle("runA", path.join(dir, "runA"), f.eve("a01", 10));
+    a.close();
+    const b = mk(1); // the service restarted with another TIME_SCALE
+    b.load();
+    b.handle("runB", path.join(dir, "runB"), f.eve("a01", 50));
+    assert.equal(b.get("runA:10")!.timeScale, 2);
+    assert.equal(b.get("runB:50")!.timeScale, 1);
+    b.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test("flowers: persisted across save/load; old records get one on load, persisted, distinct among contemporaries", () => {
+  const { dir, f, mk, cleanup } = setup();
+  try {
+    const runDir = path.join(dir, "runA");
+    const a = mk();
+    a.load();
+    a.handle("runA", runDir, f.eve("a01", 10));
+    for (let i = 0; i < 4; i++) a.handle("runA", runDir, f.child(`k${i}`, 20 + i, 10));
+    const flowers = new Map([10, 20, 21, 22, 23].map((p) => [p, a.get(`runA:${p}`)!.flower!]));
+    assert.ok([...flowers.values()].every((x) => x && x.label));
+    assert.equal(a.flowerLabel(21), flowers.get(21)!.label);
+    assert.deepEqual(a.playerFields(21).flower, flowers.get(21));
+    assert.equal(a.flowerLabel(999), null);
+    a.flush(); // journal only (crash)
+
+    const b = mk();
+    b.load();
+    for (const [p, x] of flowers) assert.deepEqual(b.get(`runA:${p}`)!.flower, x, "same flower after reload");
+    b.close();
+
+    // strip the flowers from the snapshot, as in records written before flowers existed
+    const snap = path.join(dir, "research", "lives.snapshot.json");
+    const arr = JSON.parse(readFileSync(snap, "utf8")) as Record<string, unknown>[];
+    for (const l of arr) delete l.flower;
+    writeFileSync(snap, JSON.stringify(arr));
+
+    const c = mk();
+    c.load();
+    const assigned = [10, 20, 21, 22, 23].map((p) => c.get(`runA:${p}`)!.flower!);
+    assert.ok(assigned.every((x) => x && x.label));
+    assert.equal(new Set(assigned.map((x) => `${x.shape}|${x.color}`)).size, 5, "contemporaries get distinct flowers");
+    const onDisk = JSON.parse(readFileSync(snap, "utf8")) as { lifeId: string; flower?: unknown }[];
+    assert.ok(onDisk.every((l) => l.flower), "persisted by the load-time snapshot");
+
+    const d = mk();
+    d.load();
+    assert.deepEqual([10, 20, 21, 22, 23].map((p) => d.get(`runA:${p}`)!.flower), assigned, "same again on the next reload");
+    d.close();
+
+    // records with retired shapes (the old hand-drawn daisy / tulip / bellflower ids)
+    const arr2 = JSON.parse(readFileSync(snap, "utf8")) as Record<string, unknown>[];
+    const old: Record<string, { shape: string; color: string; label: string }> = {
+      "runA:10": { shape: "daisy", color: "white", label: "white daisy" },
+      "runA:20": { shape: "tulip", color: "red", label: "red tulip" },
+      "runA:21": { shape: "bell", color: "blue", label: "blue bellflower" },
+    };
+    for (const l of arr2) if (old[l.lifeId as string]) l.flower = old[l.lifeId as string];
+    writeFileSync(snap, JSON.stringify(arr2));
+    const e = mk();
+    e.load();
+    assert.deepEqual(e.get("runA:10")!.flower, old["runA:10"], "daisy keeps its id (new art)");
+    assert.deepEqual(e.get("runA:20")!.flower, old["runA:20"], "tulip keeps its id (new art)");
+    assert.deepEqual(e.get("runA:21")!.flower, { shape: "lily", color: "blue", label: "blue lily" }, "bellflower -> lily, same colour");
+    const onDisk2 = JSON.parse(readFileSync(snap, "utf8")) as { lifeId: string; flower?: { shape: string } }[];
+    assert.equal(onDisk2.find((l) => l.lifeId === "runA:21")!.flower!.shape, "lily", "migration persisted");
+  } finally {
+    cleanup();
+  }
+});
+
+test("naming rules: taken surnames across restarts (living or extinct), first names per lineage", () => {
+  const { dir, f, mk, cleanup } = setup();
+  try {
+    const runDir = path.join(dir, "runA-2026");
+    const a = mk();
+    a.load();
+    const named = (agentId: string, pid: number, name: string) => a.handle("runA", runDir, f.ev("thought", agentId, pid, undefined, { name, text: "hm" }));
+    a.handle("runA", runDir, f.eve("a01", 10));
+    named("a01", 10, "MIRA DAWN");
+    a.handle("runA", runDir, f.child("a02", 11, 10));
+    named("a02", 11, "AURORA DAWN");
+    a.handle("runA", runDir, f.child("a03", 12, 10));
+    named("a03", 12, "AURORA II DAWN");
+    a.handle("runA", runDir, f.death("a01", 10));
+    a.handle("runA", runDir, f.eve("a04", 20));
+    named("a04", 20, "EVE SOL");
+    a.handle("runA", runDir, f.child("a05", 21, 20));
+    named("a05", 21, "AURORA"); // named before the family had a name: no surname
+    a.close();
+
+    const b = mk(2);
+    b.load();
+    assert.deepEqual(b.takenSurnames(), ["SOL", "DAWN"], "most recent first");
+    assert.deepEqual(b.familyFirstNames("runA", 11).sort(), ["AURORA", "AURORA II", "MIRA"]);
+    assert.deepEqual(b.familyFirstNames("runA", 21).sort(), ["AURORA", "EVE"]);
+    assert.deepEqual(b.familyFirstNames("runA", 99), []);
+    b.close();
+  } finally {
+    cleanup();
+  }
+});

@@ -10,10 +10,12 @@
 
 import { appearanceFor } from "./appearance.ts";
 import type { Appearance, AppearanceInput } from "./appearance.ts";
-import { composeObject, composePerson } from "./compose.ts";
-import type { DrawOp, ObjectOpts, PersonSpec } from "./compose.ts";
+import { composeObject, composePerson, opsBounds } from "./compose.ts";
+import type { Box, DrawOp, ObjectOpts, PersonSpec } from "./compose.ts";
 import { recolorHairPixels } from "./hairTint.ts";
-import type { OholManifest } from "./types.ts";
+import { flowerImage, preloadFlower } from "./flowerArt.ts";
+import { FLOWER_ART } from "./flower.ts";
+import type { OholManifest, SpriteMeta } from "./types.ts";
 
 export interface OholAssets {
   manifest: OholManifest;
@@ -111,10 +113,12 @@ function requestSprite(id: number): HTMLImageElement | null {
 
 /** Resolve once every sprite in `ops` has loaded (or failed). */
 function whenLoaded(ops: DrawOp[]): Promise<void> {
-  const ids = [...new Set(ops.map((o) => o.sprite))];
+  const ids = [...new Set(ops.map((o) => o.sprite))].filter((id) => id >= 0);
   for (const id of ids) requestSprite(id);
-  return Promise.all(
-    ids.map(
+  const flowers = ops.flatMap((o) => (o.flower ? [preloadFlower(o.flower.shape)] : []));
+  return Promise.all([
+    ...flowers,
+    ...ids.map(
       (id) =>
         new Promise<void>((res) => {
           const img = images.get(id);
@@ -123,7 +127,7 @@ function whenLoaded(ops: DrawOp[]): Promise<void> {
           img.addEventListener("error", () => res(), { once: true });
         }),
     ),
-  ).then(() => undefined);
+  ]).then(() => undefined);
 }
 
 function canvasFor(img: HTMLImageElement): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -167,6 +171,27 @@ function hairRecolored(id: number, img: HTMLImageElement, tint: string, multiply
   return cv;
 }
 
+/** A person's flower (DrawOp.flower), centred on its position. */
+function drawFlowerOp(ctx: CanvasRenderingContext2D, op: DrawOp, x: number, y: number, scale: number): boolean {
+  const f = op.flower!;
+  let sprite: { img: HTMLImageElement; meta: SpriteMeta } | null = null;
+  if (op.sprite >= 0) {
+    const img = requestSprite(op.sprite);
+    const meta = assets?.manifest.sprites[op.sprite];
+    if (!img || !meta) return false;
+    sprite = { img, meta };
+  }
+  const fi = flowerImage(f.shape, f.color, sprite, notify);
+  if (!fi) return false;
+  const k = (f.size * scale) / Math.max(fi.w, fi.h);
+  ctx.save();
+  ctx.translate(x + op.x * scale, y - op.y * scale);
+  ctx.scale(op.flip ? -k : k, k);
+  ctx.drawImage(fi.img, -fi.w / 2, -fi.h / 2);
+  ctx.restore();
+  return true;
+}
+
 const COMPOSITE: Record<DrawOp["blend"], GlobalCompositeOperation> = {
   normal: "source-over",
   multiply: "multiply",
@@ -183,6 +208,10 @@ export function drawOps(ctx: CanvasRenderingContext2D, ops: DrawOp[], x: number,
   const m = assets.manifest;
   let complete = true;
   for (const op of ops) {
+    if (op.flower) {
+      if (!drawFlowerOp(ctx, op, x, y, scale)) complete = false;
+      continue;
+    }
     const meta = m.sprites[op.sprite];
     const img = requestSprite(op.sprite);
     if (!meta || !img) {
@@ -228,10 +257,36 @@ export function drawObject(
 
 export interface DrawPersonSpec extends PersonSpec {}
 
+/**
+ * A person's flower on its own (an icon), centred on (x, y), its larger side `size` px. Returns
+ * false while its art is loading (onOholSpriteLoaded fires when it arrives).
+ */
+export function drawFlower(ctx: CanvasRenderingContext2D, shape: string, color: string, x: number, y: number, size: number): boolean {
+  if (!assets) return false;
+  const op: DrawOp = { sprite: FLOWER_ART[shape]?.sprite ?? -1, x: 0, y: 0, rot: 0, flip: false, color: null, blend: "normal", hairTint: null, flower: { shape, color, size } };
+  return drawFlowerOp(ctx, op, x, y, 1);
+}
+
 /** Draw a person with age, facing, clothing, held object and (optional) agent appearance. */
 export function drawPerson(ctx: CanvasRenderingContext2D, spec: DrawPersonSpec, x: number, y: number, scale = 1): boolean {
   if (!assets) return false;
   return drawOps(ctx, composePerson(assets.manifest, spec), x, y, scale);
+}
+
+/** Screen bounds of an object drawn by drawObject at (x, y) (visible pixels; null if unknown / not loaded). */
+export function objectBounds(objectId: number, x: number, y: number, scale = 1, opts: DrawObjectOpts = {}): Box | null {
+  if (!assets) return null;
+  const rec = assets.manifest.objects[objectId];
+  const ops =
+    rec?.person && opts.age !== undefined
+      ? composePerson(assets.manifest, { displayId: objectId, age: opts.age, facingLeft: opts.flipH })
+      : composeObject(assets.manifest, objectId, opts);
+  return opsBounds(assets.manifest, ops, x, y, scale);
+}
+
+/** Screen bounds of a person drawn by drawPerson at (x, y). */
+export function personBounds(spec: DrawPersonSpec, x: number, y: number, scale = 1): Box | null {
+  return assets ? opsBounds(assets.manifest, composePerson(assets.manifest, spec), x, y, scale) : null;
 }
 
 /** Resolve when all sprites a person/object needs are loaded (for one-shot renders). */

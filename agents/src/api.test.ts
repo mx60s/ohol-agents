@@ -12,8 +12,10 @@ import { LifeStore } from "./lifestore.ts";
 import { seededRng } from "./traits.ts";
 import { FakeEvents } from "./test-helpers.ts";
 import type { RunController } from "./runs.ts";
-import type { GameData } from "./game/gameData.ts";
-import type { DeathsResponse, LifeLogResponse, LifeRecord, LineagesResponse, LivesResponse } from "./api-types.ts";
+import { GameData } from "./game/gameData.ts";
+import { InventionLog } from "./inventions.ts";
+import type { DeathsResponse, FlowersResponse, InventionsResponse, LifeLogResponse, LifeRecord, LineagesResponse, LivesResponse } from "./api-types.ts";
+import { FLOWER_COLORS, FLOWER_SHAPES } from "./flowers.ts";
 
 let dir: string;
 let server: http.Server;
@@ -31,8 +33,19 @@ before(async () => {
   for (let i = 0; i < 3; i++) lives.handle("run1", runDir, f.eve(`b0${i}`, 100 + i));
   for (let i = 0; i < 3; i++) lives.handle("run1", runDir, f.death(`b0${i}`, 100 + i, 20 + i));
 
+  // inventions: one in an older run, two in run1 (newest last), plus a pickup that isn't one
+  let currentRun = "run0";
+  const inventions = new InventionLog(new GameData(), { runId: () => currentRun, lifeOf: (_r, agentId) => (agentId === "a01" ? "run1:10" : null) }, { logDir: dir });
+  const KNAP = "use (1, 2) -> use: tile (1,2) Big Hard Rock -> Big Hard Rock; holding Stone -> Sharp Stone";
+  inventions.observe(f.action("a01", 10, KNAP, {}));
+  currentRun = "run1";
+  inventions.observe({ ...f.action("a01", 10, KNAP, {}), name: "EVE ROSE" });
+  inventions.observe(f.action("a01", 10, "use (3, 2) -> use: tile (3,2) Rope -> nothing; holding nothing -> Rope", {}));
+  inventions.observe(f.action("a02", 11, "use (1, 2) -> use: tile (1,2) Reed Bundle -> Reed Skirt; holding Rope -> nothing", {}));
+
   const runs = Object.assign(new EventEmitter(), {
     lives,
+    inventions,
     pop: { state: () => ({ run: { id: "run1", status: "running" }, agents: [], players: [] }), map: () => ({ cells: [], names: {} }) },
     log: { since: (n: number) => [{ seq: n + 1, kind: "system" }] },
     openControl: false,
@@ -71,6 +84,33 @@ test("existing endpoints still work", async () => {
   assert.equal((await get("/api/nope")).status, 404);
 });
 
+test("GET /api/flowers: the flower catalogue", async () => {
+  const r = await get("/api/flowers");
+  assert.equal(r.status, 200);
+  const body = r.body as FlowersResponse;
+  assert.deepEqual(body.shapes, FLOWER_SHAPES);
+  assert.deepEqual(body.colors, FLOWER_COLORS);
+  assert.equal(body.shapes.length * body.colors.length, 77);
+});
+
+test("GET /api/inventions: newest first, current run by default, limit, all runs", async () => {
+  const r = await get("/api/inventions");
+  assert.equal(r.status, 200);
+  const body = r.body as InventionsResponse;
+  assert.deepEqual(body.inventions.map((x) => x.item), ["Reed Skirt", "Sharp Stone"]);
+  const [skirt, stone] = body.inventions;
+  assert.equal(stone.name, "EVE ROSE");
+  assert.equal(stone.lifeId, "run1:10");
+  assert.equal(stone.runId, "run1");
+  assert.equal(stone.objectId, 34);
+  assert.equal(skirt.lifeId, null);
+  assert.ok(skirt.t > stone.t);
+  assert.deepEqual((await get("/api/inventions?limit=1")).body.inventions.map((x: { item: string }) => x.item), ["Reed Skirt"]);
+  assert.equal((await get("/api/inventions?run=all")).body.inventions.length, 3);
+  assert.equal((await get("/api/inventions?run=run0")).body.inventions[0].item, "Sharp Stone");
+  assert.equal((await get("/api/inventions?limit=junk")).body.inventions.length, 2);
+});
+
 test("GET /api/lives: all, since, limits", async () => {
   const r = await get("/api/lives");
   const body = r.body as LivesResponse;
@@ -84,6 +124,9 @@ test("GET /api/lives: all, since, limits", async () => {
   assert.equal(kid.inherited, true);
   assert.equal(kid.lineageId, "run1:10");
   assert.equal((kid as unknown as Record<string, unknown>).logPath, undefined, "internal path not exposed");
+  assert.ok(body.lives.every((l) => l.flower && typeof l.flower.label === "string" && l.flower.shape && l.flower.color), "every record carries its flower");
+  const eve = body.lives.find((l) => l.lifeId === "run1:10")!;
+  assert.notEqual(`${eve.flower!.shape}|${eve.flower!.color}`, `${kid.flower!.shape}|${kid.flower!.color}`, "mother and child differ");
 
   const page = (await get("/api/lives?limit=2")).body as LivesResponse;
   assert.equal(page.lives.length, 2);
@@ -184,4 +227,12 @@ test("malformed request targets don't crash the process", async () => {
   }
   assert.equal((await raw("http://a:99999/api/state")).startsWith("HTTP/1.1 200"), true, "absolute-form targets are served by path");
   assert.equal((await get("/health")).body.ok, true, "still alive");
+});
+
+test("GET /api/agent-spec is mounted (no run dir: no example)", async () => {
+  const r = await get("/api/agent-spec");
+  assert.equal(r.status, 200);
+  assert.ok(r.body.systemPrompt.includes("One Hour One Life"));
+  assert.ok(Array.isArray(r.body.actions) && r.body.actions.length > 5);
+  assert.equal(r.body.example, null);
 });

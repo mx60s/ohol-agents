@@ -15,8 +15,9 @@
 #   /opt/ohol/OneLife/server   OneLifeServer + stock settings + relative data symlinks
 #   /opt/ohol/OneLifeData7     objects, transitions, categories, ... (sparse)
 #   /app/server                run.sh + settings/*.ini overrides
-#   /app/agents, /app/data, /app/viewer/dist
-#   /data                      Fly volume: /data/world (game DBs), /data/logs (LOG_DIR)
+#   /app/agents, /app/data, /app/viewer/dist, /app/IMAGE_STAMP
+#   /data                      Fly volume: /data/world (game DBs), /data/logs (LOG_DIR),
+#                              /data/app (hot-update overrides, deploy/hot-update.sh)
 
 # Same Debian release in every stage so the C++ binary's glibc/libstdc++ match.
 ARG NODE_IMAGE=node:24-bookworm-slim
@@ -83,13 +84,18 @@ COPY server/run.sh   /app/server/run.sh
 COPY server/settings /app/server/settings
 
 COPY --from=agents /app/agents/node_modules /app/agents/node_modules
-COPY agents/package.json agents/tsconfig.json /app/agents/
+# package-lock.json: hot updates (deploy/app-switch.sh) reuse these node_modules only if their lockfile matches
+COPY agents/package.json agents/package-lock.json agents/tsconfig.json /app/agents/
 COPY agents/src /app/agents/src
 COPY data/ /app/data/
 COPY --from=viewer /app/viewer/dist /app/viewer/dist
 
-COPY deploy/start.sh /app/deploy/start.sh
-RUN chmod +x /app/server/run.sh /app/deploy/start.sh && mkdir -p /data
+COPY deploy/start.sh deploy/app-switch.sh /app/deploy/
+RUN chmod +x /app/server/run.sh /app/deploy/start.sh /app/deploy/app-switch.sh && mkdir -p /data
+# Identifies this image. A hot-update override on the volume (/data/app/current)
+# records the stamp of the image it was installed on; start.sh ignores and
+# unlinks an override from another image, so a full deploy always runs its own code.
+RUN date -u +%Y%m%dT%H%M%SZ > /app/IMAGE_STAMP
 
 # 8787: HTTP (viewer + /api). The game port 8005 stays internal (127.0.0.1 only).
 EXPOSE 8787

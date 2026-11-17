@@ -339,3 +339,8 @@ test("malformed input yields OTHER instead of throwing", () => {
     }
   }
 });
+
+test("MS (server notice) parses: underscores are spaces, ** is a line break", () => {
+  assert.deepEqual(parseMessage(raw("MS", ["YOU_ALMOST_LEARNED_THE_SHOVEL**REPEAT_TO_LEARN_IT"])), { type: "MS", text: "YOU ALMOST LEARNED THE SHOVEL / REPEAT TO LEARN IT" });
+  assert.equal(parseMessage(raw("MS", [])).type, "OTHER");
+});

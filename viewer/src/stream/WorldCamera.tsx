@@ -3,26 +3,29 @@
 // name labels and speech bubbles positioned every frame.
 //
 // One requestAnimationFrame loop; it only repaints when something moved (camera,
-// a walking figure, a fade, freshly loaded sprites, new data), so an idle scene
-// costs next to nothing in OBS. All per-player state is pruned to the players
-// currently in view; the map index is bounded to a window around the camera.
+// a walking figure in view, a fade, freshly loaded sprites, new data), at most
+// MAX_FPS times a second, so an idle scene costs next to nothing in OBS. All
+// per-player state is pruned to the players currently in view; the map index is
+// bounded to a window around the camera.
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { LifeRecord, MapCellTuple, PlayerView } from "../api-types.ts";
-import { appearanceFor, drawGround, drawObject, drawPerson, getOholAssets, loadOholAssets, onOholSpriteLoaded } from "../ohol/index.ts";
+import { appearanceFor, drawGround, drawObject, drawPerson, getOholAssets, loadOholAssets, objectBounds, onOholSpriteLoaded, personBounds } from "../ohol/index.ts";
 import type { Appearance } from "../ohol/index.ts";
 import { displayName } from "../shared/format.ts";
-import { cameraStep, fanOut, focusTransition, parseHeld, retarget, sampleMotion, type Cam, type Motion } from "./logic.ts";
+import { cameraStep, fanOut, focusTransition, occluderAlpha, parseHeld, retarget, sampleMotion, type Cam, type Motion, type ScreenBox } from "./logic.ts";
 
 /** screen px per world tile (the game uses 128) */
 export const CELL = 112;
 const SCALE = CELL / 128;
 /** focused character sits a little below centre: people extend upward */
-const FOCUS_DROP = 0.55;
+export const FOCUS_DROP = 0.55;
 /** map window kept indexed around the camera, in tiles (radius) */
 const WINDOW = 40;
 const FADE_MS = 260;
 const GHOST_MS = 2600;
+/** repaint cap: the overlay streams at 30 fps, and a full repaint is the costly part of a frame */
+const MAX_FPS = 30;
 
 export interface Bubble {
   key: string;
@@ -130,7 +133,7 @@ function WorldCameraImpl(props: CameraProps) {
       const lineageId = p.lineageId ?? life?.lineageId ?? null;
       let appearance: Appearance | null = null;
       if (lineageId) {
-        const key = `${p.lifeId ?? p.id}|${lineageId}|${lineageKey}|${life?.traits ? "t" : "-"}|${p.displayId}`;
+        const key = `${p.lifeId ?? p.id}|${lineageId}|${lineageKey}|${life?.traits ? "t" : "-"}|${p.displayId}|${(p.flower ?? life?.flower)?.shape ?? ""}${(p.flower ?? life?.flower)?.color ?? ""}`;
         appearance = cache.get(key) ?? null;
         if (!appearance) {
           appearance = appearanceFor({
@@ -140,6 +143,8 @@ function WorldCameraImpl(props: CameraProps) {
             traits: life?.traits ?? {},
             traitDims: props.traitDims,
             livingLineageIds: props.lineageIds.length ? props.lineageIds : undefined,
+            lifeId: p.lifeId ?? null,
+            flower: p.flower ?? life?.flower ?? null,
           });
           cache.set(key, appearance);
         }
@@ -262,6 +267,7 @@ function WorldCameraImpl(props: CameraProps) {
     let raf = 0;
     let last = performance.now();
     let lastCamKey = "";
+    let lastDraw = -Infinity;
     const screen = new Map<number, { x: number; y: number; head: number }>();
 
     const frame = () => {
@@ -276,11 +282,11 @@ function WorldCameraImpl(props: CameraProps) {
       // positions (with crowd fan-out), and the camera target
       const fan = fanOut(P.players);
       const pos = new Map<number, { x: number; y: number }>();
-      let moving = false;
+      const walking: number[] = [];
       for (const p of P.players) {
         const m = mm.get(p.id);
         if (!m) continue;
-        if (now < m.t0 + m.dur) moving = true;
+        if (now < m.t0 + m.dur) walking.push(p.id);
         const s = sampleMotion(m, now);
         pos.set(p.id, { x: s.x + (fan.get(p.id) ?? 0), y: s.y });
       }
@@ -298,9 +304,25 @@ function WorldCameraImpl(props: CameraProps) {
         pendingSnap.current = false;
       } else if (target && cam.current) cam.current = cameraStep(cam.current, target, dt);
       const c = cam.current;
+      // only walks inside the view (plus a margin) need repaints; off-screen walkers cost nothing
+      let moving = false;
+      if (c) {
+        const hx = W / 2 / CELL + 2;
+        const hy = H / 2 / CELL + 3;
+        for (const id of walking) {
+          const q = pos.get(id)!;
+          if (Math.abs(q.x - c.x) <= hx && Math.abs(q.y - c.y) <= hy) {
+            moving = true;
+            break;
+          }
+        }
+      }
       const ghostAlive = !!g && P.focusDead && now - g.t0 < GHOST_MS + 400;
       const camKey = c ? `${c.x.toFixed(4)},${c.y.toFixed(4)},${W},${H}` : "none";
       if (!dirty.current && !moving && camKey === lastCamKey && !ghostAlive) return;
+      // walking and panning repaint at most MAX_FPS (a full-scene repaint is the expensive part)
+      if (now - lastDraw < 1000 / MAX_FPS - 2) return;
+      lastDraw = now;
       dirty.current = false;
       lastCamKey = camKey;
 
@@ -378,23 +400,36 @@ function WorldCameraImpl(props: CameraProps) {
       const focusSx = fid != null && pos.has(fid) ? sx(pos.get(fid)!.x) : null;
       const focusSy = fid != null && pos.has(fid) ? sy(pos.get(fid)!.y) : null;
       const motionOf = (id: number) => mm.get(id);
-      for (const d of list) {
+      const isFocusFig = (f: Figure) => !P.focusDead && fid != null && (f.id === fid || f.carrying.includes(fid));
+      const specOf = (f: Figure) => ({ displayId: f.displayId, age: f.age, facingLeft: motionOf(f.id)?.facingLeft ?? false, heldObjectId: f.heldObjectId, appearance: f.appearance });
+      // the focused figure (or whoever carries them, or their fading ghost): objects drawn after it
+      // that cover it (tree canopies...) are drawn see-through so the character stays visible
+      const fi = list.findIndex((d) => d.kind === "person" && (d.ghost || isFocusFig(d.fig)));
+      const fd = fi >= 0 ? list[fi] : null;
+      const focusBox: ScreenBox | null = fd?.kind === "person" ? personBounds(specOf(fd.fig), fd.sx, fd.sy, SCALE) : null;
+      list.forEach((d, i) => {
         if (d.kind === "obj") {
-          drawObject(ctx, d.id, d.sx, d.sy, SCALE);
-          continue;
+          // cheap pre-check before composing bounds: in front of the focus and within reach of its box
+          const near = focusBox != null && i > fi && d.sx > focusBox.x0 - 3 * CELL && d.sx < focusBox.x1 + 3 * CELL && d.sy - 6 * CELL < focusBox.y1;
+          const a = near ? occluderAlpha(objectBounds(d.id, d.sx, d.sy, SCALE), focusBox, true) : 1;
+          if (a < 1) {
+            ctx.save();
+            ctx.globalAlpha = a;
+            drawObject(ctx, d.id, d.sx, d.sy, SCALE);
+            ctx.restore();
+          } else drawObject(ctx, d.id, d.sx, d.sy, SCALE);
+          return;
         }
         const f = d.fig;
-        const isFocus = !P.focusDead && fid != null && (f.id === fid || f.carrying.includes(fid));
-        if (isFocus && focusSx != null && focusSy != null) focusRing(ctx, d.sx, d.sy);
-        const m = motionOf(f.id);
+        if (isFocusFig(f) && focusSx != null && focusSy != null) focusRing(ctx, d.sx, d.sy);
         ctx.save();
         if (d.ghost) {
           ctx.globalAlpha = d.alpha;
           ctx.filter = "grayscale(1) sepia(.25)";
         }
-        drawPerson(ctx, { displayId: f.displayId, age: f.age, facingLeft: m?.facingLeft ?? false, heldObjectId: f.heldObjectId, appearance: f.appearance }, d.sx, d.sy, SCALE);
+        drawPerson(ctx, specOf(f), d.sx, d.sy, SCALE);
         ctx.restore();
-      }
+      });
       ctx.globalAlpha = 1;
       ctx.filter = "none";
 

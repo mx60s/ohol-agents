@@ -30,7 +30,7 @@ export const dataMode: DataMode = resolveDataMode(search, env?.VITE_API_URL);
 /** Query params that select the data source; carried over on every internal link. */
 const CARRY = ["fixture", "api"] as const;
 
-export type SitePage = "home" | "stream" | "agent" | "study" | "replay" | "people" | "families" | "about";
+export type SitePage = "home" | "stream" | "agent" | "study" | "replay" | "people" | "families" | "about" | "agents";
 const FILES: Record<SitePage, string> = {
   home: "index.html",
   stream: "stream.html",
@@ -40,6 +40,7 @@ const FILES: Record<SitePage, string> = {
   people: "people.html",
   families: "families.html",
   about: "about.html",
+  agents: "agents.html",
 };
 
 /**

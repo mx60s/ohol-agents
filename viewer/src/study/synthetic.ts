@@ -2,7 +2,7 @@
 // ?fixture=synthetic&n=400[&seed=1][&null=1]. Pure (no DOM); tests/study.test.mjs uses it to check
 // that planted effects are detected and null traits are not.
 //
-// Model (OHOL timing: one game year per real minute):
+// Model (OHOL timing: one game year per real minute, or per timeScale minutes when given):
 // - Eves appear every EVE_EVERY_MIN minutes at age 14 with traits ~ N(0,1) clipped to +-2.5.
 // - A child's traits = mother's + N(0, 0.15) per dim, clipped (as the agents service does).
 // - Each lineage has a shared environment u ~ N(0, 0.6) ("camp quality"), so outcomes are
@@ -18,7 +18,7 @@
 
 import type { LifeActivity, LifeRecord, LineageRecord, Traits } from "../api-types.ts";
 import { gauss, rng, type Rng } from "./stats.ts";
-import { ADULT_AGE, LIFESPAN_YEARS, YEAR_MS } from "./analysis.ts";
+import { ADULT_AGE, BASE_YEAR_MS, LIFESPAN_YEARS } from "./analysis.ts";
 
 /** deliberately NOT the Big Five: the page must work with whatever dims the data has */
 export const SYNTH_DIMS = ["curiosity", "diligence", "sociability", "warmth", "anxiety"];
@@ -40,6 +40,8 @@ export interface SynthOptions {
   dims?: string[];
   effects?: SynthEffects;
   mutationSd?: number;
+  /** game clock slowdown k stamped on every life (one game year = 60 s x k); default 1 */
+  timeScale?: number;
 }
 
 export interface SynthData {
@@ -54,7 +56,6 @@ const EVE_EVERY_MIN = 9;
 /** SD of a lineage-wide 'camp quality' effect on survival (logit) and, halved, fertility (log rate) */
 const FAMILY_SD = 0.6;
 const T0 = Date.UTC(2026, 10, 1, 12, 0, 0);
-const RUN_MS = 3 * 60 * YEAR_MS;
 const FIRST = ["ADA", "BEN", "CORA", "DAN", "EDIE", "FINN", "GWEN", "HAL", "IRIS", "JUDE", "KIT", "LENA", "MILO", "NELL", "OTIS", "PIA", "QUIN", "ROSA", "SAUL", "TESS", "URI", "VERA", "WREN", "YARA", "ZEKE"];
 const SURNAMES = ["HOPE", "ASHGROVE", "MOSS", "KETTLE", "DAWN", "FERN", "STONE", "BRIAR", "LARK", "MARSH", "THORN", "WILLOW", "CROW", "HOLLOW", "REED", "FINCH"];
 
@@ -103,6 +104,9 @@ export function generateSynthetic(opts: SynthOptions): SynthData {
   const dims = opts.dims ?? SYNTH_DIMS;
   const eff = opts.effects ?? PLANTED;
   const mut = opts.mutationSd ?? 0.15;
+  const scale = opts.timeScale != null && opts.timeScale > 0 ? opts.timeScale : 1;
+  const YEAR_MS = BASE_YEAR_MS * scale;
+  const RUN_MS = 3 * 60 * YEAR_MS;
   const R = rng((opts.seed ?? 1) * 7919 + 13);
   const zi = (k: number) => Math.min(k, dims.length - 1);
   const nullDim = dims.length - 1;
@@ -166,7 +170,7 @@ export function generateSynthetic(opts: SynthOptions): SynthData {
     drafts.push(d);
   }
 
-  const now = (drafts.length ? drafts[drafts.length - 1].bornAt : T0) + 30_000;
+  const now = (drafts.length ? drafts[drafts.length - 1].bornAt : T0) + YEAR_MS / 2;
   const id = (d: Draft) => `syn-r${Math.floor((d.lineage.bornAt - T0) / RUN_MS) + 1}:${d.playerId}`;
   const lives: LifeRecord[] = drafts.map((d) => {
     const dead = d.diesAt <= now;
@@ -194,6 +198,7 @@ export function generateSynthetic(opts: SynthOptions): SynthData {
       inherited: !!d.mother,
       traitSource: "mock",
       bornAt: d.bornAt,
+      timeScale: scale,
       ageAtBirth: d.startAge === 0 ? 0.01 : d.startAge + 0.01,
       birthX: null,
       birthY: null,

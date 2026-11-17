@@ -4,6 +4,11 @@
 // rely on arrays being arrays and numbers being numbers.
 
 import type {
+  AgentSpecExample,
+  AgentSpecIntervention,
+  AgentSpecLimits,
+  AgentSpecResponse,
+  AgentSpecSettings,
   AgentView,
   DeathRecord,
   DeathsResponse,
@@ -13,13 +18,17 @@ import type {
   LineageRecord,
   LineagesResponse,
   LivesResponse,
+  LlmStatus,
   MapResponse,
   PlayerView,
   RunEvent,
   RunInfo,
+  ServerSetting,
   StateResponse,
   Stats,
   StoryHistoryResponse,
+  Invention,
+  InventionsResponse,
   StorySoFar,
   TraitSource,
   Traits,
@@ -34,6 +43,8 @@ const numOrNull = (v: unknown): number | null => (typeof v === "number" && Numbe
 const str = (v: unknown, d = ""): string => (typeof v === "string" ? v : d);
 const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const boolOrNull = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+/** a positive time scale (game clock slowdown), else 1 */
+const scaleOf = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 1);
 const strArr = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
 export function normTraitSource(v: unknown): TraitSource {
@@ -49,6 +60,19 @@ export function normTraits(v: unknown): Traits | null {
 }
 
 export const EMPTY_STATS: Stats = { alive: 0, totalBirths: 0, totalDeaths: 0, maxGeneration: 0, families: 0, llmCalls: 0, llmCostUsd: 0 };
+
+/** LLM provider health; null when the backend doesn't send it (older agents service, fixtures) */
+export function normLlmStatus(v: unknown): LlmStatus | null {
+  if (!isObj(v) || typeof v.ok !== "boolean") return null;
+  return {
+    ok: v.ok,
+    lastError: strOrNull(v.lastError),
+    since: numOrNull(v.since),
+    consecutiveFailures: num(v.consecutiveFailures),
+    retryAt: numOrNull(v.retryAt),
+    outageSince: numOrNull(v.outageSince),
+  };
+}
 
 function normRun(v: unknown): RunInfo {
   const r = isObj(v) ? v : {};
@@ -66,9 +90,12 @@ function normRun(v: unknown): RunInfo {
     haltReason: strOrNull(r.haltReason),
     limits: { maxGeneration: num(lim.maxGeneration), maxLives: num(lim.maxLives), maxRuntimeMin: num(lim.maxRuntimeMin), maxCostUsd: num(lim.maxCostUsd) },
     continuous: r.continuous === true,
+    pauseKind: r.pauseKind === "daily-cap" || r.pauseKind === "llm-outage" ? r.pauseKind : null,
     pauseReason: strOrNull(r.pauseReason),
     resumesAt: numOrNull(r.resumesAt),
     dailySpend: ds ? { last24hUsd: num(ds.last24hUsd), capUsd: num(ds.capUsd) } : undefined,
+    llmStatus: normLlmStatus(r.llmStatus) ?? undefined,
+    timeScale: scaleOf(r.timeScale),
   };
 }
 
@@ -187,6 +214,7 @@ export function normLife(v: unknown): LifeRecord | null {
     inherited: v.inherited === true,
     traitSource: normTraitSource(v.traitSource),
     bornAt: num(v.bornAt),
+    timeScale: scaleOf(v.timeScale),
     ageAtBirth: numOrNull(v.ageAtBirth),
     birthX: numOrNull(v.birthX),
     birthY: numOrNull(v.birthY),
@@ -198,6 +226,8 @@ export function normLife(v: unknown): LifeRecord | null {
     status,
     childLifeIds: strArr(v.childLifeIds),
     activity: normActivity(v.activity),
+    outage: v.outage === true,
+    validForStudy: v.validForStudy !== false && v.outage !== true,
     updatedAt: num(v.updatedAt, num(v.bornAt)),
     // forward-compatible: a backend-written personality summary (see shared/personality.ts)
     ...(typeof v.personalitySummary === "string" ? { personalitySummary: v.personalitySummary } : {}),
@@ -248,10 +278,12 @@ export function normDeath(v: unknown): DeathRecord | null {
     generation: num(v.generation, 1),
     bornAt: num(v.bornAt),
     diedAt: num(v.diedAt),
+    timeScale: scaleOf(v.timeScale),
     ageAtDeath: numOrNull(v.ageAtDeath),
     deathReason: strOrNull(v.deathReason),
     traits: normTraits(v.traits),
     inherited: v.inherited === true,
+    validForStudy: v.validForStudy !== false,
   };
 }
 
@@ -304,5 +336,112 @@ export function normStoryHistory(v: unknown): StoryHistoryResponse {
       const s = normStory(x);
       return s && isObj(x) ? { ...s, runId: strOrNull(x.runId) } : null;
     }),
+  };
+}
+
+/** GET /api/inventions: drop malformed rows; newest first (re-sorted, a fixture may be hand-written). */
+export function normInventions(v: unknown): InventionsResponse {
+  const r = isObj(v) ? v : {};
+  const rows = arr(r.inventions, (x): Invention | null => {
+    if (!isObj(x)) return null;
+    const item = str(x.item).trim();
+    const t = num(x.t, NaN);
+    if (!item || !Number.isFinite(t)) return null;
+    const objectId = numOrNull(x.objectId);
+    return { item, ...(objectId != null && objectId > 0 ? { objectId } : {}), lifeId: strOrNull(x.lifeId), name: strOrNull(x.name), t, runId: str(x.runId) };
+  });
+  return { inventions: rows.sort((a, b) => b.t - a.t) };
+}
+
+// ------------------------------------------------------------------ /api/agent-spec
+
+const CATEGORIES = ["human-ui", "wiki", "beyond-human", "game-setting"] as const;
+
+function normServerSetting(v: unknown): ServerSetting {
+  const r = isObj(v) ? v : {};
+  const source = r.source === "env" || r.source === "settings file" ? r.source : "unknown";
+  return { value: strOrNull(r.value), source };
+}
+
+/** The numeric fields of d, read from v (non-numbers fall back to d's value). */
+function numRecord<T extends { [K in keyof T]: number }>(v: unknown, d: T): T {
+  const r = isObj(v) ? v : {};
+  const out = { ...d };
+  for (const k of Object.keys(d) as (keyof T & string)[]) out[k] = num(r[k], d[k]) as T[keyof T & string];
+  return out;
+}
+
+const LIMITS0: AgentSpecLimits = {
+  viewRadius: 0, peopleRadius: 0, resourceRadius: 0, maxThingKinds: 0, maxHints: 0, maxPeople: 0, historyShown: 0, heardWindowS: 0, heardMax: 0,
+  deathsWindowS: 0, deathsMax: 0, notebookShown: 0, notebookKept: 0, wakeSpeechRadius: 0, hearingRadius: 0, reflexFood: 0,
+};
+
+function normAgentExample(v: unknown): AgentSpecExample | null {
+  if (!isObj(v) || typeof v.observation !== "string") return null;
+  const rep = isObj(v.reply) ? v.reply : {};
+  const reply: AgentSpecExample["reply"] = {};
+  for (const k of ["thought", "goal", "note", "say"] as const) if (typeof rep[k] === "string") reply[k] = rep[k] as string;
+  if (isObj(rep.action)) reply.action = rep.action;
+  if (Array.isArray(rep.actions)) reply.actions = rep.actions.filter(isObj);
+  return {
+    t: num(v.t),
+    agentId: str(v.agentId),
+    playerId: numOrNull(v.playerId),
+    lifeIndex: numOrNull(v.lifeIndex),
+    model: strOrNull(v.model),
+    age: num(v.age),
+    observation: v.observation,
+    reasoning: strOrNull(v.reasoning),
+    replyText: str(v.replyText),
+    reply,
+    results: arr(v.results, (x) => (isObj(x) ? { action: str(x.action), result: str(x.result) } : null)),
+    said: strOrNull(v.said),
+  };
+}
+
+/** null when the body isn't an agent spec (an older service: 404, or the page fallback). */
+export function normAgentSpec(v: unknown): AgentSpecResponse | null {
+  if (!isObj(v) || typeof v.systemPrompt !== "string") return null;
+  const s = isObj(v.settings) ? v.settings : {};
+  const om = isObj(s.overheadModels) ? s.overheadModels : {};
+  const settings: AgentSpecSettings = {
+    model: str(s.model),
+    overheadModels: { narrator: str(om.narrator), director: strOrNull(om.director), story: str(om.story) },
+    ...numRecord(s, {
+      decisionCycleMs: 0, babyDecisionIntervalMs: 0, babyIdleMaxMs: 0, timeScale: 1, gameSecondsPerTurn: 0, turnsPerYear: 0,
+      reasoningMaxTokens: 0, decisionMaxTokens: 0, maxTokens: 0, actionListMax: 1,
+    }),
+    reasoningCap: s.reasoningCap === true,
+    reasoningEffort: strOrNull(s.reasoningEffort),
+    craftMacro: s.craftMacro === true,
+    recipeHints: s.recipeHints === true,
+    memoryMode: s.memoryMode === "persistent" ? "persistent" : "per-life",
+    traitSource: normTraitSource(s.traitSource),
+    foodBonus: normServerSetting(s.foodBonus),
+    foodBonusSecondsPerPip: normServerSetting(s.foodBonusSecondsPerPip),
+    freeNames: normServerSetting(s.freeNames),
+    playerSaves: normServerSetting(s.playerSaves),
+  };
+  return {
+    now: num(v.now),
+    runId: strOrNull(v.runId),
+    systemPrompt: v.systemPrompt,
+    userSuffix: str(v.userSuffix),
+    replyFields: arr(v.replyFields, (x) => (isObj(x) && typeof x.name === "string" ? { name: x.name, meaning: str(x.meaning) } : null)),
+    actions: arr(v.actions, (x) =>
+      isObj(x) && typeof x.type === "string"
+        ? { type: x.type, template: str(x.template), fields: strArr(x.fields), meaning: str(x.meaning), ...(x.temporary === true ? { temporary: true } : {}) }
+        : null,
+    ),
+    validActionTypes: strArr(v.validActionTypes),
+    settings,
+    limits: numRecord(v.limits, LIMITS0),
+    sayLimits: arr(v.sayLimits, (x) => (isObj(x) && typeof x.age === "number" && typeof x.letters === "number" ? { age: x.age, letters: x.letters } : null)),
+    interventions: arr(v.interventions, (x) =>
+      isObj(x) && typeof x.name === "string" && (CATEGORIES as readonly unknown[]).includes(x.category)
+        ? { id: str(x.id, x.name), name: x.name, category: x.category as AgentSpecIntervention["category"], on: boolOrNull(x.on), detail: str(x.detail) }
+        : null,
+    ),
+    example: normAgentExample(v.example),
   };
 }

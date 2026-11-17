@@ -87,3 +87,16 @@ test("Llm: gate pauses calls without a request; MAX_COST_USD 0 = no per-run cap"
   capped.totalCost = 10;
   assert.equal(capped.overRunBudget, true);
 });
+
+test("Llm.addCost (director Jev spend) counts toward the run cap and the shared gate", () => {
+  const gated: number[] = [];
+  const llm = new Llm({ ...config, maxCostUsd: 0.001 }, { onCost: (u) => gated.push(u), pausedReason: () => null });
+  llm.addCost(0.0004);
+  llm.addCost(-1);
+  llm.addCost(Number.NaN);
+  assert.equal(llm.totalCost, 0.0004);
+  assert.deepEqual(gated, [0.0004]);
+  assert.equal(llm.overBudget, false);
+  llm.addCost(0.0007);
+  assert.equal(llm.overBudget, true);
+});

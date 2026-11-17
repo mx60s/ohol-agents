@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 import type { RunController } from "./runs.ts";
 import type { GameData } from "./game/gameData.ts";
 import { handleResearchApi } from "./research-api.ts";
+import { handleAgentSpecApi } from "./agentspec.ts";
+import { FLOWER_COLORS, FLOWER_SHAPES } from "./flowers.ts";
+import type { FlowersResponse, InventionsResponse } from "./api-types.ts";
 
 // Built viewer (viewer/dist), served at / when present, so one Railway URL
 // is both the dashboard and its API.
@@ -81,11 +84,16 @@ export function startApi(port: number, runs: RunController, gd: GameData, cfgTok
     try {
       switch (url.pathname) {
         case "/health":
-          return json({ ok: true });
+          // APP_VERSION: set by deploy/start.sh (image stamp or hot-update version); hot-update.sh waits for it
+          return json({ ok: true, appVersion: process.env.APP_VERSION ?? null });
         case "/api/state":
           return json({ ...runs.pop.state(), control: { open: runs.openControl, totalCostUsd: Math.round(runs.totalCost * 100) / 100, maxTotalCostUsd: runs.maxTotalCostUsd }, focus: runs.focus(), story: runs.story.current() });
         case "/api/story/history":
           return json({ history: runs.story.history(Number(url.searchParams.get("limit") ?? 20)) });
+        case "/api/inventions":
+          return json({ inventions: runs.inventions.list(Number(url.searchParams.get("limit") ?? 20), url.searchParams.get("run") ?? undefined) } satisfies InventionsResponse);
+        case "/api/flowers":
+          return json({ shapes: [...FLOWER_SHAPES], colors: [...FLOWER_COLORS] } satisfies FlowersResponse);
         case "/api/map":
           return json(runs.pop.map());
         case "/api/events":
@@ -120,6 +128,8 @@ export function startApi(port: number, runs: RunController, gd: GameData, cfgTok
         default:
           // research data: /api/lives*, /api/lineages, /api/deaths (research-api.ts)
           if (req.method === "GET" && handleResearchApi(url, res, runs.lives)) return;
+          // what agents are told and can do: /api/agent-spec (agentspec.ts)
+          if (req.method === "GET" && handleAgentSpecApi(url, res, () => ({ dir: runs.log?.dir ?? null, runId: runs.runId ?? null }))) return;
           if (!url.pathname.startsWith("/api/") && req.method === "GET" && serveStatic(url.pathname, res)) return;
           res.statusCode = 404;
           return json({ error: "not found" });

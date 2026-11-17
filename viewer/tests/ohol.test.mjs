@@ -19,7 +19,7 @@ import {
   lineageLook,
 } from "../src/ohol/appearance.ts";
 import { recolorHairPixels } from "../src/ohol/hairTint.ts";
-import { NUDITY_SPRITES, composeObject, composePerson, personLayers } from "../src/ohol/compose.ts";
+import { NUDITY_SPRITES, composeObject, composePerson, opsBounds, personLayers } from "../src/ohol/compose.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIMS = ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"];
@@ -344,4 +344,32 @@ test("every hairstyle donor has normal-blend head hair at 25 (colour shows on da
     const adult = L.filter((l) => l.hair && /hair/i.test(M.sprites[l.s].n) && l.p === head && (!l.a || (25 >= l.a[0] && 25 < l.a[1])));
     assert.ok(adult.some((l) => !M.sprites[l.s].m), `${d.id} has no normal-blend adult hair`);
   }
+});
+
+test("opsBounds: visible box of draw ops, following drawOps' translate / rotate / flip / scale", () => {
+  // 100x60 image, visible part 40x20 centred 10 px right / 5 px below the image centre; anchor at the image centre
+  const m = { sprites: { 1: { n: "a", w: 100, h: 60, ax: 0, ay: 0, cx: 10, cy: 5, vw: 40, vh: 20 }, 2: { n: "shadow", w: 50, h: 50, ax: 0, ay: 0, cx: 0, cy: 0, vw: 50, vh: 50, m: 1 } } };
+  const op = (o) => ({ sprite: 1, x: 0, y: 0, rot: 0, flip: false, color: null, blend: "normal", hairTint: null, ...o });
+  const near = (b, e) => ["x0", "y0", "x1", "y1"].forEach((k) => assert.ok(Math.abs(b[k] - e[k]) < 1e-9, `${k}: ${b[k]} != ${e[k]}`));
+  near(opsBounds(m, [op({})], 200, 300, 1), { x0: 190, y0: 295, x1: 230, y1: 315 });
+  // op.y is y-up: 50 up moves the box 50 px up the screen; scale halves the size and offsets
+  near(opsBounds(m, [op({ y: 50 })], 200, 300, 0.5), { x0: 195, y0: 272.5, x1: 215, y1: 282.5 });
+  // flipped: mirrored around the anchor
+  near(opsBounds(m, [op({ flip: true })], 200, 300, 1), { x0: 170, y0: 295, x1: 210, y1: 315 });
+  // a quarter turn clockwise: (x, y) -> (-y, x) in y-down space
+  near(opsBounds(m, [op({ rot: 0.25 })], 0, 0, 1), { x0: -15, y0: -10, x1: 5, y1: 30 });
+  // union of ops; multiplicative sprites (shadows) and unknown sprites ignored
+  near(opsBounds(m, [op({}), op({ x: 100 }), op({ sprite: 2, blend: "multiply" }), op({ sprite: 99 })], 0, 0, 1), { x0: -10, y0: -5, x1: 130, y1: 15 });
+  assert.equal(opsBounds(m, [], 0, 0, 1), null);
+  assert.equal(opsBounds(m, [op({ sprite: 2 })], 0, 0, 1), null);
+});
+
+test("opsBounds: a real tree is tall enough to cover an adult standing one tile behind it", { skip: !haveAssets && "run npm run assets" }, () => {
+  const m = M;
+  const S = 112 / 128;
+  const tree = opsBounds(m, composeObject(m, 49), 0, 112, S); // Juniper one row in front (lower on screen)
+  const person = opsBounds(m, composePerson(m, { displayId: 19, age: 30 }), 0, 0, S);
+  assert.ok(tree && person);
+  assert.ok(tree.y0 < person.y0, "canopy reaches above the head");
+  assert.ok(tree.x0 < person.x0 && tree.x1 > person.x1);
 });

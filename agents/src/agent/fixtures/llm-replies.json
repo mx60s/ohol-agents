@@ -1,0 +1,418 @@
+[
+{
+"raw": "{\n  \"thought\": \"I am an Eve. I must name myself to establish our lineage, then find fertile grassland with water and food to settle.\",\n  \"goal\": \"Name myself and scout for a good camp location in green biome\",\n  \"say\": \"I AM EVE DAWN\",\n  \"action\": {\n    \"type\": \"go\",\n    \"x\": 44,\n    \"y\": -71\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'm at 3/6 food; mother is carrying me, which nurses me. I'll say 'F' just in case and wait to let her feed me.\",\n  \"say\": \"F\",\n  \"action\": {\n    \"type\": \"wait\",\n    \"seconds\": 5\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'll drop this milkweed stalk near the spring to start our tool stockpile, then gather another stalk to make twine.\",\n  \"action\": {\n    \"type\": \"drop\",\n    \"x\": 39,\n    \"y\": -81\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"I should eat one more gooseberry nearby to keep my food bar full before heading back south to base.\",\"action\":{\"type\":\"forage\",\"x\":23,\"y\":-61}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I will bring the sharp stone to camp near mother and the basket so we can organize our tools.\",\n  \"action\": {\n    \"type\": \"drop\",\n    \"x\": 40,\n    \"y\": -118\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'm hungry at 4/12 food. I need to forage some gooseberries before working on the bow drill.\",\n  \"action\": {\n    \"type\": \"forage\",\n    \"x\": 34,\n    \"y\": -116\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"Skewer doesn't combine with Yew Bow. Dropping the skewer to free my hands and gather materials for camp.\",\"action\":{\"type\":\"drop\",\"x\":37,\"y\":-118}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"Hog cut cannot be eaten raw and Faith is dying from a boar attack. I have 5 food left, so I must drop this meat and sprint to find edible wild food immediately.\",\n  \"action\": {\n    \"type\": \"drop\"\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I need to name baby #7 Grace while holding her, and nurse her while Joy helps make fire.\",\n  \"say\": \"YOU ARE GRACE\",\n  \"action\": { \"type\": \"wait\", \"seconds\": 4 }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"Mother Dawn told me to get clay to make bowls. I'll go gather clay from the deposit south at (32, -132).\",\"goal\":\"Get clay and make bowls for the camp\",\"say\":\"OKAY MOM\",\"action\":{\"type\":\"use\",\"x\":32,\"y\":-132}}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"My food is getting low and I am craving burdock root. I can dig the wild burdock south at (36, -131) with my skewer.\",\"action\":{\"type\":\"use\",\"x\":36,\"y\":-131}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'll drop this milkweed stalk, pick another one, and combine them into thread.\",\n  \"action\": {\n    \"type\": \"drop\",\n    \"x\": -31,\n    \"y\": -235\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"Maya is 2.4 years old and almost ready to walk at age 3. I will forage another gooseberry to keep our food levels high.\",\"action\":{\"type\":\"forage\",\"x\":-25,\"y\":-177}}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"I have a sharp stone. Let me head down toward Mom to see what she needs or check what she's building.\",\"action\":{\"type\":\"go\",\"x\":-28,\"y\":-188}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'll harvest the fruiting milkweed to make a second thread and combine it into rope for clothing or tools.\",\n  \"action\": {\n    \"type\": \"use\",\n    \"x\": -5,\n    \"y\": -139\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\": \"I'll pick up this flint so I can knap it into a sharp stone.\", \"action\": {\"type\": \"use\", \"x\": 13, \"y\": -150}}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\": \"Mother is holding me and my food is full. I will wait patiently to grow up.\", \"action\": {\"type\": \"wait\", \"seconds\": 15}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'll drop this milkweed stalk at our camp spot (0, -38) and gather the second milkweed at (9, -30) to make thread.\",\n  \"action\": { \"type\": \"drop\", \"x\": 0, \"y\": -38 }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I am full and Eve is holding me until I reach age 3. I will wait patiently.\",\n  \"action\": {\n    \"type\": \"wait\",\n    \"seconds\": 10\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I can walk now. I'll acknowledge mom and start gathering resources to help.\",\n  \"say\": \"OK\",\n  \"action\": { \"type\": \"go\", \"x\": 4, \"y\": -38 }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"Mom named our campsite near the spring. I am full and safely being held, so I will rest and grow.\",\n  \"action\": {\n    \"type\": \"wait\",\n    \"seconds\": 15\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"I am starving at 2/6 food; walking directly to mother at (0, -38) so she can nurse me.\",\"action\":{\"type\":\"go\",\"x\":0,\"y\":-38}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I am safe in mother's arms with full food. I will wait quietly as I grow.\",\n  \"action\": {\n    \"type\": \"wait\",\n    \"seconds\": 15\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"Mom is coming to pick me up; I need to stay put and wait for her to nurse me.\",\n  \"say\": \"F\",\n  \"action\": {\n    \"type\": \"wait\",\n    \"seconds\": 2\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'm holding Dawn until she turns 3 so she doesn't starve. Let's walk southeast towards the gooseberry bush to scout a permanent camp location.\",\n  \"say\": \"Hold on Dawn, almost big enough!\",\n  \"action\": {\n    \"type\": \"go\",\n    \"x\": 5,\n    \"y\": -186\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"I'll drop this rope near our spring home base and check on mother to help with camp.\",\"goal\":\"Establish camp near spring and assist mother\",\"action\":{\"type\":\"drop\",\"x\":40,\"y\":-201}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I just ate and have 6/9 food. Mother is west at the spring (2, -198), so I will rejoin her.\",\n  \"action\": {\n    \"type\": \"go\",\n    \"x\": 2,\n    \"y\": -198\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"I have two threads nearby. Picking up one thread to combine with the other to make rope.\",\"action\":{\"type\":\"use\",\"x\":17,\"y\":-191}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'll drop the curved shaft and pick up the rope to see if using rope on it works, or if I need a different stick.\",\n  \"action\": {\n    \"type\": \"drop\",\n    \"x\": 37,\n    \"y\": -202\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\": \"I'm holding a milkweed stalk; I'll head back towards camp where I left another stalk at (9, -190) to combine them into fiber.\", \"action\": {\"type\": \"use\", \"x\": 9, \"y\": -190}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'm full and mom is holding me. I will reach age 3 in about 24 seconds, when I can feed myself.\",\n  \"action\": {\n    \"type\": \"wait\",\n    \"seconds\": 20\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'll try combining my skewer with the rope to see if it crafts a snare.\",\n  \"action\": {\n    \"type\": \"use\",\n    \"x\": 3,\n    \"y\": -200\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"I am a starving newborn baby right next to my mother; I need to signal for food and wait to be picked up.\",\"goal\":\"Survive infancy by being nursed by mother.\",\"say\":\"F\",\"action\":{\"type\":\"wait\",\"seconds\":3}}",
+"kind": "ok"
+},
+{
+"raw": "{\"action\":{\"seconds\":10,\"type\":\"wait\"},\"thought\":\"Mother is carrying and caring for me; I'm full on food so I'll wait quietly.\"}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I said the naming phrase before picking Faith up earlier, so she didn't get named. Now that I am holding her, I will name her.\",\n  \"say\": \"YOU ARE FAITH\",\n  \"action\": {\n    \"type\": \"wait\",\n    \"seconds\": 5\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\": \"Faith is now 3 years old and can feed herself soon. I need food first to stay healthy.\", \"action\": {\"type\": \"forage\", \"x\": -83, \"y\": -125}}",
+"kind": "ok"
+},
+{
+"raw": "{\"action\":{\"type\":\"use\",\"x\":-90,\"y\":-117},\"thought\":\"I'll pick up the flint nearby to help make tools.\"}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\": \"Mother asked for milkweed. I will drop the branch and go explore for more milkweed plants.\", \"say\": \"OK\", \"action\": {\"type\": \"drop\", \"x\": 41, \"y\": -123}}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"I am hungry at 8/20 food, so I should eat a gooseberry nearby before continuing to make rope.\",\"action\":{\"type\":\"forage\",\"x\":59,\"y\":-118}}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\": \"I am a starving newborn baby. I need my mother to hold and nurse me, so I will cry for food.\", \"goal\": \"Survive infancy by being nursed by mother\", \"say\": \"F\", \"action\": {\"type\": \"wait\", \"seconds\": 3}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"Mom just named herself Eve Hope, but I am starving at 2/4 food. I will cry 'F' again so she picks me up.\",\n  \"say\": \"F\",\n  \"action\": {\n    \"type\": \"wait\",\n    \"seconds\": 3\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"Holding baby Faith to keep her fed. Moving north-west towards the gooseberry bush and flat rock to scout camp.\",\"action\":{\"type\":\"go\",\"x\":-3,\"y\":7}}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\":\"Faith can walk and feed herself now. I need to make baskets and tools, starting with flint for a cutting tool.\",\"action\":{\"type\":\"use\",\"x\":3,\"y\":23}}",
+"kind": "ok"
+},
+{
+"raw": "{\"thought\": \"Mother is still holding me and my food is full; I just need to grow a bit more until I can feed myself.\", \"action\": {\"type\": \"wait\", \"seconds\": 15}}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I need to drop this banana peel immediately so I can pick up baby Hope and keep her fed.\",\n  \"action\": {\n    \"type\": \"drop\"\n  }\n}",
+"kind": "ok"
+},
+{
+"raw": "{\n  \"thought\": \"I'm down to 8 food and there's no hand-pickable food within 20 tiles. I need to make a sharp stone immediately to harvest saplings for digging sticks or search rapidly for berries/cactus.\",\n  \"action\": {\n    \"type\": \"use\",\n    \"x\": 56",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I crave burdock root and there is a skewer at (36, -130) right next to burdock at (36, -131). Grace is also near there.\",\n  \"action\": { \"type\": \"use\", \"x\": 36, \"y\": 130 }\n",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I am starving to death. The wild grape plant is 10 tiles southwest at (13, -154), which is the closest edible food source.\",\n  \"action\": {\n    \"type\": \"use\",\n    \"x\": 13,\n    \"y\": -154\n",
+"kind": "failed"
+},
+{
+"raw": "... Joy was at -60, 100 tiles south!).\nWait, are you doomed to bleed out / starve? Food is 7/20.\nWait, why are you at (34, 45)?\nAt 60s ago: go (32, -50) -> wait, did you try to walk south,",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I am dangerously low on food at 5/20, and need to eat immediately. Let's head straight to the Wild Onion at (29, 38).\",\n  \"action\": {\n    \"type\": \"forage\",\n    \"x\": 29,\n    \"y\": 38\n  }",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I left the small curved branch at (40, -201) and my rope at (36, -202) near the spring. I should head back to combine them into a bow drill for fire.\",\n  \"action\": { \"type\": \"go\", \"x\": 40, \"y\": -201",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I am starving at 2 food and holding Hope. Wild Squash at (-4, -209) can be harvested for food, but it is far; I must head southwest immediately to reach it or any edible plant.\",\n  \"say\": \"EVE SAVE BABY\",\n  \"action\": {\n    \"type\":",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"Direct path south seems blocked by swamp obstacles.",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"Monuments at (0,0) and (1,0)",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I'm holding baby Joy. I'll drop her for a moment to",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\":\"Joy has been nursed enough for a moment. I need to eat a berry to keep",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\":\"I need to eat soon to keep nursing Joy. I will set Joy down for",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I need food urgently before I starve from nursing. I will put baby Joy down briefly to eat berries.\",\n  \"say\": \"I AM EVE HOPE\",\n  \"action",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"Faith is now 3 years old and can feed herself.",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"Faith is over 3 years old and can survive on her",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\":\"Mother is holding me while possibly idle. I will try jumping again to see if I",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I am over 3 years old and starving while held; I",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\":\"I am starving at 2/20 food and need to eat gooseberries immediately.",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I am starving at 1 food! Faith is age 3",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I am starving to death in my mother's arms. I need to jump down",
+"kind": "failed"
+},
+{
+"raw": "{\"action\":{\"type\":\"go\",\"x\":6,\"y\":-13},\"goal\":\"Hold Faith until",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I need to eat soon while nursing Faith. I will drop Faith on",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I need to establish our family name, eat some gooseberries since my food is",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"Faith is 2.5 years old and well-nursed.",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"Faith is age 2.7 and almost independent. My food is critical",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"Faith is age 2.8 and almost an independent toddler at age",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I am starving at 2/20 food and must drop Faith to pick and eat gooseberries immediately.\",\n  \"action\": {\n    \"type\": \"drop\"\n  ",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\": \"I'm 3 years old and starving; I need to grab a gooseberry from the bush",
+"kind": "failed"
+},
+{
+"raw": "{\"action\": {\"type\": \"go\", \"x\": -3, \"y\": 10}, \"thought\": \"I'll head north into the fertile land near the maple trees and flat rocks to scout for water and",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I will carry Faith while heading towards the tule reeds to prepare",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\":\"I need to dig up the wild carrot to satisfy my craving and get extra food capacity,",
+"kind": "failed"
+},
+{
+"raw": "-8, 18) or (-6, 18), so our families don't collide too hard",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\":\"Faith needs nursing, and my body heat is very low. Moving south towards the jungle near (2,",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"Faith is still only 1.3 years old, so I must carry her until she reaches age 3. I will move near the berry bush",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I should scout for a suitable camp site near green biome and resources, or collect",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I should scout the area and look for swamp reeds or milkweed to craft baskets",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\": \"I cut the tule reeds at (-16, 16",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\": \"I need another tule reed to weave, or check if reeds need to be cut from another patch.\",",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I will cut another tule reed nearby to get the second bundle needed for a reed basket",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I need to check why no reeds appeared,",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I need food soon. I'll drop the sharp stone and head",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I cut the reeds; now I should drop the stone and pick up the",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\": \"Mother told me I can walk now. I'll acknowledge her and check the flint nearby to start making tools.\", \"say\": \"OK\", \"action\": {\"type\": \"use\", \"",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\": \"I will drop this reed bundle near my tools so I can harvest more tule to",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I am full and can walk now. I'll make a sharp stone to help establish our camp.\",\n  \"goal\": \"Craft a sharp stone and help mother\",\n  \"action\": {\n    \"type\": \"use\",\n    \"x\": 5,",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I'll harvest tule reeds using the sharp stone to craft baskets for storage and",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\": \"Faith is walking on her own now. I have a sharp stone; I will gather tule",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\":\"I spotted a Natural Spring at (40, -40) with soil and",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"The spring tile itself is impassable. I'll walk to an open spot right",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\": \"Faith is safe in my arms. I should keep holding her so she grows strong,",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I'm holding baby Faith to keep her warm and fed until she",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\":\"I am carrying Faith safely. Since my food is at 11/19",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"Wolf and bear are to the west, so I should avoid heading",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I'll nurse Faith until she can walk at",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\":\"Wheat and squash to the north indicate grassland nearby. I'll navigate around the jungle trees toward (-",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I am 3 years old now and can walk freely. I'",
+"kind": "failed"
+},
+{
+"raw": "{\"thought\":\"Faith can take care of herself now that she's 3",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"I need to navigate north towards the prairie while",
+"kind": "failed"
+},
+{
+"raw": "{\n  \"thought\": \"A bear cave is right to the northeast at (-1",
+"kind": "failed"
+}
+]

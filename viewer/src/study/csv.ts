@@ -1,7 +1,8 @@
-// "Download CSV": every life with traits, activity, roles and outcomes. Built client-side.
+// "Download CSV": every life with traits, activity, roles and outcomes, including those the page
+// leaves out (validForStudy column; see inStudy). Built client-side.
 
 import type { LifeActivity, LifeRecord } from "../api-types.ts";
-import { adultOutcome, observedAge, ROLES, roleShares } from "./analysis.ts";
+import { adultOutcome, inStudy, observedAge, ROLES, roleShares, timeScaleOf } from "./analysis.ts";
 
 const ACTIVITY: (keyof LifeActivity)[] = [
   "thoughts", "actions", "failedActions", "moves", "tilesWalked", "maxDistFromBirth", "forage", "reflexForage", "eat",
@@ -20,7 +21,7 @@ function cell(v: unknown): string {
 export function livesCsv(lives: readonly LifeRecord[], dims: readonly string[], now: number): string {
   const head = [
     "lifeId", "runId", "agentId", "lineageId", "motherLifeId", "generation", "female", "name", "status", "bornAt", "diedAt", "lostAt",
-    "ageAtBirth", "ageAtDeath", "observedAge", "censored", "reachedAdult", "deathReason", "children", "traitSource", "inherited",
+    "timeScale", "ageAtBirth", "ageAtDeath", "observedAge", "censored", "reachedAdult", "deathReason", "children", "traitSource", "inherited", "validForStudy", "outage",
     ...dims.map((d) => `trait_${d}`), ...ACTIVITY.map((k) => `act_${k}`), ...ROLES.map((r) => `share_${r}`),
   ];
   const rows = lives.map((l) => {
@@ -28,7 +29,7 @@ export function livesCsv(lives: readonly LifeRecord[], dims: readonly string[], 
     const sh = roleShares(l.activity);
     return [
       l.lifeId, l.runId, l.agentId, l.lineageId, l.motherLifeId, l.generation, l.female, l.name, l.status, l.bornAt, l.diedAt, l.lostAt,
-      l.ageAtBirth, l.ageAtDeath, +o.age.toFixed(3), !o.event, adultOutcome(l, now), l.deathReason, l.childLifeIds.length, l.traitSource, l.inherited,
+      timeScaleOf(l), l.ageAtBirth, l.ageAtDeath, +o.age.toFixed(3), !o.event, adultOutcome(l, now), l.deathReason, l.childLifeIds.length, l.traitSource, l.inherited, inStudy(l), l.outage === true,
       ...dims.map((d) => l.traits?.[d]), ...ACTIVITY.map((k) => l.activity[k]), ...ROLES.map((_, i) => (sh ? +sh[i].toFixed(4) : null)),
     ].map(cell);
   });

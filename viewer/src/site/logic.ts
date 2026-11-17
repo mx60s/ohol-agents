@@ -7,6 +7,18 @@ import type { LifeActivity, LifeRecord, Traits } from "../api-types.ts";
 
 export const TRAIT_LIMIT = 2.5;
 
+/** muted biome colours that sit on the parchment palette (site map, stream minimap) */
+export const BIOME_FILL: Record<number, string> = {
+  0: "#8d985c", // grassland
+  1: "#5f6b48", // swamp
+  2: "#c4b46a", // prairie
+  3: "#9a8f80", // badlands
+  4: "#e2e5df", // tundra / snow
+  5: "#d8bb83", // desert
+  6: "#4f6f34", // jungle
+};
+export const UNKNOWN_FILL = "#b9ab88";
+
 /** A trait value safe to plot: finite and within +-2.5, else null. */
 export function clampTrait(v: number | null | undefined): number | null {
   if (v == null || !Number.isFinite(v)) return null;
@@ -373,4 +385,14 @@ export function lifetimeMs(l: Pick<LifeRecord, "bornAt" | "diedAt" | "lostAt">, 
   const end = l.diedAt ?? l.lostAt ?? now;
   if (!Number.isFinite(l.bornAt) || l.bornAt <= 0) return null;
   return Math.max(0, end - l.bornAt);
+}
+
+/**
+ * A life still marked "alive" but from another run than the one running now can't be alive
+ * (the world restarted under it). Show it as lost, as the server does once it notices. Returns
+ * the same array when nothing changes. No run known yet: unchanged.
+ */
+export function settleStaleLives<L extends Pick<LifeRecord, "runId" | "status" | "lostAt" | "updatedAt">>(lives: L[], runId: string | null | undefined): L[] {
+  if (!runId || !lives.some((l) => l.status === "alive" && l.runId !== runId)) return lives;
+  return lives.map((l) => (l.status === "alive" && l.runId !== runId ? { ...l, status: "lost", lostAt: l.lostAt ?? l.updatedAt } : l));
 }

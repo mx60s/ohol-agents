@@ -425,3 +425,77 @@ test("whole page copes with n = 0, 1, 2, all-equal traits and 20 arbitrary trait
   // with 20 traits there are 180 tests; the permutation budget still lets a lone effect reach q < .05
   assert.ok(1 / (A.permBudget(20) + 1) <= 0.05 / (20 * A.TESTS_PER_TRAIT));
 });
+
+// ------------------------------------------------------------------ time scale (TIME_SCALE) and outage exclusion
+
+test("each life's game year is 60 s x its own timeScale (mixed-k data; missing = 1)", () => {
+  const Y = A.BASE_YEAR_MS;
+  assert.equal(A.yearMs(life({})), Y, "records without timeScale are stock speed");
+  assert.equal(A.yearMs(life({ timeScale: 0 })), Y, "invalid k falls back to 1");
+  assert.equal(A.yearMs(life({ timeScale: 3 })), 3 * Y);
+  const stock = life({ lifeId: "fast:1" });
+  const slow = life({ lifeId: "slow:1", timeScale: 3 });
+  // 15 wall minutes after birth: 15 years at k=1, 5 years at k=3
+  assert.equal(A.ageAt(stock, 15 * Y), 15);
+  assert.equal(A.ageAt(slow, 15 * Y), 5);
+  assert.equal(A.adultOutcome(stock, 15 * Y), "yes");
+  assert.equal(A.adultOutcome(slow, 15 * Y), "too-young", "a k=3 baby is 5 after 15 wall minutes");
+  assert.equal(A.adultOutcome(slow, 42 * Y), "yes");
+  assert.deepEqual(A.observedAge(life({ timeScale: 2, status: "lost", lostAt: 30 * Y }), 99 * Y), { age: 15, event: false });
+  assert.equal(A.shortestYearMs([slow, life({ timeScale: 2 })]), 2 * Y);
+  assert.equal(A.shortestYearMs([]), Y);
+  // fertility window: at 45 wall minutes a k=1 woman is 45 (closed), a k=3 woman is 15 (open)
+  const L = [life({ lifeId: "f1", lineageId: "f1" }), life({ lifeId: "f3", lineageId: "f3", timeScale: 3 })];
+  const r = A.q2Descendants(L, "t", 45 * Y, 10);
+  assert.deepEqual(r.rows.map((x) => [x.lifeId, x.closed]).sort(), [["f1", true], ["f3", false]]);
+});
+
+test("synthetic generator: timeScale param stretches wall time, same game-year outcomes", () => {
+  const a = generateSynthetic({ n: 120, seed: 4 });
+  const b = generateSynthetic({ n: 120, seed: 4, timeScale: 2 });
+  assert.ok(a.lives.every((l) => l.timeScale === 1));
+  assert.ok(b.lives.every((l) => l.timeScale === 2));
+  // same draws: identical observed ages at the corresponding "now"
+  const ages = (s) => s.lives.map((l) => A.observedAge(l, s.now).age.toFixed(1));
+  assert.deepEqual(ages(b).slice(0, 60), ages(a).slice(0, 60));
+  close(b.lives[1].bornAt - b.lives[0].bornAt, 2 * (a.lives[1].bornAt - a.lives[0].bornAt), 1e-3);
+  // mixed-k pool: each life is read on its own clock
+  const mixed = [...a.lives, ...b.lives.map((l) => ({ ...l, lifeId: `k2-${l.lifeId}`, lineageId: `k2-${l.lineageId}` }))];
+  const res = A.computeStudy({ id: 1, lives: mixed, dims: a.traitDims.slice(0, 2), now: Math.max(a.now, b.now) });
+  assert.equal(res.used, mixed.length);
+});
+
+test("lives with validForStudy false or outage are left out of every analysis and counted", () => {
+  const s = generateSynthetic({ n: 200, seed: 5 });
+  const flagged = s.lives.map((l, i) => (i % 4 === 0 ? { ...l, outage: true, validForStudy: false } : i % 9 === 0 ? { ...l, validForStudy: false } : l));
+  const split = A.studyLives(flagged);
+  assert.equal(split.valid.length + split.excluded.length, flagged.length);
+  assert.equal(split.outage, flagged.filter((l) => l.outage === true).length);
+  assert.ok(split.valid.every(A.inStudy));
+  assert.equal(A.inStudy(life({})), true, "older records without the flags are valid");
+  assert.equal(A.inStudy(life({ outage: true })), false, "outage alone excludes, even without validForStudy");
+  const dims = s.traitDims.slice(0, 2);
+  const res = A.computeStudy({ id: 1, lives: flagged, dims, now: s.now });
+  assert.equal(res.used, split.valid.length);
+  assert.equal(res.excluded, split.excluded.length);
+  // the same as analysing the valid lives alone (Q2 may still see excluded children as kin)
+  const ref = A.computeStudy({ id: 2, lives: split.valid, dims, now: s.now });
+  for (const d of dims) {
+    assert.equal(res.per[d].surv.n, ref.per[d].surv.n);
+    assert.equal(res.per[d].adult.n, ref.per[d].adult.n);
+    assert.ok(res.per[d].desc.rows.every((r) => split.valid.some((l) => l.lifeId === r.lifeId)));
+    assert.equal(res.per[d].gens.reduce((n, g) => n + g.values.length, 0), split.valid.filter((l) => A.traitOf(l, d) != null).length);
+  }
+  assert.equal(res.q3.n, A.q3Eligible(split.valid).length);
+  // normalisation keeps the flags (they used to be dropped) and the life's time scale
+  const n = normLives({ lives: [{ lifeId: "r:1", outage: true, validForStudy: false, timeScale: 3 }, { lifeId: "r:2" }] });
+  assert.deepEqual(n.lives.map((l) => [l.outage, l.validForStudy, l.timeScale]), [[true, false, 3], [false, true, 1]]);
+});
+
+test("Q2: an excluded daughter still counts as her valid mother's child", () => {
+  const Y = A.BASE_YEAR_MS;
+  const mom = life({ lifeId: "m", lineageId: "m", status: "dead", ageAtDeath: 45, diedAt: 45 * Y, childLifeIds: ["d"] });
+  const kid = life({ lifeId: "d", lineageId: "m", motherLifeId: "m", bornAt: 20 * Y, status: "dead", ageAtDeath: 41, diedAt: 61 * Y, outage: true, validForStudy: false });
+  const res = A.computeStudy({ id: 1, lives: [mom, kid], dims: ["t"], now: 100 * Y });
+  assert.deepEqual(res.per.t.desc.rows.map((r) => [r.lifeId, r.children, r.complete]), [["m", 1, true]]);
+});

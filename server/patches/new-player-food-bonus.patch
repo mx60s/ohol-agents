@@ -1,0 +1,30 @@
+diff --git a/server/server.cpp b/server/server.cpp
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -11769,11 +11769,22 @@
+     newObject.personalEatBonus = 0;
+     newObject.personalFoodDecrementSecondsBonus = 0;
+ 
+-    if( ! newObject.isTutorial &&
+-        isUsingStatsServer() &&
+-        ! newObject.lifeStats.error ) {
++    // MTS patch: with setting mtsNewPlayerFoodBonus=1, every non-tutorial
++    // life gets the full new-player food bonus (as if it had 0 lifetime
++    // seconds) without a stats server. Stock only applies the bonus when the
++    // stats server answers, so with it off nobody gets it. With the patch the
++    // bonus is the same for every life (no half-life decay), which keeps it
++    // a fixed experimental condition.
++    char mtsFoodBonusForAll =
++        ( SettingsManager::getIntSetting( "mtsNewPlayerFoodBonus", 0 ) != 0 );
++
++    if( ! newObject.isTutorial &&
++        ( mtsFoodBonusForAll ||
++          ( isUsingStatsServer() &&
++            ! newObject.lifeStats.error ) ) ) {
+         
+-        int sec = newObject.lifeStats.lifeTotalSeconds;
++        int sec =
++            mtsFoodBonusForAll ? 0 : newObject.lifeStats.lifeTotalSeconds;
+ 
+         double halfLifeFactor = 
+             pow( 0.5, sec / newPlayerFoodBonusHalfLifeSeconds );

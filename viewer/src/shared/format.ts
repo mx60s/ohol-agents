@@ -16,19 +16,17 @@ export function ageStage(age: number | null | undefined): AgeStage {
   return a < 3 ? "baby" : a < 14 ? "child" : a < 40 ? "adult" : "elder";
 }
 
-/** Relative time: "just now", "4 s ago", "2 min ago", "3 h ago", "2 d ago" (or "in 5 min" for the future). */
+/** Relative time: "just now", "4 s ago", "2 min ago", "3 h ago", "2 d ago". Future times read "just now". */
 export function formatRelative(t: number | null | undefined, now: number): string {
   if (t == null || !Number.isFinite(t) || t <= 0) return "never";
-  const d = now - t;
-  const ab = Math.abs(d);
-  const s = Math.round(ab / 1000);
-  let txt: string;
+  // every time shown is in the past; a "future" one is server clock skew or a page clock
+  // that ticks coarser than the data arrives, so it reads as "just now", never "in 13 s"
+  const s = Math.round(Math.max(0, now - t) / 1000);
   if (s < 3) return "just now";
-  if (s < 60) txt = `${s} s`;
-  else if (s < 3600) txt = `${Math.floor(s / 60)} min`;
-  else if (s < 86400 * 2) txt = `${Math.floor(s / 3600)} h`;
-  else txt = `${Math.floor(s / 86400)} d`;
-  return d >= 0 ? `${txt} ago` : `in ${txt}`;
+  if (s < 60) return `${s} s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400 * 2) return `${Math.floor(s / 3600)} h ago`;
+  return `${Math.floor(s / 86400)} d ago`;
 }
 
 /** Duration: "41 s", "41 min", "2 h 5 min", "3 d 4 h". */
@@ -69,18 +67,54 @@ export function formatCount(n: number | null | undefined): string {
   return Math.round(n).toLocaleString("en-US");
 }
 
-/** Trait value "+1.32" / "-0.40"; absurd values become "+9.9e+8" instead of breaking layouts. */
+/** Trait value "+1.32" / "-0.40"; absurd values (bad data) become ">+99" / "<−99" instead of breaking layouts. */
 export function formatTrait(v: number | null | undefined, digits = 2): string {
   if (v == null || !Number.isFinite(v)) return "?";
-  const s = Math.abs(v) >= 1000 ? v.toExponential(1) : v.toFixed(digits);
+  // traits live in +-2.5; anything this big is bad data, shown short so it never overflows a column
+  if (Math.abs(v) >= 100) return v > 0 ? ">+99" : "<−99";
+  const s = v.toFixed(digits);
   return v > 0 ? `+${s}` : s;
 }
 
-/** Game names arrive upper-case ("EVE DAWN"): -> "Eve Dawn". Unnamed -> fallback. */
+/**
+ * Bidi overrides/isolates, invisible zero-width marks and control characters. A name with an
+ * unterminated U+202E would flip the rest of the line it sits in (ticker, tables), and
+ * zero-width-only names would look blank. U+200D (ZWJ) stays: emoji sequences need it.
+ */
+// eslint-disable-next-line no-control-regex
+const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u200b\u200c\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+
+/** Strip bidi controls and invisible characters from model/user text before display. */
+export function cleanText(s: string): string {
+  return s.replace(INVISIBLE, "");
+}
+
+/** II..X: the numeral of a repeated first name in a family ("AURORA II DAWN"). */
+export const NAME_NUMERAL = /^(II|III|IV|V|VI|VII|VIII|IX|X)$/i;
+
+/**
+ * Game names arrive upper-case ("EVE DAWN"): -> "Eve Dawn"; a numeral after
+ * the first name stays upper-case ("Aurora II Dawn"). Unnamed (or nothing visible) -> fallback.
+ */
 export function displayName(name: string | null | undefined, fallback = "Unnamed"): string {
-  const n = (name ?? "").trim();
+  const n = cleanText(name ?? "").trim();
   if (!n) return fallback;
-  return n.toLowerCase().replace(/(^|[\s\-'])(\p{L})/gu, (_m, pre: string, ch: string) => pre + ch.toUpperCase());
+  const titled = n.toLowerCase().replace(/(^|[\s\-'])(\p{L})/gu, (_m, pre: string, ch: string) => pre + ch.toUpperCase());
+  return titled.split(" ").map((w, i) => (i > 0 && NAME_NUMERAL.test(w) ? w.toUpperCase() : w)).join(" ");
+}
+
+/** First name with its numeral, from a display name: "Aurora II Dawn" -> "Aurora II", "Joy Hope" -> "Joy". */
+export function firstNameOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return name;
+  return parts[1] && NAME_NUMERAL.test(parts[1]) ? `${parts[0]} ${parts[1]}` : parts[0];
+}
+
+/** Family surname of a name: the last word, ignoring a numeral ("Aurora II Dawn" -> "Dawn"); null for a lone first name. */
+export function surnameOf(name: string | null | undefined): string | null {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2 || NAME_NUMERAL.test(parts[parts.length - 1])) return null;
+  return parts[parts.length - 1];
 }
 
 /** Truncate to n characters (by code point, so emoji are not split), adding an ellipsis. */

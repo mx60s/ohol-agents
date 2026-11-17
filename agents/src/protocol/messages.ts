@@ -296,6 +296,11 @@ function parseInner(raw: RawMessage): ServerMessage {
     }
     case "FM":
       return { type: "FM" };
+    case "MS": {
+      const text = lines.join(" ").replace(/\*\*/g, " / ").replace(/_/g, " ").replace(/\s+/g, " ").trim();
+      if (!text) throw new Error("empty MS");
+      return { type: "MS", text };
+    }
     case "PONG": {
       const id = (lines[0] ?? "").trim();
       if (id.length === 0) throw new Error("PONG missing id");

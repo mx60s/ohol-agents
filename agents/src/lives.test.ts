@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LifeBook, classifyAction, computeLineages, presumedEndAt, toRecord } from "./lives.ts";
+import { LifeBook, classifyAction, computeLineages, presumedEndAt, toDeath, toRecord, yearMsOf } from "./lives.ts";
 import { seededRng } from "./traits.ts";
 import { FakeEvents } from "./test-helpers.ts";
 
@@ -227,4 +227,110 @@ test("age at death is capped at 60 (live data had 82 and 84 after a server stall
   const b2 = book();
   b2.load(stored);
   assert.equal(b2.get("run1:11")!.ageAtDeath, 60);
+});
+
+test("time scale: each life keeps the k it was born under; presumedEnd and reconnect ages use it; old records = 1", () => {
+  const f = new FakeEvents();
+  const slow = new LifeBook({ dims: DIMS, mutationSd: 0.15, traitSource: "mock", rng: seededRng(1), timeScale: 3 });
+  slow.apply("slowRun", f.eve("a01", 10));
+  const eve = slow.get("slowRun:10")!;
+  assert.equal(eve.timeScale, 3);
+  assert.equal(yearMsOf(eve), 180_000);
+  assert.equal(toRecord(eve).timeScale, 3);
+  // Eve (age 14) lost: may live on for 46 more game years of 3 wall minutes each
+  slow.markLost(() => true, f.t);
+  assert.equal(presumedEndAt(eve), eve.bornAt + 46 * 180_000);
+  assert.equal(toRecord(eve).presumedEndAt, eve.bornAt + 46 * 180_000);
+
+  // reconnect 10 wall minutes later at k=3: 14 + 3.33 years (k=1 would expect 24)
+  const b = new LifeBook({ dims: DIMS, mutationSd: 0.15, traitSource: "mock", rng: seededRng(1), timeScale: 3 });
+  b.apply(R, f.eve("a01", 20));
+  f.wait(10 * 60_000);
+  b.apply(R, f.ev("birth", "a01", 20, { playerId: 20, motherId: null, eve: true, generation: 1, age: 17.4 }));
+  assert.equal(b.lives.size, 1, "same body under the life's own clock");
+
+  // a record written before lives carried a time scale loads as k = 1, next to a k = 3 life
+  const { timeScale: _drop, ...old } = { ...eve, lifeId: "old:1", runId: "old", playerId: 1 };
+  const mixed = book();
+  mixed.load(old as typeof eve);
+  mixed.load({ ...eve });
+  assert.equal(mixed.get("old:1")!.timeScale, 1);
+  assert.equal(presumedEndAt(mixed.get("old:1")!), eve.bornAt + 46 * 60_000);
+  assert.equal(presumedEndAt(mixed.get("slowRun:10")!), eve.bornAt + 46 * 180_000);
+
+  slow.apply("slowRun", f.death("a01", 10, 40));
+  assert.equal(toDeath(slow.get("slowRun:10")!).timeScale, 3);
+});
+
+test("flowers: distinct among living relatives, stable for life, a dead relative's can come back, reconnect keeps it", () => {
+  const b = book();
+  const f = new FakeEvents();
+  b.apply(R, f.eve("a01", 10));
+  for (let i = 0; i < 12; i++) b.apply(R, f.child(`k${i}`, 100 + i, 10));
+  const living = () => [...b.lives.values()].filter((l) => l.diedAt == null);
+  const fl = (id: string) => b.get(id)!.flower!;
+  const keys = living().map((l) => `${l.flower!.shape}|${l.flower!.color}`);
+  assert.equal(keys.length, 13);
+  assert.equal(new Set(keys).size, 13, "13 living family members, 13 flowers");
+  assert.deepEqual(toRecord(b.get("run1:100")!).flower, fl("run1:100"), "on the public record");
+
+  const before = new Map(living().map((l) => [l.lifeId, { ...l.flower! }]));
+  b.apply(R, f.death("k0", 100));
+  b.apply(R, f.child("k20", 200, 10));
+  b.apply(R, f.ev("thought", "a01", 10, undefined, { name: "EVE ROSE" }));
+  for (const [id, flower] of before) assert.deepEqual(b.get(id)!.flower, flower, `${id} kept its flower`);
+  const now = living().map((l) => `${l.flower!.shape}|${l.flower!.color}`);
+  assert.equal(new Set(now).size, now.length);
+
+  // reconnect (same body again) keeps the flower
+  const eveFlower = { ...fl("run1:10") };
+  assert.equal(b.apply(R, f.eve("a01", 10)).created, false);
+  assert.deepEqual(fl("run1:10"), eveFlower);
+
+  // a dead relative's flower is free again: some later baby picks it (with only Eve left alive,
+  // so the dead one's shape isn't still worn by a living relative)
+  for (let i = 1; i < 12; i++) b.apply(R, f.death(`k${i}`, 100 + i));
+  b.apply(R, f.death("k20", 200));
+  const dead = fl("run1:100");
+  let reused = false;
+  for (let i = 0; i < 200 && !reused; i++) {
+    const id = 300 + i;
+    b.apply(R, f.child(`r${i}`, id, 10));
+    const g = fl(`run1:${id}`);
+    if (g.shape === dead.shape && g.color === dead.color) reused = true;
+    b.apply(R, f.death(`r${i}`, id));
+  }
+  assert.ok(reused, "a later baby can wear a dead relative's flower");
+});
+
+test("assignMissingFlowers: old records get flowers distinct among contemporaries, valid ones untouched", () => {
+  const b = book();
+  const f = new FakeEvents();
+  b.apply(R, f.eve("a01", 10));
+  for (let i = 0; i < 5; i++) b.apply(R, f.child(`k${i}`, 100 + i, 10));
+  const kept = { ...b.get("run1:100")!.flower! };
+  for (const l of b.lives.values()) if (l.lifeId !== "run1:100") delete l.flower;
+  b.get("run1:101")!.flower = { shape: "orchid", color: "teal", label: "teal orchid" };
+  const changed = b.assignMissingFlowers();
+  assert.equal(changed.length, 5);
+  assert.deepEqual(b.get("run1:100")!.flower, kept);
+  const keys = [...b.lives.values()].map((l) => `${l.flower!.shape}|${l.flower!.color}`);
+  assert.equal(new Set(keys).size, 6);
+  assert.equal(b.assignMissingFlowers().length, 0, "idempotent");
+});
+
+test("assignMissingFlowers: retired shapes map to their replacement (bellflower -> lily), daisy/tulip untouched", () => {
+  const b = book();
+  const f = new FakeEvents();
+  b.apply(R, f.eve("a01", 10));
+  b.apply(R, f.child("k0", 100, 10));
+  b.apply(R, f.child("k1", 101, 10));
+  b.get("run1:10")!.flower = { shape: "bell", color: "purple", label: "purple bellflower" };
+  b.get("run1:100")!.flower = { shape: "daisy", color: "white", label: "white daisy" };
+  b.get("run1:101")!.flower = { shape: "tulip", color: "red", label: "red tulip" };
+  const changed = b.assignMissingFlowers();
+  assert.deepEqual(changed.map((l) => l.lifeId), ["run1:10"]);
+  assert.deepEqual(b.get("run1:10")!.flower, { shape: "lily", color: "purple", label: "purple lily" });
+  assert.equal(b.get("run1:100")!.flower!.shape, "daisy");
+  assert.equal(b.get("run1:101")!.flower!.shape, "tulip");
 });

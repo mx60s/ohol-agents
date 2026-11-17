@@ -7,6 +7,7 @@ which talk over `127.0.0.1`. `deploy/start.sh` supervises them:
 | --- | --- | --- |
 | OHOL game server (`OneLifeServer`, compiled in `deploy/Dockerfile`) | 8005, internal only | `/data/world` (map/player DBs, server logs) |
 | agents service + built viewer (`/` = site, `/api/*`) | 8787, public via `http_service` | `/data/logs` (`LOG_DIR`: run logs, `research/`, spend, story) |
+| (hot updates) | | `/data/app` (`versions/<v>`, `current`, `previous`) |
 
 `/data` is a single Fly volume, `as_data`.
 
@@ -31,20 +32,123 @@ or set the repository variable `SITE_API_URL`.
 2. Starts `server/run.sh /opt/ohol /data/world` and waits up to 180 s for
    `127.0.0.1:8005`.
 3. Starts the agents service (`node --import tsx src/main.ts`) with
-   `OHOL_HOST=127.0.0.1`, `LOG_DIR=/data/logs`, `CONTINUOUS=1` and
-   `AUTOSTART=1`.
+   `OHOL_HOST=127.0.0.1`, `LOG_DIR=/data/logs`, `CONTINUOUS=1`,
+   `AUTOSTART=1` and `GAME_SERVER_EPOCH` (when it launched the game server).
+   The code comes from the hot-update override `/data/app/current` if it is
+   valid and was installed on this image (see [Hot update](#hot-update)),
+   otherwise from the image (`/app/agents`, `/app/viewer/dist`).
 4. On SIGTERM or SIGINT (`kill_signal = "SIGTERM"`, `kill_timeout = 60s`):
-   - It sends SIGTERM to the agents service. The agents disconnect, mark the
-     run's open lives as lost, flush the journal and write
-     `research/lives.snapshot.json`.
+   - It sends SIGTERM to the agents service. The agents disconnect, flush the
+     journal and write `research/lives.snapshot.json`. In continuous mode the
+     open lives stay open: the next start resumes the run (below).
    - It then sends **SIGTSTP** to OneLifeServer, the server's own graceful-quit
      signal. SIGTERM would just kill it.
    - It exits 0. Any process still running after its timeout gets SIGKILL.
-5. If either process exits on its own, start.sh stops the other one and exits
-   1. `[[restart]] policy = "always"` brings the machine back.
+5. If the **agents service** exits on its own (crash, OOM, missing key), only
+   the agents service is restarted. The game server and every living
+   character stay up, and the restarted agents log back into their
+   characters. Backoff doubles from `AGENTS_BACKOFF_BASE` (2 s) up to
+   `AGENTS_BACKOFF_MAX` (60 s); a run of `AGENTS_STABLE_S` (120 s) resets it.
+   After `AGENTS_MAX_CRASHES` (5) quick crashes in a row it is a crash loop:
+   a hot-update override is dropped (back to the image's code, logged in
+   `/data/app/disabled.log`); already on the image's code, it retries every
+   `AGENTS_GIVEUP_RETRY_S` (300 s) and leaves the world running.
+6. **SIGUSR1** restarts only the agents service (graceful SIGTERM, then a new
+   start that re-reads the override). This is how a hot update applies.
+7. If the **game server** exits, start.sh stops the agents and exits 1.
+   `[[restart]] policy = "always"` brings the machine back (a new world
+   epoch: the agents start a fresh run).
+
+start.sh writes its pid to `/tmp/as-supervisor.pid` and its state (pids,
+which code the agents run, crash count) to `/tmp/as-supervisor.state`.
 
 Note: Fly's HTTP checks only gate routing and deploys. They do not restart a
-machine. The restart comes from start.sh exiting when a process dies.
+machine. The restart comes from start.sh exiting when the game server dies.
+
+### Run identity across restarts
+
+The agents' login emails derive from the run id, and OHOL hands a still-living
+body back to the same email. With `CONTINUOUS=1` the current run is kept in
+`/data/logs/research/current-run.json` and a restart of the agents service
+(crash, SIGUSR1, hot update) reuses it, so every slot reconnects to its
+character. Reconnects are `system` events with `data.reconnect: true`, never
+births; the life records stay open and valid. A fresh run (new emails, new
+characters, the old ones become `lost`) starts on:
+- a game-server restart (full deploy, machine restart): stock OHOL ends every
+  living character then, and reused emails could be confused with recycled
+  player ids (`RESUME_ACROSS_SERVER_RESTART=1` turns this off);
+- a halt (`/api/halt`, spend cap);
+- `NEW_RUN=1`, or the one-shot flag `/data/logs/research/new-run.flag`
+  (`deploy/hot-update.sh --new-run` sets it);
+- a changed `RUN_ID`.
+
+## Updating: hot update vs full deploy
+
+| change | how | the world |
+| --- | --- | --- |
+| `agents/src/**`, `viewer/**`, `data/game-data.json.gz` | `deploy/hot-update.sh` | keeps running; agents reconnect within seconds |
+| `server/**` (patches, settings, run.sh), the OHOL pins | `fly deploy` | restarts: every living character ends, fresh run |
+| `deploy/start.sh`, `deploy/Dockerfile`, `deploy/app-switch.sh` | `fly deploy` | restarts |
+| agents dependencies (`agents/package-lock.json`) | `fly deploy` (hot-update refuses) | restarts |
+| `fly.toml` `[env]`, `fly secrets set` | `fly deploy` / secrets apply | restarts |
+| viewer art (`npm run assets`, the OneLifeData7 pin) | `fly deploy` | restarts |
+
+### Hot update
+
+Run from the repo root on your laptop, with `fly` logged in:
+
+```sh
+deploy/hot-update.sh                 # build, upload, switch, restart the agents, verify
+deploy/hot-update.sh --new-run       # same, and start a fresh run (new characters)
+deploy/hot-update.sh --skip-viewer-ci   # reuse viewer/node_modules instead of npm ci
+deploy/hot-update.sh status          # what the machine runs, versions, supervisor state
+deploy/hot-update.sh rollback        # back to the previous version (toggles)
+deploy/hot-update.sh rollback --image   # back to the image's own code
+```
+
+Steps:
+1. Type-checks the agents. Builds the viewer (`npm ci`, then `npm run build`
+   with `VITE_API_URL=same-origin`) into a staging dir. The OHOL art is not
+   uploaded: the machine links the image's `/app/viewer/dist/ohol`.
+2. Packs `agents/{src,package.json,package-lock.json,tsconfig.json}` (no
+   tests), `data/`, `viewer/dist`, `deploy/app-switch.sh` and `VERSION`
+   (`<UTC time>-<git sha>[-dirty]`) into a tarball, about 1 MB.
+3. Uploads it and `app-switch.sh` with `fly ssh sftp put`, then runs
+   `app-switch.sh install` over `fly ssh console`. It:
+   - unpacks into `/data/app/versions/<version>`;
+   - refuses if `agents/package-lock.json` differs from the image's;
+   - links the image's `node_modules`, art and data;
+   - records the image's `IMAGE_STAMP`;
+   - atomically switches the `/data/app/current` link (the old target goes to
+     `/data/app/previous`);
+   - keeps the 5 newest versions;
+   - sends SIGUSR1 to the supervisor.
+4. Polls `/health` until it reports the new `appVersion`, then `/api/state`
+   until every character that was alive before is alive again with the same
+   player id under the same run id. Exit 1 if not verified within
+   `VERIFY_TIMEOUT_S` (240 s); roll back then.
+
+Env: `FLY_APP` (default from `fly.toml`), `APP_URL` (default
+`https://<app>.fly.dev`). The first hot update needs an image built from this
+version of `deploy/` (start.sh with the override and SIGUSR1 support), so run
+one full deploy first.
+
+During the restart (a few seconds, plus tsx's startup) the characters are
+connected but unplayed, like a short lag. A character that dies in that window
+is recorded when the slot logs in again (its life becomes `lost`).
+
+### Full deploy and a stale override
+
+A full `fly deploy` restarts the machine: the game server and every living
+character end, and the agents start a fresh run. An override belongs to the
+image it was installed on. On the first start of a new image, start.sh sees
+that `current/BASE_IMAGE_STAMP` differs from `/app/IMAGE_STAMP`, logs it,
+unlinks `current` and runs the image's code. The versions stay on the volume
+for inspection. A deploy always runs the code it was built from, so a deploy
+never silently runs an older hot update.
+
+Commit before hot-updating. A later full deploy builds from your working tree,
+so hot-updated code that was never committed is lost then.
 
 ## First deploy
 
@@ -73,7 +177,7 @@ for the viewer's art. Expect several minutes.
 
 | name | required | what |
 | --- | --- | --- |
-| `OPENROUTER_API_KEY` | yes | LLM calls. Without it the agents service exits, start.sh exits 1, and the machine restart-loops. |
+| `OPENROUTER_API_KEY` | yes | LLM calls. Without it the agents service exits on start; start.sh retries it with backoff (then every 5 min). The game server stays up, but nobody plays. |
 | `CONTROL_TOKEN` | strongly recommended | password for `POST /api/start` and `/api/halt` (`?token=` or `Authorization: Bearer`). If it is unset, nobody can start or stop runs, because `OPEN_CONTROL=0`. |
 
 Non-secret settings live in `[env]` in `fly.toml`. Edit them and run
@@ -163,6 +267,10 @@ safest order is snapshot first, then restore, then restart right away.
 
 ## Roll back
 
+A hot update rolls back with `deploy/hot-update.sh rollback` (see
+[Hot update](#hot-update)). That keeps the world running. A full release
+rolls back like this, which restarts the world:
+
 ```sh
 fly releases --image                          # past releases with their image refs
 fly deploy --image registry.fly.io/artificial-selection:deployment-<id>
@@ -251,3 +359,19 @@ deploy/start.sh
 ```
 
 start.sh refuses to start if `GAME_PORT` is already taken.
+
+`deploy/test/supervisor-restart.sh` runs the restart scenarios end to end on
+spare ports (game 8016, API 8896, fake LLM 8797), with `.ohol-build` and the
+fake LLM, so no paid calls are made. It takes about a minute. The scenarios:
+- SIGKILL the agents service;
+- SIGUSR1 to the supervisor;
+- a hot update in local mode (`HOT_UPDATE_LOCAL=1`), then a rollback;
+- a crash-looping override;
+- a stale override.
+
+After each one it checks four things:
+- the run id is the same;
+- every character that was alive is alive again with the same player id and
+  an older age;
+- its life record is open and valid, with no new life, birth or death;
+- the event seq continued and the game-server pid is unchanged.

@@ -10,13 +10,30 @@ type Pos = [number, number];
 
 const DIRS8: Pos[] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const DIRS4: Pos[] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const CLOTHING_SLOTS = ["hat", "tunic", "front shoe", "back shoe", "bottom", "backpack"];
 const MAX_STEP_RANGE = 15; // server rejects deltas beyond +/-16
+/** a detour around a dangerous animal is taken if it is at most this many tiles longer */
+const DANGER_DETOUR = 24;
+/** how far around us dangerous animals are taken into account when pathing */
+const DANGER_SCAN = 24;
+/**
+ * Tiles a dangerous animal can cover in one move: wolf, boar, bear and snake
+ * transitions have desiredMoveDist 4 in OneLifeData7 (not in our data dump),
+ * every 3 s (snake 10 s). Paths keep this far away, or attack distance + 1 if larger.
+ */
+export const ANIMAL_JUMP_TILES = 4;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class Body {
   private moveSeq = 1;
+  /** set by the agent: non-null = abandon a long walk or craft now (urgent event) */
+  interrupt: (() => string | null) | null = null;
 
-  constructor(private conn: Connection, private world: World, private gd: GameData) {}
+  constructor(private conn: Pick<Connection, "send">, private world: World, private gd: GameData) {}
+
+  interruptReason(): string | null {
+    return this.interrupt?.() ?? null;
+  }
 
   get pos(): Pos | null {
     const s = this.world.self;
@@ -36,8 +53,50 @@ export class Body {
     }
   }
 
-  /** A* over known cells within a box. 8-way, no diagonal corner cutting. */
+  /** notes about the last action (e.g. walking past a dangerous animal); read with takeNotes() */
+  private notes: string[] = [];
+
+  takeNotes(): string[] {
+    const n = [...new Set(this.notes)];
+    this.notes = [];
+    return n;
+  }
+
+  /**
+   * Tiles near known dangerous animals (within the distance they jump in one
+   * move, or their attack distance + 1 if larger),
+   * within DANGER_SCAN of `from`: tile key -> the animal's tile and id.
+   */
+  dangerZone(from: Pos): Map<string, { x: number; y: number; id: number }> {
+    const m = new Map<string, { x: number; y: number; id: number }>();
+    for (let dy = -DANGER_SCAN; dy <= DANGER_SCAN; dy++)
+      for (let dx = -DANGER_SCAN; dx <= DANGER_SCAN; dx++) {
+        const x = from[0] + dx, y = from[1] + dy;
+        const id = this.world.objAt(x, y).id;
+        const r = this.gd.dangerRadius(id);
+        if (!r) continue;
+        const k = Math.max(r + 1, ANIMAL_JUMP_TILES);
+        for (let ry = -k; ry <= k; ry++) for (let rx = -k; rx <= k; rx++) m.set(`${x + rx},${y + ry}`, { x, y, id });
+      }
+    return m;
+  }
+
+  /**
+   * Path to one of `goals`, going around dangerous animals when there is a
+   * way that's at most DANGER_DETOUR tiles longer (a human player sees the
+   * boar and steers). Otherwise the plain shortest path.
+   */
   findPath(from: Pos, goals: Pos[], maxNodes = 4000): Pos[] | null {
+    const plain = this.astar(from, goals, maxNodes);
+    if (!plain || !plain.length) return plain;
+    const danger = this.dangerZone(from);
+    if (!danger.size || danger.has(`${from[0]},${from[1]}`) || !plain.some((s) => danger.has(`${s[0]},${s[1]}`))) return plain;
+    const safe = this.astar(from, goals, maxNodes, danger);
+    return safe && safe.length <= plain.length + DANGER_DETOUR ? safe : plain;
+  }
+
+  /** A* over known cells. 8-way, no diagonal corner cutting. `avoid`: tiles treated as blocked (goals excepted). */
+  private astar(from: Pos, goals: Pos[], maxNodes: number, avoid?: Map<string, unknown>): Pos[] | null {
     if (!goals.length) return null;
     const goalSet = new Set(goals.map((g) => `${g[0]},${g[1]}`));
     if (goalSet.has(`${from[0]},${from[1]}`)) return [];
@@ -68,6 +127,7 @@ export class Body {
         if (!this.world.walkable(nx, ny)) continue;
         if (dx && dy && (!this.world.walkable(cur.x + dx, cur.y) || !this.world.walkable(cur.x, cur.y + dy))) continue;
         const nk = `${nx},${ny}`;
+        if (avoid?.has(nk) && !goalSet.has(nk)) continue;
         const g = cur.g + (dx && dy ? 1.4 : 1);
         if (g >= (gScore.get(nk) ?? Infinity)) continue;
         gScore.set(nk, g);
@@ -84,6 +144,8 @@ export class Body {
       const p = this.pos;
       if (!p) return "can't move: no body";
       if (goals.some((g) => g[0] === p[0] && g[1] === p[1])) return "arrived";
+      const why = leg > 0 ? this.interruptReason() : null;
+      if (why) return `stopped walking at (${p[0]},${p[1]}): ${why}`;
       let path = this.findPath(p, goals);
       if (!path) {
         // head toward the nearest goal in a straight-ish line
@@ -100,11 +162,29 @@ export class Body {
         legPath.push(s);
       }
       if (!legPath.length) return "no path found";
+      // no way around: say which animal the path passes
+      const danger = this.dangerZone(p);
+      for (const s of legPath) {
+        const d = danger.get(`${s[0]},${s[1]}`);
+        if (d) this.notes.push(`your path went right past a ${this.gd.name(d.id)} at (${d.x},${d.y}); no short safe way around`);
+      }
+      const heldBefore = this.world.self?.held.id ?? 0;
       const ok = await this.move(p, legPath);
+      const wound = this.newWound(heldBefore);
+      if (wound) return wound;
       if (!ok) return "movement interrupted";
     }
     const p = this.pos!;
     return goals.some((g) => g[0] === p[0] && g[1] === p[1]) ? "arrived" : "still on the way (trip too long)";
+  }
+
+  /** "a Wild Boar wounded you at (3,4) (Hog Cut)" if we now hold a wound we didn't before */
+  private newWound(heldBefore: number): string | null {
+    const s = this.world.self;
+    if (!s || s.held.id === heldBefore) return null;
+    const c = this.gd.condition(s.held.id);
+    if (!c || c.kind !== "wound") return null;
+    return `stopped: ${c.from.length ? `a ${c.from[0]}` : "something"} wounded you at (${s.x},${s.y}) (${this.gd.name(s.held.id)})`;
   }
 
   private async move(start: Pos, path: Pos[]): Promise<boolean> {
@@ -113,8 +193,8 @@ export class Body {
     const seq = this.moveSeq;
     const deltas = path.map(([x, y]) => `${x - start[0]} ${y - start[1]}`).join(" ");
     this.send(`MOVE ${start[0]} ${start[1]} @${seq} ${deltas}`);
-    // ~3.75 tiles/s for an adult; generous margin for babies, elders, loads
-    const deadline = Date.now() + (path.length / 3.75) * 1000 * 3 + 3000;
+    // server-reported walking speed (follows TIME_SCALE); generous margin for babies, elders, loads
+    const deadline = Date.now() + this.world.walkMs(path.length) * 3 + 3000;
     while (Date.now() < deadline) {
       await sleep(100);
       if (this.world.dead) return false;
@@ -168,7 +248,17 @@ export class Body {
       const b = this.world.players.get(-s.held.id);
       return `baby ${b?.name ?? "#" + -s.held.id}`;
     }
+    const c = this.gd.condition(s.held.id);
+    if (c && c.kind !== "mark") return `${this.gd.name(s.held.id)} (${c.kind})`;
     return this.gd.describeStack(s.held);
+  }
+
+  /** A wound or sickness in hand can't be put down, eaten or swapped. */
+  private conditionBlock(): string | null {
+    const s = this.world.self;
+    const c = s ? this.gd.condition(s.held.id) : null;
+    if (!c) return null;
+    return c.kind === "mark" ? `your hands are taken by the ${this.gd.name(s!.held.id)} for now` : `your hands are taken by your ${c.kind} (${this.gd.name(s!.held.id)}); it can't be put down`;
   }
 
   private summarize(verb: string, x: number, y: number, r: { before: string; after: string; heldBefore: string; heldAfter: string }) {
@@ -185,7 +275,26 @@ export class Body {
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
     const target = this.world.objAt(x, y).id;
     const r = await this.act(`USE ${x} ${y}${target > 0 ? " " + target : ""}`, x, y);
-    return this.summarize("use", x, y, r);
+    const out = this.summarize("use", x, y, r);
+    // the age rule for picking things up (objects' minPickupAge) is visible in the client as a failed grab
+    const me = this.world.self;
+    const o = this.gd.get(target);
+    if (/nothing happened$/.test(out) && me && me.held.id === 0 && o && !o.permanent && this.world.currentAge(me) < o.minPickupAge)
+      return `${out} (you're too young to pick up the ${this.gd.name(target)}: it needs age ${o.minPickupAge})`;
+    return out;
+  }
+
+  /**
+   * Walk to a tile; if something there blocks walking, walk next to it
+   * instead and say so (rather than "no path found" after the fact).
+   */
+  async go(x: number, y: number): Promise<string> {
+    if (this.world.walkable(x, y)) return this.walkTo([[x, y]]);
+    const what = this.gd.name(this.world.objAt(x, y).id);
+    const r = await this.approach(x, y);
+    const p = this.pos;
+    if (r !== "arrived" || !p) return `the ${what} at (${x},${y}) blocks walking, and you couldn't get next to it: ${r}`;
+    return `the ${what} at (${x},${y}) blocks walking; you're next to it at (${p[0]},${p[1]})`;
   }
 
   /** Drop held item onto a tile (or into a container there). */
@@ -193,6 +302,8 @@ export class Body {
     const p = this.pos;
     if (!p) return "no body";
     if (this.world.self?.held.id === 0) return "not holding anything";
+    const blocked = this.conditionBlock();
+    if (blocked) return `can't drop: ${blocked}`;
     if (x == null || y == null) {
       // nearest empty walkable neighbor, else own tile
       const spot = [p, ...DIRS4.map(([dx, dy]) => [p[0] + dx, p[1] + dy] as Pos)].find(([sx, sy]) => this.world.objAt(sx, sy).id === 0);
@@ -207,6 +318,8 @@ export class Body {
 
   /** Swap held item with the object on a tile. */
   async swap(x: number, y: number): Promise<string> {
+    const blocked = this.conditionBlock();
+    if (blocked) return `can't swap: ${blocked}`;
     const a = await this.approach(x, y);
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
     const r = await this.act(`SWAP ${x} ${y}`, x, y);
@@ -227,9 +340,22 @@ export class Body {
     if (!p) return "no body";
     const s = this.world.self!;
     if (s.held.id === 0) return "not holding anything";
+    const blocked = this.conditionBlock();
+    if (blocked) return `can't: ${blocked}`;
+    const heldId = s.held.id;
+    const o = this.gd.get(heldId);
+    const wearable = !!o?.clothing && o.clothing !== "n";
+    if (heldId > 0 && !this.gd.isFood(heldId) && !wearable) return `the ${this.gd.name(heldId)} is not food and can't be worn`;
     const food0 = this.world.food;
+    const worn0 = s.clothing.map((c) => c.id).join(",");
     const r = await this.act(`SELF ${p[0]} ${p[1]} -1`, p[0], p[1]);
     if (this.world.food !== food0) return `ate ${r.heldBefore}; food ${food0} -> ${this.world.food}/${this.world.foodCapacity}`;
+    const me = this.world.self!;
+    if (wearable && me.clothing.map((c) => c.id).join(",") !== worn0) {
+      const slot = me.clothing.findIndex((c) => c.id === heldId);
+      const where = slot >= 0 ? ` (${CLOTHING_SLOTS[slot]})` : "";
+      return `you put on the ${this.gd.name(heldId)}${where}${me.held.id ? `; now holding ${this.heldName()}` : ""}`;
+    }
     return this.summarize("use on self", p[0], p[1], r);
   }
 
@@ -251,11 +377,6 @@ export class Body {
     return { p: [o2.x, o2.y] };
   }
 
-  /**
-   * Find the nearest food we can get with bare hands (loose food item, or a
-   * plant/bush that yields food when harvested by hand), get it, and eat it.
-   * If carrying a baby, puts it down first and picks it back up after.
-   */
   /** Hand-pickable food near us: loose food, or things that yield food by hand. */
   foodSources(maxDist = 20): { x: number; y: number; d: number; id: number; gives: number }[] {
     const s = this.world.self;
@@ -275,39 +396,96 @@ export class Body {
     return out.sort((a, b) => a.d - b.d);
   }
 
+  /**
+   * Walk to a hand-pickable food (nearest, or the one at tx,ty), get it and
+   * eat it. Whatever is in hand comes along: next to the food it is set down
+   * for a moment (a baby too, so it is never left behind) and picked back up
+   * right after eating.
+   */
   async forage(tx?: number, ty?: number, maxDist = 20): Promise<string> {
     const s = this.world.self;
     if (!s) return "no body";
+    if (this.world.currentAge(s) < 3) return `you're a baby: you can't feed yourself yet. Say "F" so a woman picks you up and nurses you`;
     if (this.world.food >= this.world.foodCapacity) return "you're full";
-    const babyId = s.held.id < 0 ? -s.held.id : null;
+    const blocked = this.conditionBlock();
+    if (blocked) return `can't pick food: ${blocked}`;
     if (s.held.id > 0 && this.gd.isFood(s.held.id)) return await this.self();
-    // pick the food source before freeing hands, so a bad target costs nothing
+    // pick the food source before doing anything, so a bad target costs nothing
     const sources = this.foodSources(maxDist);
-    let best: { x: number; y: number } | null = null;
+    let best: { x: number; y: number; gives: number } | null = null;
     if (tx != null && ty != null) {
       best = sources.find((f) => f.x === tx && f.y === ty) ?? null;
       if (!best) return `nothing at (${tx},${ty}) gives food by hand`;
     } else best = sources[0] ?? null;
     if (!best) return `no food you can pick by hand within ${maxDist} tiles`;
-    const notes: string[] = [];
-    if (s.held.id !== 0) {
-      notes.push(await this.drop());
-      if (this.world.self?.held.id !== 0) return `couldn't free hands: ${notes.join("; ")}`;
+    const babyId = s.held.id < 0 ? -s.held.id : null;
+    const toolId = s.held.id > 0 ? s.held.id : 0;
+    const toolName = toolId ? this.gd.name(toolId) : "";
+    const a = await this.approach(best.x, best.y);
+    if (a !== "arrived") return `couldn't reach the food at (${best.x},${best.y}): ${a}`;
+    const parts: string[] = [];
+    let toolAt: Pos | null = null;
+    if (this.world.self?.held.id !== 0) {
+      const r = await this.drop();
+      if (this.world.self?.held.id !== 0) return `couldn't free your hands next to the food: ${r}`;
+      if (toolId) toolAt = this.findNear(toolId, 1);
     }
     const got = await this.use(best.x, best.y);
     const held = this.world.self?.held.id ?? 0;
-    let result: string;
-    if (held > 0 && this.gd.isFood(held)) result = await this.self();
-    else result = `tried to get food at (${best.x},${best.y}): ${got}`;
-    if (babyId != null) {
-      const b = this.world.players.get(babyId);
-      if (b) result += `; ${await this.pickUpBaby(babyId)}`;
+    if (held > 0 && this.gd.isFood(held)) parts.push(await this.self());
+    else parts.push(`tried to get food at (${best.x},${best.y}): ${got}`);
+    // leftovers in hand (Banana Peel, husks) would block picking the baby or tool back up
+    const left = this.world.self?.held.id ?? 0;
+    if ((babyId != null || toolId) && left > 0 && left !== toolId) {
+      const leftName = this.heldName();
+      const r = await this.drop();
+      parts.push(this.world.self?.held.id === 0 ? `dropped the ${leftName}` : `couldn't drop the ${leftName} (${r})`);
     }
-    return [...notes, result].join("; ");
+    // pick back up what we set down
+    if (babyId != null) {
+      const r = await this.pickUpBaby(babyId);
+      if (this.world.self?.held.id === -babyId) parts.push(`${r} again`);
+      else {
+        const b = this.world.players.get(babyId);
+        parts.push(`COULDN'T PICK THE BABY BACK UP (${r})${b ? `; baby #${babyId} is at (${this.world.posOf(b)[0]},${this.world.posOf(b)[1]})` : ""}`);
+      }
+    } else if (toolId) {
+      const at = toolAt ?? this.findNear(toolId, 2);
+      if (this.world.self?.held.id !== 0) parts.push(`${toolName} left at ${at ? `(${at[0]},${at[1]})` : "the spot"} (your hands are full)`);
+      else if (!at) parts.push(`${toolName} not found to pick back up`);
+      else {
+        await this.use(at[0], at[1]);
+        parts.push(this.world.self?.held.id === toolId ? `picked ${toolName} back up` : `couldn't pick ${toolName} back up; it's at (${at[0]},${at[1]})`);
+      }
+    }
+    return parts.join("; ");
+  }
+
+  /** nearest tile within r of us holding object id */
+  private findNear(id: number, r: number): Pos | null {
+    const p = this.pos;
+    if (!p) return null;
+    let best: Pos | null = null;
+    let bd = Infinity;
+    for (let dy = -r; dy <= r; dy++)
+      for (let dx = -r; dx <= r; dx++) {
+        if (this.world.objAt(p[0] + dx, p[1] + dy).id !== id) continue;
+        const d = Math.abs(dx) + Math.abs(dy);
+        if (d < bd) {
+          bd = d;
+          best = [p[0] + dx, p[1] + dy];
+        }
+      }
+    return best;
   }
 
   /** Pick up a baby (or anyone small enough). */
   async pickUpBaby(id: number): Promise<string> {
+    // the server only accepts BABY with empty hands, and says nothing otherwise
+    const held = this.world.self?.held.id ?? 0;
+    if (held === -id) return `you're already carrying #${id}`;
+    if (held < 0) return `tried to pick up #${id}: your arms are full (carrying ${this.heldName()}); put them down first`;
+    if (held > 0) return `tried to pick up #${id}: your hands are full (holding ${this.heldName()}); drop it first`;
     const n = await this.nearPlayer(id);
     if (typeof n === "string") return n;
     const r = await this.act(`BABY ${n.p[0]} ${n.p[1]} ${id}`, n.p[0], n.p[1]);
@@ -320,8 +498,14 @@ export class Body {
   async useOnPerson(id: number): Promise<string> {
     const n = await this.nearPlayer(id);
     if (typeof n === "string") return n;
+    const heldId = this.world.self?.held.id ?? 0;
     const r = await this.act(`UBABY ${n.p[0]} ${n.p[1]} -1 ${id}`, n.p[0], n.p[1]);
-    return r.heldBefore !== r.heldAfter ? `gave/used ${r.heldBefore} on #${id}; now holding ${r.heldAfter}` : `used held item on #${id}: nothing happened`;
+    if (r.heldBefore !== r.heldAfter) return `gave/used ${r.heldBefore} on #${id}; now holding ${r.heldAfter}`;
+    // server.cpp: a baby under 3 (defaultActionAge) refuses food above babyFeedingLevel (2); the client shows the refusal
+    const o = this.world.players.get(id);
+    if (o && heldId > 0 && this.gd.isFood(heldId) && this.world.currentAge(o) < 3) return `#${id} refused the ${this.gd.name(heldId)}: a baby under 3 only takes food when starving (2 food or less)`;
+    if (heldId === 0) return `used bare hands on #${id}: nothing happened (you're holding nothing)`;
+    return `used held item on #${id}: nothing happened`;
   }
 
   say(text: string): string {
@@ -329,7 +513,7 @@ export class Body {
     const clean = text.toUpperCase().replace(/[^\x20-\x22\x24-\x7E]/g, " ").replace(/\s+/g, " ").trim();
     if (!clean) return "said nothing";
     const s = this.world.self;
-    const limit = s ? Math.floor(this.world.currentAge(s)) + 1 : 10;
+    const limit = s ? sayLimit(this.world.currentAge(s)) : 10;
     this.send(`SAY 0 0 ${clean}`);
     return clean.length > limit ? `said "${clean.slice(0, limit)}" (cut off: at your age you can only say ${limit} letters)` : `said "${clean}"`;
   }
@@ -358,4 +542,23 @@ function ring(x: number, y: number, r: number): Pos[] {
   const out: Pos[] = [];
   for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) out.push([x + dx, y + dy]);
   return out;
+}
+
+/**
+ * Max characters a player of this age can say: a port of the server's
+ * getSayLimit (OneLife/commonSource/sayLimit.cpp:3-38; server.cpp ~24626
+ * truncates SAY text to it). age+1 under 8, a sigmoid from 9 to 66 between 8
+ * and 16, then 66 plus one per two years.
+ */
+export function sayLimit(age: number): number {
+  const floorAge = Math.floor(age);
+  const adultBase = 50;
+  if (floorAge >= 16) return 16 + Math.trunc((floorAge - 16) / 2) + adultBase;
+  if (floorAge > 8) {
+    const fullIncrease = adultBase + 16 - 9;
+    const fraction = (floorAge - 8) / 8;
+    const curved = 1 / (1 + Math.pow(2, -12 * (fraction - 0.5)));
+    return 9 + Math.floor(fullIncrease * curved);
+  }
+  return floorAge + 1;
 }

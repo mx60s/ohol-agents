@@ -3,7 +3,7 @@
 // selection. Tested in tests/stream.test.mjs.
 
 import type { RunEvent, Traits } from "../api-types.ts";
-import { deathReasonText, displayName } from "../shared/format.ts";
+import { NAME_NUMERAL, cleanText, deathReasonText, displayName, truncate } from "../shared/format.ts";
 
 // ================================================================== trait tags
 
@@ -232,7 +232,8 @@ export interface TickerContext {
 
 function who(e: RunEvent, ctx: TickerContext): string {
   const n = e.name ?? (e.agentId ? ctx.agentNames?.[e.agentId] : null) ?? (e.playerId != null ? ctx.playerName?.(e.playerId) : null);
-  return displayName(n, "Someone");
+  // a 200-character name would fill the whole crawl
+  return truncate(displayName(n, "Someone"), 32);
 }
 
 /** One event -> a ticker line, or null if not notable. */
@@ -261,7 +262,9 @@ export function tickerItem(e: RunEvent, ctx: TickerContext = {}): TickerItem | n
       return { key, kind: "naming", text: `${name} has founded the ${displayName(words[1])} family` };
     }
     if (ctx.knownFirstNames && !ctx.knownFirstNames.has(words[0])) return null;
-    return { key, kind: "naming", text: `${who(e, ctx)} has named a baby ${displayName(words[0])}` };
+    // "YOU ARE AURORA II": a repeated first name in the family keeps its numeral
+    const first = words[1] && NAME_NUMERAL.test(words[1]) ? `${words[0]} ${words[1]}` : words[0];
+    return { key, kind: "naming", text: `${who(e, ctx)} has named a baby ${displayName(first)}` };
   }
   if (e.kind === "craft") {
     return { key, kind: "craft", text: `${who(e, ctx)} ${e.text}` };
@@ -291,7 +294,9 @@ export function selectTicker(events: readonly RunEvent[], ctx: TickerContext = {
   const seen = new Set<string>();
   let crafts = 0;
   for (let i = events.length - 1; i >= Math.max(0, events.length - win) && out.length < max; i--) {
-    const it = tickerItem(events[i], ctx);
+    const raw = tickerItem(events[i], ctx);
+    // the ticker is one line of mixed names and model text: no bidi overrides or invisible marks
+    const it = raw && { ...raw, text: cleanText(raw.text) };
     if (!it || seen.has(it.text)) continue;
     if (it.kind === "craft") {
       if (crafts >= maxCrafts) continue;
@@ -320,4 +325,73 @@ export function recentOf(events: readonly RunEvent[], agentId: string | null | u
     if (e.kind === kind && e.agentId === agentId) out.push(e);
   }
   return out;
+}
+
+// ================================================================== headline numbers
+
+export interface HeadlineNumbers {
+  alive: number;
+  births: number;
+  deaths: number;
+  /** deepest generation reached this run */
+  generation: number;
+}
+
+/**
+ * Headline tiles. Births, deaths and the deepest generation come from the run's life
+ * records (one per life, the same source as the website), so the stream and the site
+ * agree; the server's running counters count every birth/death *event* (re-sent events
+ * included) and its maxGeneration is only the deepest among the living. Falls back to the
+ * counters until the lives have loaded. `alive` is always the live count.
+ */
+export function headlineNumbers(
+  stats: { alive: number; totalBirths: number; totalDeaths: number; maxGeneration: number } | null | undefined,
+  lives: readonly { runId: string; status: string; generation: number }[],
+  runId: string | null | undefined,
+): HeadlineNumbers {
+  const alive = stats?.alive ?? 0;
+  const run = runId ? lives.filter((l) => l.runId === runId) : [];
+  if (!run.length) return { alive, births: stats?.totalBirths ?? 0, deaths: stats?.totalDeaths ?? 0, generation: stats?.maxGeneration ?? 0 };
+  let deaths = 0;
+  let generation = 0;
+  for (const l of run) {
+    if (l.status === "dead") deaths++;
+    if (Number.isFinite(l.generation) && l.generation > generation) generation = l.generation;
+  }
+  return { alive, births: run.length, deaths, generation: Math.max(generation, stats?.maxGeneration ?? 0) };
+}
+
+// ------------------------------------------------------------------ occlusion (trees in front of the focus)
+
+/** screen box, canvas px (y down) */
+export interface ScreenBox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/** an object in front of the focused character that hides part of them is drawn at this alpha */
+export const OCCLUDER_ALPHA = 0.35;
+/**
+ * ...when it covers at least this share of the character's box: a bush grazing a heel or the tip
+ * of a branch crossing a shoulder stays solid; a canopy over the body fades.
+ */
+export const OCCLUDE_MIN_SHARE = 0.12;
+
+/** share of `target`'s area covered by `box` (0..1) */
+export function coverShare(box: ScreenBox, target: ScreenBox): number {
+  const w = Math.min(box.x1, target.x1) - Math.max(box.x0, target.x0);
+  const h = Math.min(box.y1, target.y1) - Math.max(box.y0, target.y0);
+  const area = (target.x1 - target.x0) * (target.y1 - target.y0);
+  return w > 0 && h > 0 && area > 0 ? (w * h) / area : 0;
+}
+
+/**
+ * Alpha to draw an object with: OCCLUDER_ALPHA if it is drawn after the focused character (in
+ * front of them) and covers enough of their on-screen box, else 1 (normal drawing).
+ */
+export function occluderAlpha(obj: ScreenBox | null, focus: ScreenBox | null, drawnAfterFocus: boolean): number {
+  if (!drawnAfterFocus || !obj || !focus) return 1;
+  return coverShare(obj, focus) >= OCCLUDE_MIN_SHARE ? OCCLUDER_ALPHA : 1;
 }

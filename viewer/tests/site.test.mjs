@@ -22,6 +22,7 @@ import {
   percentileLabel,
   percentileRank,
   prevNext,
+  settleStaleLives,
   sortBy,
   traitRow,
   traitShort,
@@ -204,4 +205,20 @@ test("matchesQuery + pageSlice", () => {
   assert.equal(last.page, 2);
   assert.equal(last.rows.length, 50);
   assert.equal(pageSlice([], 3, 10).pages, 1);
+});
+
+test("settleStaleLives: 'alive' lives from an older run read as lost; same array when nothing to do", () => {
+  const lives = [
+    { lifeId: "a", runId: "r2", status: "alive", lostAt: null, updatedAt: 5 },
+    { lifeId: "b", runId: "r1", status: "alive", lostAt: null, updatedAt: 3 },
+    { lifeId: "c", runId: "r1", status: "dead", lostAt: null, updatedAt: 2 },
+  ];
+  const out = settleStaleLives(lives, "r2");
+  assert.deepEqual(out.map((l) => l.status), ["alive", "lost", "dead"]);
+  assert.equal(out[1].lostAt, 3);
+  assert.equal(out[0], lives[0]);
+  assert.equal(settleStaleLives(lives, null), lives);
+  assert.equal(settleStaleLives(lives.slice(0, 1), "r2").length, 1);
+  const cur = lives.slice(0, 1);
+  assert.equal(settleStaleLives(cur, "r2"), cur);
 });

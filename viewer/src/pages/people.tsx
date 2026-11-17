@@ -108,7 +108,7 @@ function PeoplePage() {
                       {th("status", "Status")}
                       {th("cause", "Cause")}
                       {th("born", "Born")}
-                      {site.dims.map((d) => th(`t:${d}`, traitShort(d), "num trait", traitLabel(d)))}
+                      {site.dims.map((d) => <SortTh key={d} k={`t:${d}`} sort={sort} dir={dir} onSort={onSort} className="num trait" title={traitLabel(d)}>{traitShort(d)}</SortTh>)}
                     </tr>
                   </thead>
                   <tbody>

@@ -71,11 +71,13 @@
   /* ---- status (reserved; always shown with an icon + word) ---- */
   --alive: #4f8a2e;
   --alive-soft: #dcebc4;
+  --alive-ink: #3f7322;        /* --alive darkened for small text (>= 4.5:1 on panels and table stripes) */
   --dead: #7a6e5d;
   --dead-soft: #e4dccb;
   --danger: #b23a2a;           /* starving, freezing */
   --danger-soft: #f6d3c8;
   --warn: #c98a12;
+  --warn-ink: #8a5e00;         /* --warn darkened for small text */
   --warn-soft: #f8e7b8;
   --mock: #c2367a;             /* the MOCK sticker. Loud on purpose. */
 

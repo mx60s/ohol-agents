@@ -51,6 +51,7 @@ export class SyntheticClient implements ApiClient {
     return { now: this.data.now, traitSource: "mock" as const, deaths };
   }
   async storyHistory() { return { history: [] }; }
+  async inventions() { return { inventions: [] }; }
 }
 
 /** Install the synthetic client if the URL asks for it. Call before mount(). */

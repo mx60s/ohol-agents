@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "model": "moonshotai/kimi-k3.1-pro",
+  "runId": "cal5-1794891673-r1-mwk85rr6-2026-11-17T05-01-14-562Z",
+  "startedAt": 1794891673000,
+  "endedAt": 1794892876000,
+  "wallMinutes": 20.05,
+  "gameYears": 10.03,
+  "agentCount": 8,
+  "timeScale": 2,
+  "decisionCycleMs": 4700,
+  "settings": {
+    "reasoningEffort": "mild cap (LLM_REASONING_CAP=1, 300 reasoning / 800 total)",
+    "maxTokens": 800,
+    "providerSort": null,
+    "providerOrder": [
+      "digitalocean"
+    ],
+    "allowFallbacks": true,
+    "stream": true
+  },
+  "turnMs": {
+    "n": 357,
+    "p50": 3332,
+    "p90": 8473,
+    "p99": 12452
+  },
+  "llm": {
+    "calls": 594,
+    "callErrors": 0,
+    "promptTokens": 1693503,
+    "completionTokens": 505022,
+    "cachedTokens": 0,
+    "reasoningTokens": 477746,
+    "cacheHitRate": 0,
+    "costUsd": 8.465132,
+    "totalCostUsd": 8.464,
+    "costPerAgentHourUsd": 3.1661,
+    "latencyMsP50": 3194,
+    "latencyMsP90": 9695,
+    "latencyMsP99": 15120,
+    "ttftMsP50": 744,
+    "ttftMsP90": 982,
+    "reasoningTokensPerCall": 804.3,
+    "completionTokensPerCall": 850.2,
+    "providers": {
+      "DigitalOcean": 594
+    },
+    "jsonErrors": 0,
+    "jsonErrorRate": 0,
+    "agentOnlyCostPerAgentHourUsd": 3.1665
+  },
+  "decisions": {
+    "total": 594,
+    "perWallMinute": 29.626,
+    "perAgentWallMinute": 3.703,
+    "perGameYear": 59.252,
+    "perAgentGameYear": 7.406
+  },
+  "actions": {
+    "total": 523,
+    "failed": 54,
+    "failureRate": 0.1033,
+    "reflex": 1
+  },
+  "lives": {
+    "lives": 8,
+    "eves": 2,
+    "babies": 6,
+    "deaths": 0,
+    "deathsByCause": {},
+    "maxGeneration": 2,
+    "babiesAtRisk": 6,
+    "babiesSurvivedPast3": 6,
+    "babySurvivalPast3Rate": 1,
+    "perWallMinute": {
+      "births": 0.399,
+      "deaths": 0
+    },
+    "perGameYear": {
+      "births": 0.798,
+      "deaths": 0
+    }
+  },
+  "firsts": {
+    "sharpStone": {
+      "wallMin": 0.15,
+      "gameYears": 0.08,
+      "what": "Sharp Stone"
+    },
+    "fire": {
+      "wallMin": 5.79,
+      "gameYears": 2.89,
+      "what": "Fire. Use craft again to continue.. Note: you are now at (26, -81), 4 tiles from where you started"
+    },
+    "clothing": {
+      "wallMin": 0.91,
+      "gameYears": 0.45,
+      "what": "Reed Skirt. Use craft again to continue.. Note: your Sharp Stone is at (-4, -145)"
+    }
+  },
+  "notes": {
+    "narratorDirectorStory": "on, default overhead model google/gemini-3.1-flash-lite",
+    "foodBonus": "on",
+    "continuous": true,
+    "initialEves": 2,
+    "finalState": {
+      "alive": 8,
+      "births": 8,
+      "deaths": 0,
+      "status": "running",
+      "haltReason": null
+    }
+  }
+}

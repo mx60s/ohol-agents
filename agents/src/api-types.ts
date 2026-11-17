@@ -7,6 +7,8 @@
 // GET  /api/stream           -> SSE, each message `data: <RunEvent JSON>`
 // GET  /api/objects          -> { names: Record<number, string> }  object id -> display name (all objects)
 // GET  /api/story/history?limit=N -> StoryHistoryResponse (past "story so far" versions, newest first; default 20, max 200)
+// GET  /api/flowers          -> FlowersResponse       (the per-person flower catalogue: shapes and colours)
+// GET  /api/inventions?limit=N&run=<runId|all> -> InventionsResponse (first time each technology item was made; newest first; default 20, max 200; default run = the current one)
 //
 // Research endpoints (lives, lineages, traits; persisted across restarts and runs):
 // GET  /api/lives?since=<ms>&limit=<n>        -> LivesResponse    lives with updatedAt > since, oldest update first
@@ -20,6 +22,9 @@
 //
 // Coordinates are absolute OHOL world coords. y grows northward (up).
 
+import type { Flower, FlowerColor, FlowerShape } from "./flowers.ts";
+export type { Flower, FlowerColor, FlowerShape };
+
 export interface RunInfo {
   id: string;
   startedAt: number; // ms epoch
@@ -29,10 +34,22 @@ export interface RunInfo {
   targetPopulation: number;
   /**
    * idle = waiting for POST /api/start; halted = run over (see haltReason);
-   * paused = running, but LLM calls are suspended by the rolling 24h spend cap
-   * (see pauseReason / resumesAt). Characters stay in the world (and may die) while paused.
+   * paused = running, but LLM calls are suspended (see pauseKind, pauseReason,
+   * resumesAt): by the rolling 24h spend cap, or because the LLM provider has
+   * been down longer than LLM_OUTAGE_PAUSE_S. Characters stay in the world
+   * (and may die) while paused.
    */
   status: "idle" | "running" | "paused" | "halted";
+  /**
+   * why the run is paused (status "paused"), else null:
+   * - "daily-cap": rolling 24h spend cap; LLM calls resume when the window has room.
+   * - "llm-outage": provider failing (401/402/403, 5xx, timeouts) for longer than
+   *   LLM_OUTAGE_PAUSE_S. Every agent is disconnected and no one logs in; lives
+   *   alive during the outage get outage: true / validForStudy: false. The run
+   *   resumes by itself once a probe call succeeds (resumesAt = next probe);
+   *   agents log back in with the same emails, so living characters are resumed.
+   */
+  pauseKind?: "daily-cap" | "llm-outage" | null;
   haltReason: string | null;
   /** maxCostUsd 0 = no per-run cap. In continuous mode the generation/lives/runtime limits are ignored. */
   limits: { maxGeneration: number; maxLives: number; maxRuntimeMin: number; maxCostUsd: number };
@@ -40,12 +57,17 @@ export interface RunInfo {
   continuous?: boolean;
   /** why the run is paused (status "paused"), else null */
   pauseReason?: string | null;
-  /** ms epoch when the 24h window will have room again (status "paused"), else null */
+  /** ms epoch when the 24h window will have room again (daily cap) or of the next provider probe (outage), else null */
   resumesAt?: number | null;
   /** LLM spend over the last 24h, across all runs and restarts; capUsd 0 = no daily cap */
   dailySpend?: { last24hUsd: number; capUsd: number };
   /** LLM provider health (see LlmStatus). Always sent by the agents service. */
   llmStatus?: LlmStatus;
+  /**
+   * Game clock slowdown k (TIME_SCALE): one game year = 60 s x timeScale of
+   * wall time (stock OHOL: 1). Always sent by the agents service; treat missing as 1.
+   */
+  timeScale?: number;
 }
 
 /**
@@ -65,6 +87,12 @@ export interface LlmStatus {
   consecutiveFailures: number;
   /** ms epoch of the next probe call while failing, else null */
   retryAt: number | null;
+  /**
+   * ms epoch of the first outage-class failure (401/402/403, 5xx, timeout,
+   * network error) in the current failing streak; null while ok or when only
+   * rate-limited (429) / bad requests. Past LLM_OUTAGE_PAUSE_S the run pauses.
+   */
+  outageSince?: number | null;
 }
 
 export interface AgentView {
@@ -93,6 +121,8 @@ export interface AgentView {
   lineageId?: string | null;
   /** MOCK traits of the current life (see StateResponse.traitSource); null between lives */
   traits?: Traits | null;
+  /** the current life's flower (see LifeRecord.flower); null between lives */
+  flower?: Flower | null;
 }
 
 export interface PlayerView {
@@ -110,6 +140,8 @@ export interface PlayerView {
   /** set when this character is one of our agents' lives (this run or an earlier one), else null */
   lifeId?: string | null;
   lineageId?: string | null;
+  /** that life's flower (see LifeRecord.flower); set when lifeId is known, else null */
+  flower?: Flower | null;
 }
 
 export interface Stats {
@@ -143,15 +175,16 @@ export interface StateResponse {
 /**
  * The director's pick for the stream camera. Changes are also sent as a
  * "focus" RunEvent. agentId is null when nobody is alive. When the focused
- * character dies the focus stays on them for ~8s (reason says they died), then
- * moves on. Otherwise it holds for at least DIRECTOR_MIN_DWELL_MS.
+ * character dies the focus stays on them for ~8s, then moves on. Otherwise it
+ * holds for at least DIRECTOR_MIN_DWELL_MS.
  */
 export interface Focus {
   agentId: string | null;
   /** which life of that slot: "<agentId>:<lifeIndex>", e.g. "a03:2" */
   lifeId?: string | null;
   since: number; // ms epoch when this focus started
-  reason: string | null; // short viewer-facing phrase, e.g. "Eve Hope is starving"
+  /** @deprecated always null: the director no longer gives a reason (kept so older clients still parse) */
+  reason: string | null;
 }
 
 /** Rolling summary of the world's history (<=150 words), refreshed every few minutes. */
@@ -166,6 +199,29 @@ export interface StoryVersion extends StorySoFar {
 
 export interface StoryHistoryResponse {
   history: StoryVersion[]; // newest first
+}
+
+/**
+ * The first time any character in a world (run) made a technology item: one per item per run,
+ * persisted in LOG_DIR/inventions.jsonl across restarts. "Technology" is decided from game data:
+ * made by a transition (crafted or transformed, incl. the craft macro), not food, not a natural
+ * object or its states, not gathered by hand, not a pickup (rule: agents/src/inventions.ts).
+ */
+export interface Invention {
+  /** display name of the item ("Sharp Stone") */
+  item: string;
+  /** OHOL object id (for its sprite); absent if unknown */
+  objectId?: number;
+  /** the maker's life (LifeRecord.lifeId), null if unknown */
+  lifeId: string | null;
+  /** the maker's name at the time, null if unnamed */
+  name: string | null;
+  t: number; // ms epoch
+  runId: string;
+}
+
+export interface InventionsResponse {
+  inventions: Invention[]; // newest first
 }
 
 /** [x, y, biome, floorId, objectId] ; objectId/floorId 0 = empty */
@@ -185,7 +241,7 @@ export type RunEventKind =
   | "thought" // text = the agent's private reasoning summary / goal
   | "craft" // text = "made X from Y + Z"; data: { actor, target, newActor, newTarget }
   | "narration" // text = omniscient narrator's summary of recent plot (every ~30s); not seen by agents
-  | "focus" // stream camera moved. agentId/playerId/name = new focus (all null if no one is alive); text = reason; data: { lifeId, previous: agentId | null, cause: "initial" | "switch" | "death" | "disconnect" | "empty" }
+  | "focus" // stream camera moved. agentId/playerId/name = new focus (all null if no one is alive); text = "camera follows <name>" (or "no one is alive"); data: { lifeId, previous: agentId | null, cause: "initial" | "switch" | "death" | "disconnect" | "empty" }
   | "system"; // run start/stop, errors
 
 export interface RunEvent {
@@ -300,6 +356,12 @@ export interface LifeRecord {
   traitSource: TraitSource;
   /** ms epoch */
   bornAt: number;
+  /**
+   * game clock slowdown k in force when this life was born (RunInfo.timeScale):
+   * one game year of this life = 60 s x timeScale of wall time. Lives from
+   * different runs can differ. Always sent by the agents service; older records = 1.
+   */
+  timeScale?: number;
   /** in-game age at birth (0 for babies, ~14 for Eves); null if unknown */
   ageAtBirth: number | null;
   birthX: number | null;
@@ -315,12 +377,29 @@ export interface LifeRecord {
    * still become a mother, until presumedEndAt.
    */
   lostAt: number | null;
-  /** latest time a lost character can still be alive (birth + rest of a 60-year lifespan); null if not lost */
+  /** latest time a lost character can still be alive (birth + rest of a 60-year lifespan, in this life's timeScale); null if not lost */
   presumedEndAt: number | null;
   /** alive = being played; dead = observed death; lost = see lostAt */
   status: "alive" | "dead" | "lost";
   childLifeIds: string[];
   activity: LifeActivity;
+  /**
+   * true = this character was alive while the LLM provider was down long enough
+   * to pause the run (LLM_OUTAGE_PAUSE_S): for part of its life it couldn't
+   * think, so it isn't comparable. Always sent by the agents service (false if not).
+   */
+  outage?: boolean;
+  /**
+   * false = exclude from study analyses (currently: outage). Always sent by the
+   * agents service; older records without it are valid.
+   */
+  validForStudy?: boolean;
+  /**
+   * The flower this character wears in its hair (a declared intervention, to tell family members
+   * apart). Always sent by the agents service: assigned at birth, unique among the living members
+   * of the lineage, stable for life. null/absent only in old fixtures.
+   */
+  flower?: Flower | null;
   /** ms epoch of the last change to this record (cursor for ?since=) */
   updatedAt: number;
 }
@@ -388,10 +467,20 @@ export interface DeathRecord {
   generation: number;
   bornAt: number;
   diedAt: number;
+  /** as LifeRecord.timeScale. Always sent by the agents service; missing = 1. */
+  timeScale?: number;
   ageAtDeath: number | null;
   deathReason: string | null;
   traits: Traits | null;
   inherited: boolean;
+  /** as LifeRecord.validForStudy (false = alive during an LLM outage). Always sent by the agents service. */
+  validForStudy?: boolean;
+}
+
+/** GET /api/flowers: the catalogue LifeRecord.flower draws from (Flower.shape / Flower.color are ids here). */
+export interface FlowersResponse {
+  shapes: FlowerShape[];
+  colors: FlowerColor[];
 }
 
 export interface DeathsResponse {
@@ -399,4 +488,145 @@ export interface DeathsResponse {
   traitSource: TraitSource;
   /** observed deaths only, newest first */
   deaths: DeathRecord[];
+}
+
+// ------------------------------------------------------------------ GET /api/agent-spec
+
+/**
+ * GET /api/agent-spec: what an agent is told and can do, rendered from the
+ * agents service's own code and config (agents/src/agentspec.ts), plus one
+ * real recent turn. Cached for about 60 s.
+ */
+export interface AgentSpecResponse {
+  now: number;
+  /** the current run (the example turn comes from its logs) */
+  runId: string | null;
+  /** the system prompt, exactly as sent on every decision (systemPromptFor(config)) */
+  systemPrompt: string;
+  /** appended after the observation in the one user message of every call */
+  userSuffix: string;
+  /** fields of the reply JSON object */
+  replyFields: { name: string; meaning: string }[];
+  /** every action, parsed from the prompt's own action list */
+  actions: AgentSpecAction[];
+  /** the action types the reply parser accepts (reply.ts) */
+  validActionTypes: string[];
+  settings: AgentSpecSettings;
+  /** observation and hearing limits, in tiles / seconds / lines */
+  limits: AgentSpecLimits;
+  /** letters a person can say at an age (the client's getSayLimit) */
+  sayLimits: { age: number; letters: number }[];
+  /** declared interventions on top of the original game (README "Interventions") */
+  interventions: AgentSpecIntervention[];
+  /** the most recent completed decision by an adult in this run; null if none yet */
+  example: AgentSpecExample | null;
+}
+
+export interface AgentSpecAction {
+  /** "use", "go", ... */
+  type: string;
+  /** the template the model reads, e.g. {"type":"use","x":X,"y":Y} */
+  template: string;
+  /** argument names in the template ("x", "y", "person", ...) */
+  fields: string[];
+  /** the prompt's one-line meaning */
+  meaning: string;
+  /** a temporary intervention (the craft macro) */
+  temporary?: boolean;
+}
+
+/** A game-server setting: OHOL_SETTING_<name> if set, else server/settings/<name>.ini as shipped. */
+export interface ServerSetting {
+  value: string | null;
+  source: "env" | "settings file" | "unknown";
+}
+
+export interface AgentSpecSettings {
+  /** the agents' model (every agent uses it) */
+  model: string;
+  /** models for the narrator / director / story (they never talk to agents); director null = heuristic */
+  overheadModels: { narrator: string; director: string | null; story: string };
+  /** one turn: ms from one decision's start to the next */
+  decisionCycleMs: number;
+  /** minimum ms between decisions under age 2 */
+  babyDecisionIntervalMs: number;
+  /** a baby with nothing happening is asked at most this often (ms) */
+  babyIdleMaxMs: number;
+  /** game clock slowdown k (1 = stock) */
+  timeScale: number;
+  /** game seconds that pass in one turn */
+  gameSecondsPerTurn: number;
+  /** turns per year of life (a year is 60 game seconds) */
+  turnsPerYear: number;
+  reasoningCap: boolean;
+  reasoningMaxTokens: number;
+  decisionMaxTokens: number;
+  /** the full token budget (uncapped calls and retries) */
+  maxTokens: number;
+  reasoningEffort: string | null;
+  actionListMax: number;
+  craftMacro: boolean;
+  recipeHints: boolean;
+  memoryMode: "per-life" | "persistent";
+  traitSource: TraitSource;
+  foodBonus: ServerSetting;
+  foodBonusSecondsPerPip: ServerSetting;
+  freeNames: ServerSetting;
+  playerSaves: ServerSetting;
+}
+
+export interface AgentSpecLimits {
+  viewRadius: number;
+  peopleRadius: number;
+  resourceRadius: number;
+  maxThingKinds: number;
+  maxHints: number;
+  maxPeople: number;
+  historyShown: number;
+  heardWindowS: number;
+  heardMax: number;
+  deathsWindowS: number;
+  deathsMax: number;
+  notebookShown: number;
+  notebookKept: number;
+  /** speech this close (tiles) wakes an agent before its turn */
+  wakeSpeechRadius: number;
+  /** the server delivers speech this far (tiles) */
+  hearingRadius: number;
+  /** the starvation reflex fires at this food or less */
+  reflexFood: number;
+}
+
+export type InterventionCategory = "human-ui" | "wiki" | "beyond-human" | "game-setting";
+
+export interface AgentSpecIntervention {
+  id: string;
+  name: string;
+  category: InterventionCategory;
+  /** null = unknown (a game-server setting the agents service can't see) */
+  on: boolean | null;
+  detail: string;
+}
+
+/** One real decision, cleaned (no control characters) and size-capped. Render as text only. */
+export interface AgentSpecExample {
+  /** when the reply arrived */
+  t: number;
+  agentId: string;
+  playerId: number | null;
+  lifeIndex: number | null;
+  model: string | null;
+  age: number;
+  /** the observation, as the model read it (multi-line) */
+  observation: string;
+  /** the model's reasoning text, when the provider returned it */
+  reasoning: string | null;
+  /** the reply as written */
+  replyText: string;
+  /** the reply as the harness read it: known fields only */
+  reply: { thought?: string; goal?: string; note?: string; say?: string; action?: Record<string, unknown>; actions?: Record<string, unknown>[] };
+  /** each step's result, as the agent is told next turn */
+  results: { action: string; result: string }[];
+  /** what was actually said (cut to the age limit by the server) */
+  said: string | null;
 }

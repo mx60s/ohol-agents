@@ -1,11 +1,12 @@
 // One hook that joins the shared data hooks into what every site page needs:
 // lives + lineages + the live world state, with lookups (family names, live ages, agent views).
 
-import { useMemo } from "react";
-import type { AgentView, LifeRecord, LineageRecord, PlayerView } from "../api-types.ts";
+import { useMemo, useRef } from "react";
+import type { AgentView, Flower, LifeRecord, LineageRecord, PlayerView } from "../api-types.ts";
+import { flowersForLives } from "../ohol/flower.ts";
 import { getClient, useLineages, useLives, useWorldState } from "../data/index.ts";
-import { displayName, lineageName, lineageOrder } from "../shared/index.ts";
-import { lifeAge } from "./logic.ts";
+import { displayName, lineageName, lineageOrder, surnameOf } from "../shared/index.ts";
+import { lifeAge, settleStaleLives } from "./logic.ts";
 
 export interface SiteData {
   /** every life, newest born first */
@@ -20,6 +21,8 @@ export interface SiteData {
   playerByLife: Map<string, PlayerView>;
   /** family surname for a lineage id */
   famName: (lineageId: string | null | undefined) => string;
+  /** the flower a life wears in its hair (the record's; fixtures/old data: ohol flowersForLives) */
+  flowerOf: (lifeId: string) => Flower | null;
   /** best known in-game age (live from /api/state for the living) */
   ageOf: (l: LifeRecord) => number | null;
   /** first load still pending */
@@ -33,17 +36,28 @@ export interface SiteData {
 }
 
 export function useSite(): SiteData {
-  const lv = useLives();
+  const lv0 = useLives();
   const lin = useLineages();
   const w = useWorldState();
+  // after a world restart, "alive" records of the old run are not alive any more
+  const runId = w.state?.run.id ?? null;
+  const settled = useMemo(() => {
+    const lives = settleStaleLives(lv0.lives, runId);
+    return lives === lv0.lives ? { lives, byId: lv0.byId } : { lives, byId: Object.fromEntries(lives.map((l) => [l.lifeId, l])) };
+  }, [lv0.lives, lv0.byId, runId]);
+  const lv = { ...lv0, ...settled };
   const lineages = lin.data?.lineages;
   const agents = w.state?.agents;
   const players = w.state?.players;
 
+  // the lineage order only changes when a family is founded; keep the same array otherwise so
+  // memoised views keyed on it (the personality cloud's thousands of points) don't rebuild every poll
+  const orderRef = useRef<string[]>([]);
   const derived = useMemo(() => {
     const ls = lineages ?? [];
     const lineageById = new Map(ls.map((l) => [l.lineageId, l]));
-    const order = lineageOrder(ls);
+    const fresh = lineageOrder(ls);
+    const order = fresh.join("|") === orderRef.current.join("|") ? orderRef.current : (orderRef.current = fresh);
     const agentByLife = new Map<string, AgentView>();
     for (const a of agents ?? []) if (a.lifeId && a.status === "alive") agentByLife.set(a.lifeId, a);
     const playerByLife = new Map<string, PlayerView>();
@@ -56,11 +70,14 @@ export function useSite(): SiteData {
     const m = new Map<string, string>();
     for (const l of [...lv.lives].sort((a, b) => a.bornAt - b.bornAt)) {
       if (m.has(l.lineageId)) continue;
-      const parts = displayName(l.name, "").split(/\s+/).filter(Boolean);
-      if (parts.length >= 2) m.set(l.lineageId, parts[parts.length - 1]);
+      // "Aurora II Dawn" -> "Dawn"; a lone "Aurora II" has no surname
+      const surname = surnameOf(displayName(l.name, ""));
+      if (surname) m.set(l.lineageId, surname);
     }
     return m;
   }, [lv.lives]);
+
+  const flowers = useMemo(() => flowersForLives(lv.lives), [lv.lives]);
 
   return useMemo(() => {
     const { lineageById, agentByLife, playerByLife } = derived;
@@ -84,6 +101,7 @@ export function useSite(): SiteData {
       dims: lv.traitDims,
       ...derived,
       famName,
+      flowerOf: (lifeId: string) => flowers.get(lifeId) ?? null,
       ageOf,
       loading: lv.loading && lv.lives.length === 0 && !lv.error,
       failed,
@@ -92,5 +110,5 @@ export function useSite(): SiteData {
       isStatic: getClient().isStatic,
       serverNow: lv.now,
     };
-  }, [derived, surnameByLineage, lv.lives, lv.byId, lv.traitDims, lv.loading, lv.error, lv.now, lin.error, w.online]);
+  }, [derived, surnameByLineage, flowers, lv.lives, lv.byId, lv.traitDims, lv.loading, lv.error, lv.now, lin.error, w.online]);
 }

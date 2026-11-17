@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "model": "openai/gpt-oss-120b",
+  "runId": "cal3-1794889257-r1-mwk6pzaq-2026-11-17T04-20-58-226Z",
+  "startedAt": 1794889257000,
+  "endedAt": 1794890416000,
+  "wallMinutes": 19.32,
+  "gameYears": 12.88,
+  "agentCount": 8,
+  "timeScale": 1.5,
+  "decisionCycleMs": 4000,
+  "settings": {
+    "reasoningEffort": "mild cap (LLM_REASONING_CAP=1, 300 reasoning / 800 total)",
+    "maxTokens": 800,
+    "providerSort": null,
+    "providerOrder": [
+      "groq"
+    ],
+    "allowFallbacks": true,
+    "stream": true
+  },
+  "turnMs": {
+    "n": 1079,
+    "p50": 864,
+    "p90": 1519,
+    "p99": 4229
+  },
+  "llm": {
+    "calls": 1380,
+    "callErrors": 0,
+    "promptTokens": 3594355,
+    "completionTokens": 329970,
+    "cachedTokens": 1780015,
+    "reasoningTokens": 261612,
+    "cacheHitRate": 0.4952,
+    "costUsd": 0.597267,
+    "totalCostUsd": 0.6368,
+    "costPerAgentHourUsd": 0.2472,
+    "latencyMsP50": 823,
+    "latencyMsP90": 1481,
+    "latencyMsP99": 5334,
+    "ttftMsP50": 269,
+    "ttftMsP90": 514,
+    "reasoningTokensPerCall": 189.6,
+    "completionTokensPerCall": 239.1,
+    "providers": {
+      "Groq": 1364,
+      "Near AI": 16
+    },
+    "jsonErrors": 0,
+    "jsonErrorRate": 0,
+    "agentOnlyCostPerAgentHourUsd": 0.2319
+  },
+  "decisions": {
+    "total": 1380,
+    "perWallMinute": 71.441,
+    "perAgentWallMinute": 8.93,
+    "perGameYear": 107.161,
+    "perAgentGameYear": 13.395
+  },
+  "actions": {
+    "total": 1479,
+    "failed": 609,
+    "failureRate": 0.4118,
+    "reflex": 8
+  },
+  "lives": {
+    "lives": 8,
+    "eves": 2,
+    "babies": 6,
+    "deaths": 0,
+    "deathsByCause": {},
+    "maxGeneration": 2,
+    "babiesAtRisk": 6,
+    "babiesSurvivedPast3": 6,
+    "babySurvivalPast3Rate": 1,
+    "perWallMinute": {
+      "births": 0.414,
+      "deaths": 0
+    },
+    "perGameYear": {
+      "births": 0.621,
+      "deaths": 0
+    }
+  },
+  "firsts": {
+    "sharpStone": {
+      "wallMin": 0.53,
+      "gameYears": 0.35,
+      "what": "Sharp Stone"
+    },
+    "fire": null,
+    "clothing": null
+  },
+  "notes": {
+    "narratorDirectorStory": "on, default overhead model google/gemini-3.1-flash-lite",
+    "foodBonus": "on",
+    "continuous": true,
+    "initialEves": 2,
+    "finalState": {
+      "alive": 8,
+      "births": 8,
+      "deaths": 0,
+      "status": "running",
+      "haltReason": null
+    }
+  }
+}

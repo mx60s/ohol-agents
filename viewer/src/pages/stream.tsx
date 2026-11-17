@@ -1,17 +1,21 @@
 // 1920x1080 stream overlay (stream.html; <body class="stream">). Follows the director's focus.
 // Every piece of user/model text renders as React text (escaped), clamped by CSS.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AgentView, LifeRecord, PlayerView, RunEvent } from "../api-types.ts";
-import { getClient, useLives, useMap, useNow, useObjectNames, useWorldState } from "../data/index.ts";
-import { ageStage, deathReasonText, displayName, formatAge, formatRelative, PersonPortrait } from "../shared/index.ts";
+import type { AgentView, Invention, LifeRecord, MapCellTuple, PlayerView, RunEvent } from "../api-types.ts";
+import { getClient, useInventions, useLives, useMap, useNow, useObjectNames, useWorldState } from "../data/index.ts";
+import { ageStage, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait } from "../shared/index.ts";
+import { flowersForLives } from "../ohol/flower.ts";
 import { Sticker, Wordmark } from "../theme/index.ts";
-import { biomeName, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
-import { WorldCamera, type Bubble } from "../stream/WorldCamera.tsx";
+import { biomeName, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
+import { CELL, FOCUS_DROP, WorldCamera, type Bubble } from "../stream/WorldCamera.tsx";
+import { MiniMap } from "../stream/MiniMap.tsx";
 import "../stream/stream.css";
 import { mount } from "./mount.tsx";
 
 const BUBBLE_MS = 6000;
 const EMPTY_PLAYERS: PlayerView[] = [];
+const EMPTY_AGENTS: AgentView[] = [];
+const EMPTY_CELLS: MapCellTuple[] = [];
 
 /** Scale the fixed 1920x1080 stage to fit any viewport (OBS uses 1920x1080 exactly). */
 function useFitScale(): number {
@@ -23,6 +27,20 @@ function useFitScale(): number {
     return () => window.removeEventListener("resize", on);
   }, []);
   return s;
+}
+
+/** prefers-reduced-motion: the ticker stops scrolling (it still updates). */
+function useReducedMotion(): boolean {
+  const q = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  const [on, setOn] = useState(() => !!q?.matches);
+  useEffect(() => {
+    if (!q) return;
+    const f = () => setOn(q.matches);
+    q.addEventListener("change", f);
+    return () => q.removeEventListener("change", f);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return on;
 }
 
 function Stream() {
@@ -110,7 +128,16 @@ function Stream() {
     </>
   ) : null;
 
-  const emptyCard = nobody ? (
+  // no /api/state yet (still connecting, or the service was down when OBS started): say so,
+  // rather than claiming that nobody is alive
+  const tuning = !state;
+  const emptyCard = tuning ? (
+    <div className="between">
+      <div className="k">Tuning in</div>
+      <h2>Finding the world…</h2>
+      <p>The picture will appear as soon as the world answers.</p>
+    </div>
+  ) : nobody ? (
     <div className="between">
       <div className="k">Between generations</div>
       <h2>Everyone is resting for now</h2>
@@ -129,11 +156,13 @@ function Stream() {
   const fallback = useMemo(() => (fx != null && fy != null ? { x: fx, y: fy } : null), [fx, fy]);
 
   const offline = !isStatic && w.connection === "offline";
+  // model provider down: a quiet banner (never the raw error); goes away by itself on recovery
+  const thinking = !offline && lostInThought(state?.run, serverNow);
 
   return (
     <div className="stage-fit" style={{ transform: `scale(${scale})` }}>
       <div className="frame">
-        <Headline state={state} now={serverNow} />
+        <Headline state={state} lives={lives.lives} now={serverNow} />
         <section className="cam" aria-label="camera">
           <WorldCamera
             key={w.runId ?? "none"}
@@ -158,6 +187,20 @@ function Stream() {
                 </span>
               </div>
             )}
+            {thinking && (
+              <div className="lost-in-thought" role="status">
+                {LOST_IN_THOUGHT}
+              </div>
+            )}
+            <MiniMap
+              cells={map.data?.cells ?? EMPTY_CELLS}
+              players={players}
+              agents={state?.agents ?? EMPTY_AGENTS}
+              focusPlayerId={nobody || focusDead ? null : focusPlayerId}
+              camera={nobody ? null : cell}
+              cellPx={CELL}
+              focusDrop={FOCUS_DROP}
+            />
             {offline && <div className="reconnect">reconnecting…</div>}
           </WorldCamera>
         </section>
@@ -168,6 +211,7 @@ function Stream() {
           dead={focusDead}
           deathEv={deathEv}
           nobody={nobody}
+          tuning={tuning}
           players={players}
           agents={state?.agents ?? []}
           byId={lives.byId}
@@ -177,7 +221,7 @@ function Stream() {
           now={serverNow}
         />
         <News events={w.events} agents={state?.agents ?? []} players={players} byId={lives.byId} runId={state?.run.id ?? null} now={serverNow} />
-        <Story text={state?.story?.text ?? null} updatedAt={state?.story?.updatedAt ?? null} now={serverNow} />
+        <Inventions lives={lives.lives} byId={lives.byId} names={names} now={serverNow} />
       </div>
     </div>
   );
@@ -185,8 +229,9 @@ function Stream() {
 
 // ------------------------------------------------------------------ headline
 
-function Headline({ state, now }: { state: ReturnType<typeof useWorldState>["state"]; now: number }) {
-  const s = state?.stats;
+function Headline({ state, lives, now }: { state: ReturnType<typeof useWorldState>["state"]; lives: LifeRecord[]; now: number }) {
+  const s = useMemo(() => (state ? headlineNumbers(state.stats, lives, state.run.id) : null), [state, lives]);
+  const v = (n: number | undefined) => (n == null ? "–" : n);
   const [big, small] = runTimeParts(state ? now - state.run.startedAt : 0);
   return (
     <header className="top">
@@ -197,21 +242,21 @@ function Headline({ state, now }: { state: ReturnType<typeof useWorldState>["sta
       <div className="stats">
         <div className="chip alive">
           <div className="n">
-            {s?.alive ?? 0} <small>alive</small>
+            {v(s?.alive)} <small>alive</small>
           </div>
           <div className="k">♥ Players</div>
         </div>
         <div className="chip">
-          <div className="n">{s?.totalBirths ?? 0}</div>
+          <div className="n">{v(s?.births)}</div>
           <div className="k">Births</div>
         </div>
         <div className="chip dead">
-          <div className="n">{s?.totalDeaths ?? 0}</div>
+          <div className="n">{v(s?.deaths)}</div>
           <div className="k">Deaths</div>
         </div>
         <div className="chip gen">
           <div className="n">
-            {s?.maxGeneration ?? 0} <small>deepest</small>
+            {v(s?.generation)} <small>deepest</small>
           </div>
           <div className="k">Generations</div>
         </div>
@@ -236,6 +281,8 @@ interface FollowingProps {
   dead: boolean;
   deathEv: RunEvent | null;
   nobody: boolean;
+  /** no world state yet */
+  tuning?: boolean;
   players: PlayerView[];
   agents: AgentView[];
   byId: Record<string, LifeRecord>;
@@ -247,6 +294,20 @@ interface FollowingProps {
 
 function Following(p: FollowingProps) {
   const { agent, life, player, dead, nobody, byId, players } = p;
+  if (p.tuning) {
+    return (
+      <aside className="side">
+        <div className="panel">
+          <div className="panel-head is-clay">
+            <span className="ttl">★ Now following</span>
+          </div>
+          <div className="side-empty">
+            <h2>Tuning in…</h2>
+          </div>
+        </div>
+      </aside>
+    );
+  }
   if (nobody || (!agent && !life)) {
     return (
       <aside className="side">
@@ -303,7 +364,7 @@ function Following(p: FollowingProps) {
   const tags = traitTags(life?.traits ?? agent?.traits ?? null, p.dims);
   const since = life?.bornAt ?? 0;
   const thoughtEv = recentOf(p.events, agent?.agentId, "thought", since, 1)[0];
-  const said = recentOf(p.events, agent?.agentId, "say", since, 4);
+  const said = recentOf(p.events, agent?.agentId, "say", since, 3);
   const agentName = (id: string) => displayName(p.agents.find((a) => a.agentId === id)?.name, "someone");
   const thought = agent?.lifeId === life?.lifeId || !life ? (agent?.lastThought ?? thoughtEv?.text ?? null) : (thoughtEv?.text ?? null);
 
@@ -325,6 +386,8 @@ function Following(p: FollowingProps) {
                 livingLineageIds={p.lineageIds}
                 traits={life?.traits ?? agent?.traits}
                 traitDims={p.dims}
+                lifeId={life?.lifeId}
+                flower={life?.flower ?? player?.flower ?? agent?.flower}
                 size={150}
                 dead={dead}
               />
@@ -448,6 +511,7 @@ function News({ events, agents, players, byId, runId, now }: { events: RunEvent[
 
 /** Marquee: new items are swapped in at the end of a loop, so the crawl never jumps. */
 function Ticker({ items }: { items: TickerItem[] }) {
+  const still = useReducedMotion();
   const [shown, setShown] = useState(items);
   const pending = useRef(items);
   pending.current = items;
@@ -464,8 +528,9 @@ function Ticker({ items }: { items: TickerItem[] }) {
     const run = runRef.current;
     if (!box || !run) return;
     const w = run.scrollWidth;
-    setDur(w > box.clientWidth ? Math.max(20, w / 70) : 0);
-  }, [shown]);
+    // reduced motion: no crawl (dur 0), so new items swap in directly instead of at the loop's end
+    setDur(!still && w > box.clientWidth ? Math.max(20, w / 70) : 0);
+  }, [shown, still]);
   const onLoop = () => {
     if (sig(pending.current) !== sig(shown)) setShown(pending.current);
   };
@@ -498,36 +563,52 @@ function Ticker({ items }: { items: TickerItem[] }) {
   );
 }
 
-// ------------------------------------------------------------------ story so far
+// ------------------------------------------------------------------ recent inventions
 
-function Story({ text, updatedAt, now }: { text: string | null; updatedAt: number | null; now: number }) {
-  const boxRef = useRef<HTMLDivElement>(null);
-  const pRef = useRef<HTMLParagraphElement>(null);
-  const [dist, setDist] = useState(0);
-  useLayoutEffect(() => {
-    const b = boxRef.current;
-    const p = pRef.current;
-    if (!b || !p) return;
-    setDist(Math.max(0, p.scrollHeight - b.clientHeight + 12));
-  }, [text]);
+/** Rows that fit the panel. */
+const INVENTION_ROWS = 5;
+
+/** The newest firsts: each item the first time anyone in this world made it (GET /api/inventions). */
+function Inventions({ lives, byId, names, now }: { lives: LifeRecord[]; byId: Record<string, LifeRecord>; names: Record<number, string>; now: number }) {
+  const { inventions } = useInventions(INVENTION_ROWS);
+  const flowers = useMemo(() => flowersForLives(lives), [lives]);
+  const byName = useMemo(() => objectIdsByName(names), [names]);
   return (
-    <section className="story">
+    <section className="inventions">
       <div className="panel">
         <div className="panel-head is-berry">
-          <span className="ttl">📖 The story so far</span>
-          {updatedAt ? <span className="sub">updated {formatRelative(updatedAt, now)}</span> : null}
+          <span className="ttl">💡 Recent inventions</span>
         </div>
-        <div className={`story-box${dist ? " scrolls" : ""}`} ref={boxRef}>
-          <p
-            ref={pRef}
-            className={`ugc${dist ? " run" : ""}`}
-            style={dist ? ({ "--dist": `${dist}px`, animationDuration: `${Math.max(24, dist / 6)}s` } as React.CSSProperties) : undefined}
-          >
-            {text ?? "The story has not started yet. Check back once the first Eves have lived a little."}
-          </p>
-        </div>
+        {inventions.length ? (
+          <ol className="inv-list">
+            {inventions.slice(0, INVENTION_ROWS).map((inv) => (
+              <InventionRow key={`${inv.runId}|${inv.objectId ?? inv.item}`} inv={inv} life={inv.lifeId ? (byId[inv.lifeId] ?? null) : null} flowers={flowers} byName={byName} now={now} />
+            ))}
+          </ol>
+        ) : (
+          <p className="inv-empty">Nothing invented yet.</p>
+        )}
       </div>
     </section>
+  );
+}
+
+function InventionRow({ inv, life, flowers, byName, now }: { inv: Invention; life: LifeRecord | null; flowers: Map<string, NonNullable<LifeRecord["flower"]>>; byName: Map<string, number>; now: number }) {
+  const objectId = inv.objectId ?? byName.get(inv.item.toLowerCase()) ?? null;
+  const flower = life?.flower ?? (inv.lifeId ? flowers.get(inv.lifeId) : null) ?? null;
+  const who = displayName(life?.name ?? inv.name, "someone");
+  return (
+    <li>
+      <span className="inv-icon">{objectId != null && <ObjectIcon objectId={objectId} size={42} title={inv.item} />}</span>
+      <span className="inv-main">
+        <b className="inv-item">{inv.item}</b>
+        <span className="inv-by ugc">
+          by {who}
+          {flower && <FlowerIcon flower={flower} size={20} />}
+        </span>
+      </span>
+      <time>{formatRelative(inv.t, now)}</time>
+    </li>
   );
 }
 

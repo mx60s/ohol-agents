@@ -50,7 +50,6 @@ function FamilyDetail({ fam, site }: { fam: LineageRecord; site: SiteData }) {
           </div>
           <div className="panel-body fam-head">
             <FamilyLook fam={fam} members={members} site={site} size={84} />
-            <p className="muted sm">Shared hairstyle and face. Hair colour varies with each person's traits.</p>
           </div>
           <StatTiles cols={2}>
             <StatTile value={members.length || fam.totalLives} label="Lives" />
@@ -76,7 +75,7 @@ function FamilyDetail({ fam, site }: { fam: LineageRecord; site: SiteData }) {
         </Panel>
       </div>
       <div className="span-8">
-        <Panel title="Family tree" variant="green" sub={`${members.length} lives`}>
+        <Panel title="Family tree" variant="green">
           <div className="tree-tools">
             <button type="button" className="btn is-ghost sm" onClick={folds.expandAll}>
               Expand all

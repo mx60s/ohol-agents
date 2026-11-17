@@ -1,0 +1,265 @@
+MTS patch: uniform game-time dilation (setting timeScale, default 1).
+
+Adds server/mtsGameTime.h and includes it in server.cpp and map.cpp right
+after minorGems/system/Time.h. The header routes every Time:: call in
+those two files through a virtual clock, E + (real - E) / timeScale, so
+aging, food/heat drain, decay and regrowth, cooldowns and walking all
+slow down by the same factor. Durations and speeds sent to clients (PU,
+PM, FX, HX, MX) are converted back to wall seconds; message-flood batches
+stay on the wall clock. timeScale = 1 is stock behaviour. See the header
+comment for details and docs/research/time-scale.md for choosing a value.
+
+--- a/server/map.cpp
++++ b/server/map.cpp
+@@ -21,6 +21,7 @@
+ #include "minorGems/util/log/AppLog.h"
+ 
+ #include "minorGems/system/Time.h"
++#include "mtsGameTime.h" // MTS patch: game clock runs timeScale x slower
+ 
+ #include "minorGems/formats/encodingUtils.h"
+ 
+@@ -8647,8 +8648,9 @@
+         r.absoluteOldY = inPos.oldY;
+         r.oldCoordsUsed = true;
+ 
++        // MTS patch: tiles per wall second
+         char *moveString = autoSprintf( " %%d %%d %f", 
+-                                        inPos.speed );
++                                        mtsWallRate( inPos.speed ) );
+         
+         buffer.appendElementString( moveString );
+     
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -19,6 +19,7 @@
+ 
+ #include "minorGems/system/Thread.h"
+ #include "minorGems/system/Time.h"
++#include "mtsGameTime.h" // MTS patch: game clock runs timeScale x slower
+ 
+ #include "minorGems/game/doublePair.h"
+ 
+@@ -5283,7 +5284,10 @@
+     // start is absolute
+     char *startString = autoSprintf( "%d %%d %%d %.3f %.3f %d", 
+                                      inPlayer->id, 
+-                                     inPlayer->moveTotalSeconds, etaSec,
++                                     // MTS patch: wall seconds
++                                     mtsWallSeconds(
++                                         inPlayer->moveTotalSeconds ),
++                                     mtsWallSeconds( etaSec ),
+                                      inPlayer->pathTruncated );
+     // mark that this has been sent
+     inPlayer->pathTruncated = false;
+@@ -8427,8 +8431,9 @@
+         inPlayer->heat,
+         posString,
+         computeAge( inPlayer ),
+-        1.0 / getAgeRate(),
+-        computeMoveSpeed( inPlayer ),
++        // MTS patch: wall-clock seconds per year and tiles per wall second
++        mtsWallSeconds( 1.0 / getAgeRate() ),
++        mtsWallRate( computeMoveSpeed( inPlayer ) ),
+         clothingList,
+         inPlayer->justAte,
+         hideIDForClient( inPlayer->justAteID ),
+@@ -19576,14 +19581,16 @@
+ 
+         // start a new batch
+         // (so they have a clean slate if they reconnect)
+-        inPlayer->messageFloodBatchStartTime[index] = Time::getCurrentTime();
++        // MTS patch: flood batches stay on the wall clock
++        inPlayer->messageFloodBatchStartTime[index] =
++            MTSGameTime::realCurrentTime();
+         inPlayer->messageFloodBatchCount[index] = 0;
+ 
+         return true;
+         }
+ 
+ 
+-    double curTime = Time::getCurrentTime();
++    double curTime = MTSGameTime::realCurrentTime(); // MTS patch
+ 
+     if( curTime - inPlayer->messageFloodBatchStartTime[index] >= 5 ) {
+         // a 5-second batch is finished
+@@ -19819,6 +19826,10 @@
+     
+     useMainSettings();
+     
++    // MTS patch: read timeScale and start the game clock (before this,
++    // e.g. during static init, Time:: calls return the real clock)
++    MTSGameTime::start();
++
+     if( checkReadOnly() ) {
+         printf( "File system read-only.  Server exiting.\n" );
+         return 1;
+@@ -33753,7 +33764,8 @@
+                             cap,
+                             hideIDForClient( nextPlayer->lastAteID ),
+                             nextPlayer->lastAteFillMax,
+-                            computeMoveSpeed( nextPlayer ),
++                            // MTS patch: tiles per wall second
++                            mtsWallRate( computeMoveSpeed( nextPlayer ) ),
+                             nextPlayer->responsiblePlayerID,
+                             nextPlayer->yummyBonusStore,
+                             yumMult );
+@@ -33794,8 +33806,9 @@
+                         "HX\n"
+                         "%.2f %.2f %.2f#",
+                         nextPlayer->heat,
+-                        nextPlayer->foodDrainTime,
+-                        nextPlayer->indoorBonusTime );
++                        // MTS patch: wall seconds
++                        mtsWallSeconds( nextPlayer->foodDrainTime ),
++                        mtsWallSeconds( nextPlayer->indoorBonusTime ) );
+                      
+                     int messageLength = strlen( heatMessage );
+                     
+--- /dev/null
++++ b/server/mtsGameTime.h
+@@ -0,0 +1,144 @@
++// MTS patch (time-scale.patch): uniform game-time dilation.
++//
++// Setting timeScale (settings/timeScale.ini, default 1). With k = timeScale
++// every game-clock read in server.cpp and map.cpp returns
++//
++//     E + ( realNow - E ) / k
++//
++// instead of realNow, so aging, hunger and heat drain, object decay and
++// regrowth, cooldowns and walking all run k times slower in wall time, and
++// every in-game ratio stays the same. It works by including this header
++// after minorGems/system/Time.h: the macro below routes every Time::
++// call in that file through MTSGameTime.
++//
++// Durations and rates sent to clients (PU age_r and move_speed, PM
++// total/eta seconds, FX move_speed, HX food_time, MX speed) are converted
++// back to wall seconds at the send sites with mtsWallSeconds/mtsWallRate,
++// so a client that trusts the server's numbers animates and predicts
++// correctly. Things that must stay wall-clock (message flood batches) call
++// MTSGameTime::realCurrentTime(). Sockets, web requests and the other
++// server modules (curses, lineage limits, logs) keep using real time.
++//
++// E (the epoch) is persisted in timeScaleEpoch.txt in the run dir, so a
++// restart at the same k continues the same game clock and the decay ETAs
++// stored in the world DB stay valid. A new k (or a missing file) sets
++// E = now, which is continuous with a world that ran at k = 1. Going back
++// to k = 1 jumps the clock forward to real time (pending decays fire).
++//
++// The clock starts at the top of main() (MTSGameTime::start()); before that
++// (static initializers) Time:: calls return the real clock.
++//
++// k == 1 (the default) returns the real clock untouched: stock behaviour.
++
++#ifndef MTS_GAME_TIME_H
++#define MTS_GAME_TIME_H
++
++#include <stdio.h>
++#include <math.h>
++#include "minorGems/system/Time.h"
++#include "minorGems/util/SettingsManager.h"
++
++class MTSGameTime {
++    public:
++
++        static double scale() {
++            return state()->scale;
++            }
++
++        static double realCurrentTime() {
++            return Time::getCurrentTime();
++            }
++
++        static double getCurrentTime() {
++            State *s = state();
++            double real = Time::getCurrentTime();
++            if( s->scale == 1.0 ) {
++                return real;
++                }
++            return s->epoch + ( real - s->epoch ) / s->scale;
++            }
++
++        // whole seconds, like Time::timeSec()
++        static timeSec_t timeSec() {
++            State *s = state();
++            if( s->scale == 1.0 ) {
++                return Time::timeSec();
++                }
++            return floor( s->epoch +
++                          ( Time::timeSec() - s->epoch ) / s->scale );
++            }
++
++        // called once at the top of main(), after settings are usable
++        static void start() {
++            init( state() );
++            }
++
++        // file timestamps (minorGems File.h) stay real
++        static timeSec_t normalize( time_t inTime ) {
++            return Time::normalize( inTime );
++            }
++
++    private:
++
++        struct State {
++                double scale;
++                double epoch;
++            };
++
++        // starts as the real clock (scale 1) until start() is called;
++        // constant-initialized, so safe to use during static init
++        static State *state() {
++            static State s = { 1.0, 0 };
++            return &s;
++            }
++
++        static void init( State *s ) {
++            double k = SettingsManager::getFloatSetting( "timeScale", 1.0f );
++            if( ! ( k > 0 ) ) {
++                k = 1.0;
++                }
++            s->scale = k;
++            s->epoch = Time::timeSec();
++
++            const char *fileName = "timeScaleEpoch.txt";
++            if( k == 1.0 ) {
++                // stock clock; forget any old epoch so a later k > 1 run
++                // starts continuous with this one
++                remove( fileName );
++                return;
++                }
++
++            FILE *f = fopen( fileName, "r" );
++            if( f != NULL ) {
++                double e, oldK;
++                if( fscanf( f, "%lf %lf", &e, &oldK ) == 2 && oldK == k &&
++                    e <= s->epoch ) {
++                    s->epoch = e;
++                    }
++                fclose( f );
++                }
++            f = fopen( fileName, "w" );
++            if( f != NULL ) {
++                fprintf( f, "%.0f %.17g\n", s->epoch, k );
++                fclose( f );
++                }
++            printf( "MTS timeScale = %f (game clock epoch %.0f)\n",
++                    k, s->epoch );
++            }
++    };
++
++
++// game seconds -> wall seconds, for durations sent to clients
++inline double mtsWallSeconds( double inGameSeconds ) {
++    return inGameSeconds * MTSGameTime::scale();
++    }
++
++// per-game-second rate -> per-wall-second rate, for speeds sent to clients
++inline double mtsWallRate( double inPerGameSecond ) {
++    return inPerGameSecond / MTSGameTime::scale();
++    }
++
++
++#define Time MTSGameTime
++
++#endif

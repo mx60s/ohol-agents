@@ -7,8 +7,8 @@ body.stream { background: var(--grain), var(--parchment); }
   width: 1920px; height: 1080px; padding: 14px 16px 16px;
   display: grid; gap: 14px;
   grid-template-columns: 1300px minmax(0, 1fr);
-  grid-template-rows: 96px minmax(0, 1fr) 214px;
-  grid-template-areas: "top top" "cam side" "news story";
+  grid-template-rows: 96px minmax(0, 1fr) 300px;
+  grid-template-areas: "top top" "cam side" "news inventions";
 }
 .frame > * { min-width: 0; min-height: 0; }
 
@@ -75,11 +75,27 @@ body.stream { background: var(--grain), var(--parchment); }
 .camhud { position: absolute; right: 16px; top: 16px; display: flex; gap: 8px; }
 .camhud .pill { font-size: 17px; padding: 3px 13px 4px; }
 .reconnect {
-  position: absolute; right: 16px; bottom: 14px; padding: 2px 11px 3px; border-radius: var(--r-pill);
+  position: absolute; right: 16px; bottom: 196px; /* above the minimap */ padding: 2px 11px 3px; border-radius: var(--r-pill);
   background: rgba(31,26,20,.62); color: var(--paper-white); font-weight: 700; font-size: 15px;
   animation: pulse 2s ease-in-out infinite;
 }
 @keyframes pulse { 50% { opacity: .55; } }
+/* minimap inset, bottom right: clear of the biome pill (top right) and the outage caption (bottom centre) */
+.minimap {
+  position: absolute; right: 14px; bottom: 14px; z-index: 4; pointer-events: none;
+  padding: 4px; border: 2px solid var(--ink); border-radius: 12px;
+  background: rgba(246,240,225,.88); box-shadow: 0 2px 0 rgba(31,26,20,.35);
+}
+.minimap canvas { display: block; border-radius: 8px; }
+/* model provider down: quiet caption along the bottom of the camera, clear of the HUD and labels */
+.lost-in-thought {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 5;
+  padding: 5px 20px 7px; border-radius: var(--r-pill);
+  background: rgba(31,26,20,.66); color: var(--paper-white);
+  font-family: var(--font-news); font-style: italic; font-size: 22px; white-space: nowrap;
+  pointer-events: none; animation: lit-in 1.2s ease both;
+}
+@keyframes lit-in { from { opacity: 0; } }
 
 .cam-empty { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(235,225,200,.35); }
 .between {
@@ -101,20 +117,21 @@ body.stream { background: var(--grain), var(--parchment); }
 .who .photo .well { width: 150px; height: 150px; display: grid; place-items: center; overflow: hidden; }
 .who h2 { font-size: 34px; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; font-weight: 400; }
 .facts { margin: 8px 0 0; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 12px; row-gap: 3px; font-size: 18px; }
-.facts dt { font-weight: 900; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding-top: 3px; }
+.facts dt { font-weight: 900; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding-top: 3px; }
 .facts dd { margin: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .meters { display: flex; gap: 14px; margin-top: 10px; }
 .meter { flex: 1; min-width: 0; }
-.meter .k { font-weight: 900; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); display: flex; justify-content: space-between; }
+.meter .k { gap: 8px; font-weight: 900; font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); display: flex; justify-content: space-between; }
 .meter .bar-track { height: 14px; }
 .sec { padding: 8px 16px 0; min-height: 0; }
 .sec .label { font-size: 15px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
 .traitrow { display: flex; gap: 6px; flex-wrap: wrap; max-height: 64px; overflow: hidden; }
 .traitrow .pill { font-size: 16px; }
 .thinking { font-size: 22px; line-height: 1.28; padding: 8px 14px 10px; }
-.thinking .t { display: block; font-family: var(--font-body); font-size: 13px; font-weight: 800; color: var(--ink-3); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 2px; }
-.thinking .tx { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-.said-sec { padding-bottom: 12px; overflow: hidden; }
+.thinking .t { display: block; font-family: var(--font-body); font-size: 15px; font-weight: 800; color: var(--ink-3); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 2px; }
+.thinking .tx { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.sec:has(.thinking) { flex: none; }
+.said-sec { flex: 1; padding-bottom: 12px; overflow: hidden; }
 .said { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .said li { display: flex; align-items: baseline; gap: 10px; font-size: 18px; min-width: 0; }
 .said .speech { font-size: 21px; padding: 1px 10px 2px; border-radius: 12px; box-shadow: none; max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
@@ -126,16 +143,16 @@ body.stream { background: var(--grain), var(--parchment); }
 .side-empty h2 { font-size: 34px; font-weight: 400; margin-bottom: 10px; }
 .side-empty p { font-family: var(--font-news); font-size: 21px; color: var(--ink-2); margin: 0; }
 
-/* ---------- bottom: news + story ---------- */
+/* ---------- bottom: news + recent inventions ---------- */
 .newsbox { grid-area: news; display: flex; flex-direction: column; }
-.newsbox .panel, .story .panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.newsbox .panel-head, .story .panel-head { font-size: 21px; padding: 7px 16px 8px; }
-.newsbox .panel-head .sub, .story .panel-head .sub { font-size: 15px; }
+.newsbox .panel, .inventions .panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.newsbox .panel-head, .inventions .panel-head { font-size: 21px; padding: 7px 16px 8px; }
+.newsbox .panel-head .sub, .inventions .panel-head .sub { font-size: 15px; }
 .feed { list-style: none; margin: 0; padding: 8px 18px 0; display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow: hidden; }
 .feed li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; font-family: var(--font-news); font-size: 18px; line-height: 1.3; color: var(--ink-2); }
-.feed li span { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.feed li span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .feed li.now { color: var(--ink); font-size: 21px; line-height: 1.28; }
-.feed li.now span { -webkit-line-clamp: 3; }
+.feed li.now span { -webkit-line-clamp: 5; }
 .feed time { font-family: var(--font-body); font-weight: 800; font-size: 15px; color: var(--ink-3); padding-top: 3px; white-space: nowrap; }
 .feed li.now time { color: var(--clay); }
 .crawl {
@@ -153,9 +170,21 @@ body.stream { background: var(--grain), var(--parchment); }
 .crawl .tk-quiet::before { content: ''; }
 @keyframes crawl { to { transform: translateX(-50%); } }
 
-.story { grid-area: story; display: flex; flex-direction: column; }
-.story-box { flex: 1; min-height: 0; overflow: hidden; position: relative; }
-.story-box.scrolls { -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 16px), transparent 100%); }
-.story p { margin: 0; padding: 10px 16px; font-family: var(--font-news); font-size: 19px; line-height: 1.36; }
-.story p.run { animation: story-scroll ease-in-out infinite alternate; }
-@keyframes story-scroll { 0%, 12% { transform: translateY(0); } 88%, 100% { transform: translateY(calc(-1 * var(--dist))); } }
+.inventions { grid-area: inventions; display: flex; flex-direction: column; }
+.inv-list { list-style: none; margin: 0; padding: 4px 16px 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.inv-list li { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: center; gap: 12px; height: 49px; border-bottom: 1.5px dashed rgba(42, 31, 20, 0.18); }
+.inv-list li:last-child { border-bottom: 0; }
+.inv-list li:first-child .inv-item { color: var(--clay); }
+.inv-icon { width: 46px; height: 46px; display: grid; place-items: center; }
+.inv-main { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.inv-item { font-family: var(--font-display); font-weight: 400; font-size: 21px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inv-by { display: flex; align-items: center; gap: 4px; font-family: var(--font-news); font-size: 16px; color: var(--ink-2); white-space: nowrap; overflow: hidden; }
+.inv-list time { font-weight: 800; font-size: 15px; color: var(--ink-3); white-space: nowrap; }
+.inv-empty { margin: 0; padding: 12px 16px; font-family: var(--font-news); font-size: 19px; color: var(--ink-2); }
+
+/* reduced motion: no crawl, no pulsing (the JS also turns the crawl off) */
+@media (prefers-reduced-motion: reduce) {
+  .crawl .track.run, .reconnect, .cam-death, .lost-in-thought { animation: none; }
+  .crawl .tk-seg { overflow: hidden; }
+  .cam-fade, .cam-fade.on { transition: none; }
+}

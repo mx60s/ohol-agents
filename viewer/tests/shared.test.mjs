@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { resolveDataMode, pageHref } from "../src/data/config.ts";
-import { normDeaths, normLife, normLineages, normLives, normState } from "../src/data/normalize.ts";
+import { normDeaths, normInventions, normLife, normLineages, normLives, normState } from "../src/data/normalize.ts";
 import { ageStage, deathReasonText, displayName, formatAge, formatDuration, formatMoney, formatRelative, formatTrait, truncate } from "../src/shared/format.ts";
 import { lineageColor, lineageName, LINEAGE_PALETTE } from "../src/shared/lineage.ts";
 import { personalityBlurb, personalityText } from "../src/shared/personality.ts";
@@ -31,6 +31,9 @@ test("format helpers", () => {
   assert.equal(ageStage(20), "adult");
   assert.equal(formatRelative(1000, 1000 + 4000), "4 s ago");
   assert.equal(formatRelative(0, 5), "never");
+  // future (clock skew, coarse page clock): never "in 13 s"
+  assert.equal(formatRelative(20_000, 7_000), "just now");
+  assert.equal(formatRelative(10_000_000, 1000), "just now");
   assert.equal(formatRelative(1, 1 + 120_000), "2 min ago");
   assert.equal(formatDuration(41 * 60_000), "41 min");
   assert.equal(formatDuration(125 * 60_000), "2 h 5 min");
@@ -38,9 +41,18 @@ test("format helpers", () => {
   assert.equal(formatMoney(0.0041), "$0.004");
   assert.equal(formatMoney(98765.43), "$99k");
   assert.equal(formatTrait(1.3175), "+1.32");
-  assert.equal(formatTrait(1e300), "+1.0e+300");
+  // bad data (1e300, -1e12) stays short enough for a trait column
+  assert.equal(formatTrait(1e300), ">+99");
+  assert.equal(formatTrait(-1e12), "<−99");
+  assert.equal(formatTrait(99.5, 1), "+99.5");
   assert.equal(displayName("EVE DAWN"), "Eve Dawn");
   assert.equal(displayName(""), "Unnamed");
+  // bidi overrides, zero-width and control characters are stripped; ZWJ emoji survive
+  assert.equal(displayName("\u202EEVIL DAWN"), "Evil Dawn");
+  assert.equal(displayName("ZE\u200BRO\uFEFF \u2066HOPE\u2069"), "Zero Hope");
+  assert.equal(displayName("\u200B\u200B"), "Unnamed");
+  assert.equal(displayName("\u0007BELL"), "Bell");
+  assert.equal(displayName("🧑\u200D🌾 ADA"), "🧑\u200D🌾 Ada");
   assert.equal(truncate("👶🏽👶🏽👶🏽", 2), "👶…");
   assert.equal(deathReasonText("hunger"), "starved");
   assert.equal(deathReasonText("killed_418"), "killed");
@@ -54,6 +66,21 @@ test("lineageColor is stable and keeps visible lineages apart", () => {
   assert.equal(lineageColor(null).name, "other");
   assert.equal(lineageName({ eveName: "DAWN HOPE", lineageId: "x:4" }), "Hope");
   assert.equal(lineageName({ eveName: null, lineageId: "x:4" }), "Family 4");
+});
+
+test("numbered repeat first names: 'AURORA II DAWN' is family Dawn, shown as Aurora II", async () => {
+  const { firstNameOf, surnameOf } = await import("../src/shared/format.ts");
+  assert.equal(displayName("AURORA II DAWN"), "Aurora II Dawn");
+  assert.equal(displayName("AURORA IX"), "Aurora IX");
+  assert.equal(displayName("IVY VI HOPE"), "Ivy VI Hope");
+  assert.equal(displayName("VI HOPE"), "Vi Hope", "a first name is never a numeral");
+  assert.equal(surnameOf("Aurora II Dawn"), "Dawn");
+  assert.equal(surnameOf("Aurora II"), null);
+  assert.equal(surnameOf("Aurora"), null);
+  assert.equal(firstNameOf("Aurora II Dawn"), "Aurora II");
+  assert.equal(firstNameOf("Joy Hope"), "Joy");
+  assert.equal(lineageName({ eveName: "AURORA II DAWN", lineageId: "x:4" }), "Dawn");
+  assert.equal(lineageName({ eveName: "AURORA II", lineageId: "x:4" }), "Aurora");
 });
 
 test("personalityBlurb is tentative, prefers a backend summary", () => {
@@ -104,4 +131,77 @@ test("no dangerouslySetInnerHTML in site code", () => {
       if (!/\.(tsx?|mjs)$/.test(f)) continue;
       assert.ok(!fs.readFileSync(path.join(r, f), "utf8").includes("dangerouslySetInner" + "HTML"), f);
     }
+});
+
+// ------------------------------------------------------------------ model provider / pause state
+
+test("thinkingState / lostInThought / thinkingLabel: outage, failing, daily cap, recovery", async () => {
+  const { thinkingState, lostInThought, thinkingLabel, LOST_IN_THOUGHT, STREAM_BANNER_GRACE_MS } = await import("../src/shared/runStatus.ts");
+  const T = 1_800_000_000_000;
+  const ok = { ok: true, lastError: "HTTP 402: Insufficient credits", since: T - 5000, consecutiveFailures: 0, retryAt: null, outageSince: null };
+  const failing = (since) => ({ ok: false, lastError: "HTTP 503: upstream", since, consecutiveFailures: 4, retryAt: T + 8000, outageSince: since });
+  const run = (o) => ({ status: "running", pauseKind: null, pauseReason: null, resumesAt: null, llmStatus: ok, ...o });
+  const ago = formatDuration;
+
+  // healthy, idle, halted: nothing to say (lastError kept after recovery doesn't matter)
+  for (const r of [run({}), run({ status: "idle", llmStatus: failing(T - 60_000) }), run({ status: "halted", llmStatus: failing(T - 60_000) }), null, undefined]) {
+    assert.deepEqual(thinkingState(r), { kind: "ok" });
+    assert.equal(lostInThought(r, T), false);
+    assert.equal(thinkingLabel(thinkingState(r), ago, T), null);
+  }
+
+  // paused for an outage: banner at once, run bar says how long
+  const outage = run({ status: "paused", pauseKind: "llm-outage", pauseReason: "model provider down", resumesAt: T + 30_000, llmStatus: failing(T - 4 * 60_000) });
+  assert.deepEqual(thinkingState(outage), { kind: "llm-outage", since: T - 4 * 60_000, resumesAt: T + 30_000 });
+  assert.equal(lostInThought(outage, T), true);
+  assert.equal(thinkingLabel(thinkingState(outage), ago, T), "paused: model provider unavailable · 4 min");
+
+  // failing but not paused yet: banner only after the grace period (a lone 5xx doesn't flash it)
+  const blip = run({ llmStatus: failing(T - 3000) });
+  assert.equal(thinkingState(blip).kind, "llm-failing");
+  assert.equal(lostInThought(blip, T), false);
+  assert.equal(lostInThought(run({ llmStatus: failing(T - STREAM_BANNER_GRACE_MS) }), T), true);
+  assert.equal(thinkingLabel(thinkingState(blip), ago, T), "model provider unavailable · 3 s");
+
+  // daily cap: run bar only, never the stream banner; older backends without pauseKind = cap
+  const cap = run({ status: "paused", pauseKind: "daily-cap", pauseReason: "daily spend cap reached", resumesAt: T + 2 * 3600_000 });
+  assert.equal(lostInThought(cap, T), false);
+  assert.equal(thinkingLabel(thinkingState(cap), ago, T), "paused: daily spend cap · resumes in 2 h");
+  assert.equal(thinkingState(run({ status: "paused", pauseKind: undefined, llmStatus: undefined })).kind, "daily-cap");
+
+  // recovery clears it: back to running with llmStatus ok
+  assert.equal(lostInThought(run({ llmStatus: { ...ok, since: T } }), T), false);
+  // the stream text never carries the provider error
+  assert.ok(!/HTTP|credit|503/.test(LOST_IN_THOUGHT));
+});
+
+test("normState keeps pauseKind, llmStatus and timeScale", () => {
+  const s = normState({ run: { id: "r", status: "paused", pauseKind: "llm-outage", llmStatus: { ok: false, lastError: "x", since: 5, consecutiveFailures: 3, retryAt: 9, outageSince: 4 }, timeScale: 2 }, agents: [], players: [] });
+  assert.equal(s.run.pauseKind, "llm-outage");
+  assert.deepEqual(s.run.llmStatus, { ok: false, lastError: "x", since: 5, consecutiveFailures: 3, retryAt: 9, outageSince: 4 });
+  assert.equal(s.run.timeScale, 2);
+  const old = normState({ run: { id: "r", status: "paused", pauseKind: "bogus", llmStatus: "nope" }, agents: [], players: [] });
+  assert.equal(old.run.pauseKind, null);
+  assert.equal(old.run.llmStatus, undefined);
+  assert.equal(old.run.timeScale, 1);
+});
+
+test("normInventions: drops malformed rows, newest first; the live1 fixture has a few", () => {
+  const r = normInventions({
+    inventions: [
+      { item: "Sharp Stone", objectId: 34, lifeId: "r:2", name: "EVE", t: 100, runId: "r" },
+      { item: "", t: 300 },
+      { item: "Basket", objectId: "x", lifeId: null, name: null, t: 200, runId: "r" },
+      "junk",
+      { item: "Rope" },
+    ],
+  });
+  assert.deepEqual(r.inventions.map((x) => x.item), ["Basket", "Sharp Stone"]);
+  assert.equal(r.inventions[0].objectId, undefined);
+  assert.equal(r.inventions[1].objectId, 34);
+  assert.deepEqual(normInventions(null), { inventions: [] });
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const fx = normInventions(JSON.parse(fs.readFileSync(path.join(HERE, "../fixtures/live1/inventions.json"), "utf8")));
+  assert.deepEqual(fx.inventions.map((x) => x.item), ["Basket", "Reed Skirt", "Fire Bow Drill", "Kindling", "Sharp Stone"]);
+  assert.ok(fx.inventions.every((x) => x.objectId && x.lifeId && x.name));
 });

@@ -4,7 +4,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type {
+  AgentSpecResponse,
   DeathsResponse,
+  Invention,
   LifeRecord,
   LineagesResponse,
   MapResponse,
@@ -189,7 +191,12 @@ const livesPoller = () =>
         }
         if (!r.more || !r.lives.length) break;
       }
-      if (!changed && prev) return { ...prev, ...meta };
+      if (!changed && prev) {
+        // nothing new: hand back the same object so 5000-life pages don't re-derive every 5 s
+        // (`now` is only informational; the wipe check above uses the fresh response)
+        if (prev.traitSource === meta.traitSource && prev.traitDims.join("|") === meta.traitDims.join("|")) return prev;
+        return { ...prev, ...meta };
+      }
       const lives = Object.values(byId).sort((a, b) => b.bornAt - a.bornAt || a.lifeId.localeCompare(b.lifeId));
       return { lives, byId, cursor, ...meta };
     },
@@ -238,6 +245,20 @@ export function useStory(limit = 20): { current: StorySoFar | null; history: Sto
   return { current: history[0] ?? null, history, loading: r.loading, error: r.error };
 }
 
+/**
+ * Recent inventions (the first time each technology item was made in the current run), newest
+ * first. Polled every 10 s; empty against an agents service without /api/inventions.
+ */
+export function useInventions(limit = 6): { inventions: Invention[]; loading: boolean; error: Error | null } {
+  const r = useResource(poller(`inventions:${limit}`, (c) => c.inventions({ limit }), 10_000));
+  return { inventions: r.data?.inventions ?? EMPTY_INVENTIONS, loading: r.loading, error: r.error };
+}
+const EMPTY_INVENTIONS: Invention[] = [];
+/** What agents are told and can do (GET /api/agent-spec), polled every 60 s; data null if the service doesn't have it. */
+export function useAgentSpec(): Resource<AgentSpecResponse | null> & { refresh: () => void } {
+  return useResource(poller("agent-spec", async (c) => (c.agentSpec ? c.agentSpec() : null), 60_000));
+}
+
 // ================================================================== per-life log (paged)
 
 export interface LifeLogState {
@@ -277,7 +298,9 @@ export function useLifeLog(lifeId: string | null | undefined, opts: { pageSize?:
     const c = getClient();
     let timer: ReturnType<typeof setTimeout> | null = null;
     let first = true;
+    let failed = false;
     const head = async () => {
+      failed = false;
       try {
         const r = await c.lifeLog(lifeId, { limit: pageSize });
         if (gen.current !== my) return;
@@ -291,11 +314,14 @@ export function useLifeLog(lifeId: string | null | undefined, opts: { pageSize?:
         first = false;
         setError(null);
       } catch (e) {
+        failed = true;
         if (gen.current === my) setError(e instanceof Error ? e : new Error(String(e)));
       } finally {
         if (gen.current === my) {
           setLoading(false);
-          if (pollMs > 0 && !c.isStatic) timer = setTimeout(head, pollMs);
+          // a failed first load is retried even when polling is off (a dead life's log)
+          const wait = pollMs > 0 ? pollMs : failed && first ? 5000 : 0;
+          if (wait > 0 && !c.isStatic) timer = setTimeout(head, wait);
         }
       }
     };
@@ -344,5 +370,6 @@ export function useNow(tickMs = 1000): number {
     const t = setInterval(() => setNow(Date.now()), tickMs);
     return () => clearInterval(t);
   }, [c, tickMs]);
-  return c.isStatic ? (fixed.data ?? now) : now;
+  // a render caused by new data must not use a clock that is up to tickMs old
+  return c.isStatic ? (fixed.data ?? now) : Math.max(now, Date.now());
 }

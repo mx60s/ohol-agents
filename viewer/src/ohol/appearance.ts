@@ -3,9 +3,13 @@
 //   (a) Personality -> hair colour         hairColorForTraits()  (one isolated, swappable function)
 //   (b) Lineage     -> hairstyle + face     lineageLook()         (hair donor per sex + eyes/mouth donor)
 //   (c) Skin/body   -> whatever displayId the server sends (untouched here)
+//   (d) Person      -> a flower in the hair  record.flower (agents service), else flowerFor() (flower.ts)
 //
 // Players never choose their look; there is no API for it. Everything here is a pure function of
 // its inputs (no assets, no DOM), so it runs in node tests as-is.
+
+import { flowerFor } from "./flower.ts";
+import type { Flower } from "./flower.ts";
 
 // ------------------------------------------------------------------ person pool
 
@@ -300,6 +304,8 @@ export interface Appearance {
   hairColor: string;
   /** look-table slot (for debugging / legends) */
   lookSlot: number;
+  /** the person's flower; null = none drawn (no lifeId, e.g. a family's generic look) */
+  flower?: Flower | null;
 }
 
 export interface AppearanceInput {
@@ -312,6 +318,12 @@ export interface AppearanceInput {
   traitDims: string[];
   /** lineages to keep visually apart (see lineageLook for the stability trade-off) */
   livingLineageIds?: (string | number)[];
+  /** this life: with it (or `flower`) the person wears a flower */
+  lifeId?: string | null;
+  /** the record's flower (LifeRecord / AgentView / PlayerView .flower): authoritative */
+  flower?: Flower | null;
+  /** fallback only (record without a flower): living members of the same lineage, see flowerFor */
+  livingFamilyLifeIds?: readonly string[];
 }
 
 export function appearanceFor(input: AppearanceInput): Appearance {
@@ -321,5 +333,9 @@ export function appearanceFor(input: AppearanceInput): Appearance {
     faceDonorId: look.faceDonor,
     hairColor: hairColorForTraits(input.traits, input.traitDims),
     lookSlot: look.slot,
+    flower:
+      input.flower || input.lifeId
+        ? flowerFor({ lifeId: input.lifeId ?? "", lineageId: input.lineageId, flower: input.flower, livingFamilyLifeIds: input.livingFamilyLifeIds })
+        : null,
   };
 }

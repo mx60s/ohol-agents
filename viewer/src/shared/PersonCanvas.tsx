@@ -6,7 +6,7 @@
 // Sprites load lazily; the canvas redraws as they arrive. Needs public/ohol/ (npm run assets).
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { Traits } from "../api-types.ts";
+import type { Flower, Traits } from "../api-types.ts";
 import { appearanceFor, composePerson, drawPerson, getOholAssets, loadOholAssets, onOholSpriteLoaded } from "../ohol/index.ts";
 import type { DrawOp, OholManifest, PersonSpec } from "../ohol/index.ts";
 
@@ -21,6 +21,12 @@ export interface PersonArtProps {
   livingLineageIds?: readonly string[];
   traits?: Traits | null;
   traitDims?: readonly string[];
+  /** this life: with it the person wears a flower (`flower`, else the fallback over livingFamilyLifeIds) */
+  lifeId?: string | null;
+  /** the record's flower (LifeRecord / AgentView / PlayerView .flower) */
+  flower?: Flower | null;
+  /** fallback for records without a flower: living members of the same lineage (ohol/flower.ts flowerFor) */
+  livingFamilyLifeIds?: readonly string[];
   facingLeft?: boolean;
   heldObjectId?: number | null;
   /** CSS pixel size: the canvas is size x size (figure) or size x size (portrait) */
@@ -72,7 +78,9 @@ function useAssetsReady(): boolean {
 }
 
 function useSpec(p: PersonArtProps): PersonSpec {
-  const { displayId, age, female, lineageId, livingLineageIds, traits, traitDims, facingLeft, heldObjectId } = p;
+  const { displayId, age, female, lineageId, livingLineageIds, traits, traitDims, facingLeft, heldObjectId, lifeId, flower, livingFamilyLifeIds } = p;
+  const flowerKey = flower ? `${flower.shape}|${flower.color}` : "";
+  const familyKey = livingFamilyLifeIds?.join("|");
   const living = livingLineageIds?.join("|");
   const traitKey = traits ? JSON.stringify(traits) : "";
   const dimKey = traitDims?.join("|");
@@ -87,11 +95,14 @@ function useSpec(p: PersonArtProps): PersonSpec {
           traits: traits ?? {},
           traitDims: traitDims ? [...traitDims] : [],
           livingLineageIds: livingLineageIds ? [...livingLineageIds] : undefined,
+          lifeId: lifeId ?? null,
+          flower: flower ?? null,
+          livingFamilyLifeIds,
         })
       : null;
     return { displayId: id, age: Math.max(0, Math.min(60, age ?? 20)), facingLeft: !!facingLeft, heldObjectId: heldObjectId ?? null, appearance };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayId, age, female, lineageId, living, traitKey, dimKey, facingLeft, heldObjectId]);
+  }, [displayId, age, female, lineageId, living, traitKey, dimKey, facingLeft, heldObjectId, lifeId, flowerKey, familyKey]);
 }
 
 type Fit = "figure" | "portrait";

@@ -1,6 +1,6 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { World, MAX_AGE } from "./game/world.ts";
+import { World, MAX_AGE, walkMs } from "./game/world.ts";
 import type { GameData } from "./game/gameData.ts";
 import type { PlayerUpdate } from "./protocol/types.ts";
 
@@ -48,5 +48,42 @@ test("death age comes from the death update when present, else the extrapolation
     assert.ok(Math.abs(ages[1] - 11) < 1e-9, "no age in the death update: extrapolate");
   } finally {
     mock.timers.reset();
+  }
+});
+
+test("TIME_SCALE: age, walk time and food ETA follow the server's wall-clock rates", () => {
+  mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  const warn = mock.method(console, "warn", () => {});
+  try {
+    // a server at timeScale 3 reports 180 wall s/year and 1.25 tiles per wall s
+    const w = new World(gd);
+    w.timeScale = 3;
+    w.handle({ type: "PU", updates: [pu(7, { age: 20, ageRate: 180, moveSpeed: 1.25 })] });
+    mock.timers.tick(180_000); // 3 wall minutes = 1 game year
+    assert.ok(Math.abs(w.currentAge(w.self!) - 21) < 1e-9);
+    assert.equal(w.walkMs(10), 8000, "10 tiles at 1.25 tiles/s");
+    w.handle({ type: "HX", heat: { heat: 0.5, foodTime: 30.6, indoorBonus: 0 } });
+    assert.equal(w.foodTime, 30.6, "food_time is taken as wall seconds");
+    assert.equal(warn.mock.callCount(), 0, "rates match TIME_SCALE=3: no warning");
+  } finally {
+    warn.mock.restore();
+    mock.timers.reset();
+  }
+});
+
+test("TIME_SCALE: walk-time fallback scales the stock speed; mismatch with the server warns once", () => {
+  assert.equal(walkMs(15, 0, 1), 4000, "stock 3.75 tiles/s");
+  assert.equal(walkMs(15, 0, 3), 12000, "3x slower");
+  assert.equal(walkMs(15, 2.5, 3), 6000, "server-reported speed wins");
+  const warn = mock.method(console, "warn", () => {});
+  try {
+    const w = new World(gd);
+    w.timeScale = 1;
+    w.handle({ type: "PU", updates: [pu(7, { ageRate: 180 })] });
+    w.handle({ type: "PU", updates: [pu(7, { ageRate: 180 })] });
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(String(warn.mock.calls[0].arguments[0]), /TIME_SCALE mismatch/);
+  } finally {
+    warn.mock.restore();
   }
 });

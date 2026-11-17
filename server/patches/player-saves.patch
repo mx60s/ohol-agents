@@ -1,0 +1,1347 @@
+MTS patch: living players survive server restarts and crashes
+(setting mtsPlayerSaves, default 0 = stock).
+
+Adds server/mtsPlayerSaves.h and five hooks in server.cpp: the include
+(just before processLoggedInPlayer), a restore hook + early return inside
+processLoggedInPlayer, the restore at startup (before the main loop), a
+periodic save at the top of each step, and a final save when the main
+loop exits (SIGTSTP). Living players are written to playerSaves.txt in the
+run dir (temp file + rename); at startup they are rebuilt as disconnected
+players, and the stock reconnect path gives the same life back to the same
+email. Game-clock timestamps are shifted so the outage doesn't age anyone.
+Uses MTSGameTime from time-scale.patch. See the header comment and
+docs/research/game-saves.md.
+
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -9537,6 +9537,10 @@
+     return hit;
+     }
+     
++
++
++// MTS patch: living players survive restarts (setting mtsPlayerSaves)
++#include "mtsPlayerSaves.h"
+ 
+ 
+ // inAllowOrForceReconnect is 0 for forbidden reconnect, 1 to allow, 
+@@ -12111,6 +12115,18 @@
+ 
+     newObject.numToolSlots = -1;
+     
++    // MTS patch: a restored life takes its saved fields and skips the
++    // rest of birth (language is re-registered, no notices or logs)
++    if( mtsRestoring != NULL ) {
++        mtsApplyRestore( &newObject, mtsRestoring );
++        players.push_back( newObject );
++        mtsRestoreLanguage( &newObject );
++        AppLog::infoF( "MTS player saves: restored player %d (%s) at "
++                       "(%d,%d), waiting for reconnect",
++                       newObject.id, newObject.email,
++                       newObject.xd, newObject.yd );
++        return newObject.id;
++        }
+ 
+     if( newObject.isTutorial ) {
+         AppLog::infoF( "New player %s pending tutorial load (tutorial=%d)",
+@@ -20383,9 +20399,14 @@
+ 
+     double  longestStepTime = 0;
+     
++    // MTS patch: bring back the players of the last run (mtsPlayerSaves)
++    mtsRestorePlayers();
++
+     while( !quit ) {
+ 
+         double curStepTime = Time::getCurrentTime();
++
++        mtsPlayerSavesStep(); // MTS patch: periodic save
+         
+         // flush past players hourly
+         if( curStepTime - lastPastPlayerFlushTime > 3600 ) {
+@@ -34148,6 +34169,9 @@
+         clearTimeLog();
+         }   // end of   while( !quit ) {
+     
++    // MTS patch: final save on graceful quit (SIGTSTP)
++    mtsSavePlayers( "shutdown" );
++
+     // stop listening on server socket immediately, before running
+     // cleanup steps.  Cleanup may take a while, and we don't want to leave
+     // server socket listening, because it will answer reflector and player
+--- /dev/null
++++ b/server/mtsPlayerSaves.h
+@@ -0,0 +1,1273 @@
++// MTS patch (player-saves.patch): living players survive server restarts.
++//
++// Setting mtsPlayerSaves (default 0 = stock: nothing here runs).
++//
++// With 1, every mtsPlayerSavesIntervalSeconds (real, default 30) and when
++// the main loop exits (SIGTSTP), all living non-ghost, non-tutorial players
++// are written to playerSaves.txt in the run dir (via playerSaves.txt.tmp +
++// rename, so a crash mid-write keeps the previous save).
++//
++// At startup, before the first connection is handled, every saved player
++// is rebuilt as a real LiveObject (through processLoggedInPlayer with a
++// forced Eve slot, forced position and display, no birth logging, then the
++// saved fields overwrite the fresh ones) and marked disconnected. The stock
++// reconnect path in processLoggedInPlayer then hands the same life back to
++// whoever logs in with the same email, and the stock first message (PU,
++// LN, NM, ...) tells the client everything.
++//
++// Timestamps (age, food timer, decay ETAs, cooldowns) are game clock and
++// are shifted by the outage when mtsPlayerSavesPauseDowntime=1 (default),
++// so being down doesn't age or starve anyone.
++//
++// A save older than mtsPlayerSavesMaxDowntimeSeconds (real, default 1800)
++// is ignored. Restored players who haven't reconnected after
++// mtsPlayerSavesMaxWaitSeconds (real, default 900; 0 = never) die as a
++// disconnected player. A bad save file is logged, renamed .bad and ignored.
++//
++// Included by server.cpp just before processLoggedInPlayer (after the
++// Time -> MTSGameTime macro, so Time:: here is the game clock).
++//
++// See docs/research/game-saves.md.
++
++#ifndef MTS_PLAYER_SAVES_H
++#define MTS_PLAYER_SAVES_H
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <errno.h>
++#include <unistd.h>
++#include <string>
++#include <vector>
++
++
++#define MTS_SAVE_FILE "playerSaves.txt"
++#define MTS_SAVE_VERSION 1
++
++
++struct MTSTimedID {
++        int id;
++        double eta;
++    };
++
++struct MTSContained {
++        int id;
++        double eta;
++        std::vector<MTSTimedID> sub;
++    };
++
++struct MTSAncestor {
++        int id;
++        std::string email;
++        std::string relName;
++        double lifeStart;
++    };
++
++struct MTSSavedPlayer {
++        std::string email;
++        int id;
++        int displayID;
++        std::string name;      // "" = NULL
++        std::string familyName;
++        int nameHasSuffix;
++        int isEve;
++        int isTwin;
++
++        int parentID;
++        int parentChainLength;
++        int lineageEveID;
++        std::vector<int> lineage;
++        std::vector<MTSAncestor> ancestors;
++
++        int followingID;
++        int leadingColorIndex;
++        std::vector<int> exiledByIDs;
++        std::vector<int> ownedX, ownedY;
++
++        double lifeStartTimeSeconds;
++        double trueStartTimeSeconds;
++
++        int x, y;
++        int facingLeft;
++        int originalBirthX, originalBirthY;
++        int birthX, birthY;
++
++        int heldByOther;
++        int heldByOtherID;
++        int everHeldByParent;
++
++        int foodStore;
++        double foodCapModifier;
++        double foodDecrementETASeconds;
++        std::vector<int> yummyFoodChain;
++        int yummyBonusStore;
++        int lastAteID;
++        int lastAteFillMax;
++        int cravingFoodID;
++        int cravingUniqueID;
++        int cravingFoodYumIncrement;
++        int personalEatBonus;
++        double personalFoodDecrementSecondsBonus;
++        double drunkenness;
++        double fever;
++
++        double bodyHeat, heat, envHeat, biomeHeat, lastBiomeHeat;
++
++        int holdingID;
++        double holdingEtaDecay;
++        std::vector<MTSContained> contained;
++        int embeddedWeaponID;
++        double embeddedWeaponEtaDecay;
++
++        int clothingID[ NUM_CLOTHING_PIECES ];
++        double clothingEta[ NUM_CLOTHING_PIECES ];
++        std::vector<MTSTimedID> clothingContained[ NUM_CLOTHING_PIECES ];
++
++        int dying;
++        double dyingETA;
++        int holdingWound;
++        int holdingBiomeSickness;
++        int murderSourceID;
++        int murderPerpID;
++        std::string murderPerpEmail;
++        int deathSourceID;
++
++        std::vector<MTSTimedID> babies;   // id + birth time
++        double birthCoolDown;
++        std::string lastBabyEmail;
++        std::vector<std::string> sidsBabyEmails;
++        int everHomesick;
++
++        int curseLevel;
++        int excessPoints;
++        int lifeCount;
++        int lifeTotalSeconds;
++        int accountExistedDays;
++        int lifeStatsError;
++        double fitnessScore;
++        int curseTokenCount;
++        int numToolSlots;
++        std::vector<int> learnedTools;
++        std::vector<int> partiallyLearnedTools;
++        std::vector<int> permanentEmots;
++        int everKilledAnyone;
++    };
++
++
++// set while processLoggedInPlayer builds a restored player
++static MTSSavedPlayer *mtsRestoring = NULL;
++// added to every restored timestamp (game seconds)
++static double mtsRestoreShift = 0;
++
++static char mtsSavesEnabled = false;
++static double mtsSaveInterval = 30;
++static double mtsLastSaveRealTime = 0;
++static double mtsMaxWait = 900;
++static double mtsRestoreRealTime = 0;
++// ids of restored players that haven't reconnected yet
++static SimpleVector<int> mtsAwaitingReconnect;
++
++
++static double mtsRealNow() {
++    return MTSGameTime::realCurrentTime();
++    }
++
++
++
++// ---------------------------------------------------------------- writing
++
++static void mtsWStr( FILE *f, const char *s ) {
++    if( s == NULL || s[0] == '\0' ) {
++        fputs( " -", f );
++        return;
++        }
++    fputc( ' ', f );
++    for( const unsigned char *c = (const unsigned char*)s; *c != '\0'; c++ ) {
++        if( *c <= ' ' || *c >= 127 || *c == '%' ||
++            ( *c == '-' && c == (const unsigned char*)s && c[1] == '\0' ) ) {
++            fprintf( f, "%%%02X", *c );
++            }
++        else {
++            fputc( *c, f );
++            }
++        }
++    }
++
++static void mtsWInt( FILE *f, int v ) {
++    fprintf( f, " %d", v );
++    }
++
++static void mtsWDbl( FILE *f, double v ) {
++    fprintf( f, " %.17g", v );
++    }
++
++static void mtsWIntList( FILE *f, SimpleVector<int> *v ) {
++    mtsWInt( f, v->size() );
++    for( int i=0; i<v->size(); i++ ) {
++        mtsWInt( f, v->getElementDirect( i ) );
++        }
++    }
++
++static int mtsObjID( ObjectRecord *o ) {
++    if( o == NULL ) {
++        return 0;
++        }
++    return o->id;
++    }
++
++
++static void mtsWritePlayer( FILE *f, LiveObject *o ) {
++    fputs( "P", f );
++    mtsWStr( f, o->email );
++    mtsWInt( f, o->id );
++    mtsWInt( f, o->displayID );
++    mtsWStr( f, o->name );
++    mtsWStr( f, o->familyName );
++    mtsWInt( f, o->nameHasSuffix );
++    mtsWInt( f, o->isEve );
++    mtsWInt( f, o->isTwin );
++
++    mtsWInt( f, o->parentID );
++    mtsWInt( f, o->parentChainLength );
++    mtsWInt( f, o->lineageEveID );
++    mtsWIntList( f, o->lineage );
++
++    int numAnc = o->ancestorIDs->size();
++    if( o->ancestorEmails->size() < numAnc ) {
++        numAnc = o->ancestorEmails->size();
++        }
++    if( o->ancestorRelNames->size() < numAnc ) {
++        numAnc = o->ancestorRelNames->size();
++        }
++    if( o->ancestorLifeStartTimeSeconds->size() < numAnc ) {
++        numAnc = o->ancestorLifeStartTimeSeconds->size();
++        }
++    mtsWInt( f, numAnc );
++    for( int i=0; i<numAnc; i++ ) {
++        mtsWInt( f, o->ancestorIDs->getElementDirect( i ) );
++        mtsWStr( f, o->ancestorEmails->getElementDirect( i ) );
++        mtsWStr( f, o->ancestorRelNames->getElementDirect( i ) );
++        mtsWDbl( f, o->ancestorLifeStartTimeSeconds->getElementDirect( i ) );
++        }
++
++    mtsWInt( f, o->followingID );
++    mtsWInt( f, o->leadingColorIndex );
++    mtsWIntList( f, &( o->exiledByIDs ) );
++    mtsWInt( f, o->ownedPositions.size() );
++    for( int i=0; i<o->ownedPositions.size(); i++ ) {
++        GridPos p = o->ownedPositions.getElementDirect( i );
++        mtsWInt( f, p.x );
++        mtsWInt( f, p.y );
++        }
++
++    mtsWDbl( f, o->lifeStartTimeSeconds );
++    mtsWDbl( f, o->trueStartTimeSeconds );
++
++    // where they are right now
++    GridPos pos;
++    if( o->heldByOther ) {
++        LiveObject *holder = getLiveObject( o->heldByOtherID );
++        if( holder != NULL ) {
++            pos = getPlayerPos( holder );
++            }
++        else {
++            pos = getPlayerPos( o );
++            }
++        }
++    else if( o->vogMode ) {
++        pos = o->preVogPos;
++        }
++    else {
++        pos = getPlayerPos( o );
++        }
++    mtsWInt( f, pos.x );
++    mtsWInt( f, pos.y );
++    mtsWInt( f, o->facingLeft );
++    mtsWInt( f, o->originalBirthPos.x );
++    mtsWInt( f, o->originalBirthPos.y );
++    GridPos bp = o->vogMode ? o->preVogBirthPos : o->birthPos;
++    mtsWInt( f, bp.x );
++    mtsWInt( f, bp.y );
++
++    mtsWInt( f, o->heldByOther );
++    mtsWInt( f, o->heldByOtherID );
++    mtsWInt( f, o->everHeldByParent );
++
++    mtsWInt( f, o->foodStore );
++    mtsWDbl( f, o->foodCapModifier );
++    mtsWDbl( f, o->foodDecrementETASeconds );
++    mtsWIntList( f, &( o->yummyFoodChain ) );
++    mtsWInt( f, o->yummyBonusStore );
++    mtsWInt( f, o->lastAteID );
++    mtsWInt( f, o->lastAteFillMax );
++    mtsWInt( f, o->cravingFood.foodID );
++    mtsWInt( f, o->cravingFood.uniqueID );
++    mtsWInt( f, o->cravingFoodYumIncrement );
++    mtsWInt( f, o->personalEatBonus );
++    mtsWDbl( f, o->personalFoodDecrementSecondsBonus );
++    mtsWDbl( f, o->drunkenness );
++    mtsWDbl( f, o->fever );
++
++    mtsWDbl( f, o->bodyHeat );
++    mtsWDbl( f, o->heat );
++    mtsWDbl( f, o->envHeat );
++    mtsWDbl( f, o->biomeHeat );
++    mtsWDbl( f, o->lastBiomeHeat );
++
++    mtsWInt( f, o->holdingID );
++    mtsWDbl( f, o->holdingEtaDecay );
++    mtsWInt( f, o->numContained );
++    for( int c=0; c<o->numContained; c++ ) {
++        mtsWInt( f, o->containedIDs[c] );
++        mtsWDbl( f, o->containedEtaDecays[c] );
++        int numSub = 0;
++        if( o->subContainedIDs != NULL && o->subContainedEtaDecays != NULL ) {
++            numSub = o->subContainedIDs[c].size();
++            if( o->subContainedEtaDecays[c].size() < numSub ) {
++                numSub = o->subContainedEtaDecays[c].size();
++                }
++            }
++        mtsWInt( f, numSub );
++        for( int s=0; s<numSub; s++ ) {
++            mtsWInt( f, o->subContainedIDs[c].getElementDirect( s ) );
++            mtsWDbl( f, o->subContainedEtaDecays[c].getElementDirect( s ) );
++            }
++        }
++    mtsWInt( f, o->embeddedWeaponID );
++    mtsWDbl( f, o->embeddedWeaponEtaDecay );
++
++    for( int c=0; c<NUM_CLOTHING_PIECES; c++ ) {
++        mtsWInt( f, mtsObjID( clothingByIndex( o->clothing, c ) ) );
++        mtsWDbl( f, o->clothingEtaDecay[c] );
++        int n = o->clothingContained[c].size();
++        if( o->clothingContainedEtaDecays[c].size() < n ) {
++            n = o->clothingContainedEtaDecays[c].size();
++            }
++        mtsWInt( f, n );
++        for( int i=0; i<n; i++ ) {
++            mtsWInt( f, o->clothingContained[c].getElementDirect( i ) );
++            mtsWDbl( f,
++                     o->clothingContainedEtaDecays[c].getElementDirect( i ) );
++            }
++        }
++
++    mtsWInt( f, o->dying );
++    mtsWDbl( f, o->dyingETA );
++    mtsWInt( f, o->holdingWound );
++    mtsWInt( f, o->holdingBiomeSickness );
++    mtsWInt( f, o->murderSourceID );
++    mtsWInt( f, o->murderPerpID );
++    mtsWStr( f, o->murderPerpEmail );
++    mtsWInt( f, o->deathSourceID );
++
++    int numBabies = o->babyIDs->size();
++    if( o->babyBirthTimes->size() < numBabies ) {
++        numBabies = o->babyBirthTimes->size();
++        }
++    mtsWInt( f, numBabies );
++    for( int i=0; i<numBabies; i++ ) {
++        mtsWInt( f, o->babyIDs->getElementDirect( i ) );
++        mtsWDbl( f, o->babyBirthTimes->getElementDirect( i ) );
++        }
++    mtsWDbl( f, o->birthCoolDown );
++    mtsWStr( f, o->lastBabyEmail );
++    mtsWInt( f, o->sidsBabyEmails.size() );
++    for( int i=0; i<o->sidsBabyEmails.size(); i++ ) {
++        mtsWStr( f, o->sidsBabyEmails.getElementDirect( i ) );
++        }
++    mtsWInt( f, o->everHomesick );
++
++    mtsWInt( f, o->curseStatus.curseLevel );
++    mtsWInt( f, o->curseStatus.excessPoints );
++    mtsWInt( f, o->lifeStats.lifeCount );
++    mtsWInt( f, o->lifeStats.lifeTotalSeconds );
++    mtsWInt( f, o->lifeStats.accountExistedDays );
++    mtsWInt( f, o->lifeStats.error );
++    mtsWDbl( f, o->fitnessScore );
++    mtsWInt( f, o->curseTokenCount );
++    mtsWInt( f, o->numToolSlots );
++    mtsWIntList( f, &( o->learnedTools ) );
++    mtsWIntList( f, &( o->partiallyLearnedTools ) );
++    mtsWIntList( f, &( o->permanentEmots ) );
++    mtsWInt( f, o->everKilledAnyone );
++
++    fputs( " E\n", f );
++    }
++
++
++static void mtsSavePlayers( const char *inWhy ) {
++    if( ! mtsSavesEnabled ) {
++        return;
++        }
++    mtsLastSaveRealTime = mtsRealNow();
++
++    const char *tmpName = MTS_SAVE_FILE ".tmp";
++    FILE *f = fopen( tmpName, "w" );
++    if( f == NULL ) {
++        AppLog::errorF( "MTS player saves: can't open %s for writing",
++                        tmpName );
++        return;
++        }
++
++    int count = 0;
++    for( int i=0; i<players.size(); i++ ) {
++        LiveObject *o = players.getElement( i );
++        if( ! o->error && ! o->isTutorial && ! o->isGhost ) {
++            count++;
++            }
++        }
++
++    fprintf( f, "MTSPLAYERSAVE %d %.17g %.17g %d %d\n",
++             MTS_SAVE_VERSION,
++             mtsRealNow(), Time::getCurrentTime(), nextID, count );
++
++    for( int i=0; i<players.size(); i++ ) {
++        LiveObject *o = players.getElement( i );
++        if( ! o->error && ! o->isTutorial && ! o->isGhost ) {
++            mtsWritePlayer( f, o );
++            }
++        }
++    fputs( "END\n", f );
++
++    char ok = ( fflush( f ) == 0 );
++    if( ok ) {
++        fsync( fileno( f ) );
++        }
++    if( fclose( f ) != 0 ) {
++        ok = false;
++        }
++    if( ! ok || rename( tmpName, MTS_SAVE_FILE ) != 0 ) {
++        AppLog::errorF( "MTS player saves: failed to write %s (%s)",
++                        MTS_SAVE_FILE, strerror( errno ) );
++        return;
++        }
++
++    if( strcmp( inWhy, "periodic" ) != 0 ) {
++        AppLog::infoF( "MTS player saves: saved %d living players (%s)",
++                       count, inWhy );
++        }
++    }
++
++
++
++// ---------------------------------------------------------------- reading
++
++// whitespace tokenizer over a line; any failure sets ok = false and
++// every later read returns a harmless default
++struct MTSReader {
++        const char *p;
++        char ok;
++
++        const char *next( int *outLen ) {
++            while( *p == ' ' || *p == '\t' ) p++;
++            if( *p == '\0' || *p == '\n' || *p == '\r' ) {
++                ok = false;
++                *outLen = 0;
++                return "";
++                }
++            const char *start = p;
++            while( *p != '\0' && *p != ' ' && *p != '\t' && *p != '\n' &&
++                   *p != '\r' ) {
++                p++;
++                }
++            *outLen = p - start;
++            return start;
++            }
++
++        int i() {
++            int len;
++            const char *t = next( &len );
++            if( ! ok ) return 0;
++            char buf[32];
++            if( len >= 31 ) { ok = false; return 0; }
++            memcpy( buf, t, len );
++            buf[len] = '\0';
++            char *end;
++            errno = 0;
++            long v = strtol( buf, &end, 10 );
++            if( *end != '\0' || errno != 0 ||
++                v > 2147483647L || v < -2147483647L ) {
++                ok = false;
++                return 0;
++                }
++            return (int)v;
++            }
++
++        // list length, bounded
++        int n( int inMax = 10000 ) {
++            int v = i();
++            if( v < 0 || v > inMax ) {
++                ok = false;
++                return 0;
++                }
++            return v;
++            }
++
++        double d() {
++            int len;
++            const char *t = next( &len );
++            if( ! ok ) return 0;
++            char buf[64];
++            if( len >= 63 ) { ok = false; return 0; }
++            memcpy( buf, t, len );
++            buf[len] = '\0';
++            char *end;
++            double v = strtod( buf, &end );
++            if( *end != '\0' || v != v ) {
++                ok = false;
++                return 0;
++                }
++            return v;
++            }
++
++        std::string s() {
++            int len;
++            const char *t = next( &len );
++            if( ! ok ) return "";
++            if( len == 1 && t[0] == '-' ) {
++                return "";
++                }
++            std::string out;
++            for( int k=0; k<len; k++ ) {
++                if( t[k] == '%' ) {
++                    if( k + 2 >= len ) {
++                        ok = false;
++                        return "";
++                        }
++                    char hex[3] = { t[k+1], t[k+2], '\0' };
++                    char *end;
++                    long v = strtol( hex, &end, 16 );
++                    if( *end != '\0' || v <= 0 ) {
++                        ok = false;
++                        return "";
++                        }
++                    out.push_back( (char)v );
++                    k += 2;
++                    }
++                else {
++                    out.push_back( t[k] );
++                    }
++                }
++            return out;
++            }
++
++        void intList( std::vector<int> *outV, int inMax = 10000 ) {
++            int num = n( inMax );
++            for( int k=0; k<num && ok; k++ ) {
++                outV->push_back( i() );
++                }
++            }
++
++        void timedList( std::vector<MTSTimedID> *outV ) {
++            int num = n();
++            for( int k=0; k<num && ok; k++ ) {
++                MTSTimedID t;
++                t.id = i();
++                t.eta = d();
++                outV->push_back( t );
++                }
++            }
++    };
++
++
++static char mtsReadPlayer( const char *inLine, MTSSavedPlayer *r ) {
++    MTSReader R = { inLine, true };
++
++    int len;
++    const char *tag = R.next( &len );
++    if( ! R.ok || len != 1 || tag[0] != 'P' ) {
++        return false;
++        }
++
++    r->email = R.s();
++    r->id = R.i();
++    r->displayID = R.i();
++    r->name = R.s();
++    r->familyName = R.s();
++    r->nameHasSuffix = R.i();
++    r->isEve = R.i();
++    r->isTwin = R.i();
++
++    r->parentID = R.i();
++    r->parentChainLength = R.i();
++    r->lineageEveID = R.i();
++    R.intList( &( r->lineage ) );
++
++    int numAnc = R.n();
++    for( int k=0; k<numAnc && R.ok; k++ ) {
++        MTSAncestor a;
++        a.id = R.i();
++        a.email = R.s();
++        a.relName = R.s();
++        a.lifeStart = R.d();
++        r->ancestors.push_back( a );
++        }
++
++    r->followingID = R.i();
++    r->leadingColorIndex = R.i();
++    R.intList( &( r->exiledByIDs ) );
++    int numOwned = R.n( 100000 );
++    for( int k=0; k<numOwned && R.ok; k++ ) {
++        r->ownedX.push_back( R.i() );
++        r->ownedY.push_back( R.i() );
++        }
++
++    r->lifeStartTimeSeconds = R.d();
++    r->trueStartTimeSeconds = R.d();
++
++    r->x = R.i();
++    r->y = R.i();
++    r->facingLeft = R.i();
++    r->originalBirthX = R.i();
++    r->originalBirthY = R.i();
++    r->birthX = R.i();
++    r->birthY = R.i();
++
++    r->heldByOther = R.i();
++    r->heldByOtherID = R.i();
++    r->everHeldByParent = R.i();
++
++    r->foodStore = R.i();
++    r->foodCapModifier = R.d();
++    r->foodDecrementETASeconds = R.d();
++    R.intList( &( r->yummyFoodChain ), 100000 );
++    r->yummyBonusStore = R.i();
++    r->lastAteID = R.i();
++    r->lastAteFillMax = R.i();
++    r->cravingFoodID = R.i();
++    r->cravingUniqueID = R.i();
++    r->cravingFoodYumIncrement = R.i();
++    r->personalEatBonus = R.i();
++    r->personalFoodDecrementSecondsBonus = R.d();
++    r->drunkenness = R.d();
++    r->fever = R.d();
++
++    r->bodyHeat = R.d();
++    r->heat = R.d();
++    r->envHeat = R.d();
++    r->biomeHeat = R.d();
++    r->lastBiomeHeat = R.d();
++
++    r->holdingID = R.i();
++    r->holdingEtaDecay = R.d();
++    int numCont = R.n( 1000 );
++    for( int k=0; k<numCont && R.ok; k++ ) {
++        MTSContained c;
++        c.id = R.i();
++        c.eta = R.d();
++        int numSub = R.n( 1000 );
++        for( int s=0; s<numSub && R.ok; s++ ) {
++            MTSTimedID t;
++            t.id = R.i();
++            t.eta = R.d();
++            c.sub.push_back( t );
++            }
++        r->contained.push_back( c );
++        }
++    r->embeddedWeaponID = R.i();
++    r->embeddedWeaponEtaDecay = R.d();
++
++    for( int c=0; c<NUM_CLOTHING_PIECES; c++ ) {
++        r->clothingID[c] = R.i();
++        r->clothingEta[c] = R.d();
++        R.timedList( &( r->clothingContained[c] ) );
++        }
++
++    r->dying = R.i();
++    r->dyingETA = R.d();
++    r->holdingWound = R.i();
++    r->holdingBiomeSickness = R.i();
++    r->murderSourceID = R.i();
++    r->murderPerpID = R.i();
++    r->murderPerpEmail = R.s();
++    r->deathSourceID = R.i();
++
++    R.timedList( &( r->babies ) );
++    r->birthCoolDown = R.d();
++    r->lastBabyEmail = R.s();
++    int numSids = R.n();
++    for( int k=0; k<numSids && R.ok; k++ ) {
++        r->sidsBabyEmails.push_back( R.s() );
++        }
++    r->everHomesick = R.i();
++
++    r->curseLevel = R.i();
++    r->excessPoints = R.i();
++    r->lifeCount = R.i();
++    r->lifeTotalSeconds = R.i();
++    r->accountExistedDays = R.i();
++    r->lifeStatsError = R.i();
++    r->fitnessScore = R.d();
++    r->curseTokenCount = R.i();
++    r->numToolSlots = R.i();
++    R.intList( &( r->learnedTools ) );
++    R.intList( &( r->partiallyLearnedTools ) );
++    R.intList( &( r->permanentEmots ) );
++    r->everKilledAnyone = R.i();
++
++    const char *endTag = R.next( &len );
++    if( ! R.ok || len != 1 || endTag[0] != 'E' ) {
++        return false;
++        }
++
++    if( r->email.empty() || r->id <= 0 ) {
++        return false;
++        }
++    return true;
++    }
++
++
++
++// ---------------------------------------------------------------- restore
++
++static char mtsValidObject( int inID ) {
++    if( inID <= 0 ) {
++        return false;
++        }
++    return getObject( inID, true ) != NULL;
++    }
++
++// 0 if missing; game-clock ETA shifted (0 = never decays stays 0)
++static double mtsShiftEta( double inEta ) {
++    if( inEta == 0 ) {
++        return 0;
++        }
++    return inEta + mtsRestoreShift;
++    }
++
++static char *mtsDupOrNull( const std::string &s ) {
++    if( s.empty() ) {
++        return NULL;
++        }
++    return stringDuplicate( s.c_str() );
++    }
++
++
++// called from processLoggedInPlayer, after the fresh life is fully set up
++// and before it joins players
++static void mtsApplyRestore( LiveObject *o, MTSSavedPlayer *r ) {
++    double shift = mtsRestoreShift;
++
++    o->id = r->id;
++    o->displayID = r->displayID;
++
++    if( o->name != NULL ) {
++        delete [] o->name;
++        }
++    o->name = mtsDupOrNull( r->name );
++    if( o->familyName != NULL ) {
++        delete [] o->familyName;
++        }
++    o->familyName = mtsDupOrNull( r->familyName );
++    o->nameHasSuffix = r->nameHasSuffix;
++    o->forcedName = false;
++    o->isEve = r->isEve;
++    o->isRespawningEve = false;
++    o->isTwin = r->isTwin;
++
++    o->parentID = r->parentID;
++    o->parentChainLength = r->parentChainLength;
++    o->lineageEveID = r->lineageEveID;
++    o->lineage->deleteAll();
++    for( unsigned int k=0; k<r->lineage.size(); k++ ) {
++        o->lineage->push_back( r->lineage[k] );
++        }
++
++    o->ancestorIDs->deleteAll();
++    o->ancestorEmails->deallocateStringElements();
++    o->ancestorRelNames->deallocateStringElements();
++    o->ancestorLifeStartTimeSeconds->deleteAll();
++    for( unsigned int k=0; k<r->ancestors.size(); k++ ) {
++        MTSAncestor *a = &( r->ancestors[k] );
++        o->ancestorIDs->push_back( a->id );
++        o->ancestorEmails->push_back( stringDuplicate( a->email.c_str() ) );
++        o->ancestorRelNames->push_back(
++            stringDuplicate( a->relName.c_str() ) );
++        o->ancestorLifeStartTimeSeconds->push_back( a->lifeStart + shift );
++        }
++
++    o->followingID = r->followingID;
++    o->leadingColorIndex = r->leadingColorIndex;
++    o->followingUpdate = true;
++    o->exiledByIDs.deleteAll();
++    for( unsigned int k=0; k<r->exiledByIDs.size(); k++ ) {
++        o->exiledByIDs.push_back( r->exiledByIDs[k] );
++        }
++    o->exileUpdate = ( o->exiledByIDs.size() > 0 );
++    o->ownedPositions.deleteAll();
++    for( unsigned int k=0; k<r->ownedX.size(); k++ ) {
++        GridPos p = { r->ownedX[k], r->ownedY[k] };
++        o->ownedPositions.push_back( p );
++        }
++
++    o->lifeStartTimeSeconds = r->lifeStartTimeSeconds + shift;
++    o->trueStartTimeSeconds = r->trueStartTimeSeconds + shift;
++
++    o->xs = o->xd = r->x;
++    o->ys = o->yd = r->y;
++    o->facingLeft = r->facingLeft;
++    o->originalBirthPos.x = r->originalBirthX;
++    o->originalBirthPos.y = r->originalBirthY;
++    o->birthPos.x = r->birthX;
++    o->birthPos.y = r->birthY;
++    o->heldOriginValid = false;
++    o->heldOriginX = r->x;
++    o->heldOriginY = r->y;
++    o->actionTarget.x = r->x;
++    o->actionTarget.y = r->y;
++
++    // checked against the holder after everyone is restored
++    o->heldByOther = r->heldByOther;
++    o->heldByOtherID = r->heldByOtherID;
++    o->everHeldByParent = r->everHeldByParent;
++
++    o->foodStore = r->foodStore;
++    o->foodCapModifier = r->foodCapModifier;
++    o->foodDecrementETASeconds = r->foodDecrementETASeconds + shift;
++    o->yummyFoodChain.deleteAll();
++    for( unsigned int k=0; k<r->yummyFoodChain.size(); k++ ) {
++        o->yummyFoodChain.push_back( r->yummyFoodChain[k] );
++        }
++    o->yummyBonusStore = r->yummyBonusStore;
++    o->lastAteID = r->lastAteID;
++    o->lastAteFillMax = r->lastAteFillMax;
++    o->cravingFood.foodID = r->cravingFoodID;
++    o->cravingFood.uniqueID = r->cravingUniqueID;
++    o->cravingFoodYumIncrement = r->cravingFoodYumIncrement;
++    o->cravingKnown = false;
++    o->personalEatBonus = r->personalEatBonus;
++    o->personalFoodDecrementSecondsBonus =
++        r->personalFoodDecrementSecondsBonus;
++    o->drunkenness = r->drunkenness;
++    o->fever = r->fever;
++    o->foodUpdate = true;
++
++    o->bodyHeat = r->bodyHeat;
++    o->heat = r->heat;
++    o->envHeat = r->envHeat;
++    o->biomeHeat = r->biomeHeat;
++    o->lastBiomeHeat = r->lastBiomeHeat;
++
++    // hands (a negative holdingID is a baby, checked later)
++    freePlayerContainedArrays( o );
++    o->numContained = 0;
++    o->holdingID = 0;
++    o->holdingEtaDecay = 0;
++    if( r->holdingID < 0 || mtsValidObject( r->holdingID ) ) {
++        o->holdingID = r->holdingID;
++        o->holdingEtaDecay =
++            ( r->holdingID > 0 ) ? mtsShiftEta( r->holdingEtaDecay ) : 0;
++        }
++    if( o->holdingID > 0 && r->contained.size() > 0 ) {
++        int num = 0;
++        for( unsigned int k=0; k<r->contained.size(); k++ ) {
++            if( mtsValidObject( abs( r->contained[k].id ) ) ) {
++                num++;
++                }
++            }
++        if( num > 0 ) {
++            o->numContained = num;
++            o->containedIDs = new int[ num ];
++            o->containedEtaDecays = new timeSec_t[ num ];
++            o->subContainedIDs = new SimpleVector<int>[ num ];
++            o->subContainedEtaDecays = new SimpleVector<timeSec_t>[ num ];
++            int c = 0;
++            for( unsigned int k=0; k<r->contained.size(); k++ ) {
++                MTSContained *rc = &( r->contained[k] );
++                if( ! mtsValidObject( abs( rc->id ) ) ) {
++                    continue;
++                    }
++                int numSub = 0;
++                for( unsigned int s=0; s<rc->sub.size(); s++ ) {
++                    if( mtsValidObject( rc->sub[s].id ) ) {
++                        o->subContainedIDs[c].push_back( rc->sub[s].id );
++                        o->subContainedEtaDecays[c].push_back(
++                            mtsShiftEta( rc->sub[s].eta ) );
++                        numSub++;
++                        }
++                    }
++                // negative id marks "has sub-contained"
++                int id = abs( rc->id );
++                o->containedIDs[c] = ( numSub > 0 ) ? -id : id;
++                o->containedEtaDecays[c] = mtsShiftEta( rc->eta );
++                c++;
++                }
++            }
++        }
++    if( mtsValidObject( r->embeddedWeaponID ) ) {
++        o->embeddedWeaponID = r->embeddedWeaponID;
++        o->embeddedWeaponEtaDecay = mtsShiftEta( r->embeddedWeaponEtaDecay );
++        }
++
++    for( int c=0; c<NUM_CLOTHING_PIECES; c++ ) {
++        o->clothingContained[c].deleteAll();
++        o->clothingContainedEtaDecays[c].deleteAll();
++        if( mtsValidObject( r->clothingID[c] ) ) {
++            setClothingByIndex( &( o->clothing ), c,
++                                getObject( r->clothingID[c] ) );
++            o->clothingEtaDecay[c] = mtsShiftEta( r->clothingEta[c] );
++            for( unsigned int k=0; k<r->clothingContained[c].size(); k++ ) {
++                MTSTimedID *t = &( r->clothingContained[c][k] );
++                if( mtsValidObject( t->id ) ) {
++                    o->clothingContained[c].push_back( t->id );
++                    o->clothingContainedEtaDecays[c].push_back(
++                        mtsShiftEta( t->eta ) );
++                    }
++                }
++            }
++        else {
++            setClothingByIndex( &( o->clothing ), c, NULL );
++            o->clothingEtaDecay[c] = 0;
++            }
++        }
++
++    o->dying = r->dying;
++    o->dyingETA = r->dying ? r->dyingETA + shift : 0;
++    o->holdingWound = r->holdingWound;
++    o->holdingBiomeSickness = r->holdingBiomeSickness;
++    o->murderSourceID = r->murderSourceID;
++    o->murderPerpID = r->murderPerpID;
++    if( o->murderPerpEmail != NULL ) {
++        delete [] o->murderPerpEmail;
++        }
++    o->murderPerpEmail = mtsDupOrNull( r->murderPerpEmail );
++    o->deathSourceID = r->deathSourceID;
++
++    o->babyIDs->deleteAll();
++    o->babyBirthTimes->deleteAll();
++    for( unsigned int k=0; k<r->babies.size(); k++ ) {
++        o->babyIDs->push_back( r->babies[k].id );
++        o->babyBirthTimes->push_back( r->babies[k].eta + shift );
++        }
++    o->birthCoolDown = mtsShiftEta( r->birthCoolDown );
++    if( o->lastBabyEmail != NULL ) {
++        delete [] o->lastBabyEmail;
++        }
++    o->lastBabyEmail = mtsDupOrNull( r->lastBabyEmail );
++    o->sidsBabyEmails.deallocateStringElements();
++    for( unsigned int k=0; k<r->sidsBabyEmails.size(); k++ ) {
++        o->sidsBabyEmails.push_back(
++            stringDuplicate( r->sidsBabyEmails[k].c_str() ) );
++        }
++    o->everHomesick = r->everHomesick;
++
++    o->curseStatus.curseLevel = r->curseLevel;
++    o->curseStatus.excessPoints = r->excessPoints;
++    o->lifeStats.lifeCount = r->lifeCount;
++    o->lifeStats.lifeTotalSeconds = r->lifeTotalSeconds;
++    o->lifeStats.accountExistedDays = r->accountExistedDays;
++    o->lifeStats.error = r->lifeStatsError;
++    o->fitnessScore = r->fitnessScore;
++    o->curseTokenCount = r->curseTokenCount;
++    o->numToolSlots = r->numToolSlots;
++    o->learnedTools.deleteAll();
++    for( unsigned int k=0; k<r->learnedTools.size(); k++ ) {
++        o->learnedTools.push_back( r->learnedTools[k] );
++        }
++    o->partiallyLearnedTools.deleteAll();
++    for( unsigned int k=0; k<r->partiallyLearnedTools.size(); k++ ) {
++        o->partiallyLearnedTools.push_back( r->partiallyLearnedTools[k] );
++        }
++    o->permanentEmots.deleteAll();
++    for( unsigned int k=0; k<r->permanentEmots.size(); k++ ) {
++        o->permanentEmots.push_back( r->permanentEmots[k] );
++        }
++    o->everKilledAnyone = r->everKilledAnyone;
++
++    // waits for the stock reconnect path in processLoggedInPlayer
++    // (as if they had been connected before: the main loop must not send
++    // a first message to a NULL socket; reconnect resets these)
++    o->connected = false;
++    o->sock = NULL;
++    o->sockBuffer = NULL;
++    o->firstMessageSent = true;
++    o->firstMapSent = true;
++    o->inFlight = false;
++    }
++
++
++// register a restored player's language (stock does this at birth).
++// Restores run before anyone is born, so the only language records are
++// the ones made here.
++static SimpleVector<int> mtsRestoredLanguages;
++
++static void mtsRestoreLanguage( LiveObject *o ) {
++    if( mtsRestoredLanguages.getElementIndex( o->lineageEveID ) != -1 ) {
++        incrementLanguageCount( o->lineageEveID );
++        }
++    else {
++        addEveLanguage( o->lineageEveID );
++        mtsRestoredLanguages.push_back( o->lineageEveID );
++        }
++    }
++
++
++static void mtsRenameBad( const char *inSuffix ) {
++    char *newName = autoSprintf( "%s%s", MTS_SAVE_FILE, inSuffix );
++    rename( MTS_SAVE_FILE, newName );
++    delete [] newName;
++    }
++
++
++// forward, defined just below this header in server.cpp
++int processLoggedInPlayer( int inAllowOrForceReconnect,
++                           Socket *inSock,
++                           SimpleVector<char> *inSockBuffer,
++                           char *inEmail,
++                           char *inIP,
++                           int inTutorialNumber,
++                           CurseStatus inCurseStatus,
++                           PastLifeStats inLifeStats,
++                           float inFitnessScore,
++                           char *inTwinCode,
++                           int inForceParentID,
++                           int inForceDisplayID,
++                           GridPos *inForcePlayerPos,
++                           char inSkipBirthLogging );
++
++
++// at startup, before the main loop
++static void mtsRestorePlayers() {
++    mtsSavesEnabled =
++        SettingsManager::getIntSetting( "mtsPlayerSaves", 0 ) != 0;
++    if( ! mtsSavesEnabled ) {
++        return;
++        }
++    mtsSaveInterval = SettingsManager::getFloatSetting(
++        "mtsPlayerSavesIntervalSeconds", 30 );
++    if( mtsSaveInterval < 1 ) {
++        mtsSaveInterval = 1;
++        }
++    mtsMaxWait = SettingsManager::getFloatSetting(
++        "mtsPlayerSavesMaxWaitSeconds", 900 );
++    double maxDowntime = SettingsManager::getFloatSetting(
++        "mtsPlayerSavesMaxDowntimeSeconds", 1800 );
++    char pause = SettingsManager::getIntSetting(
++        "mtsPlayerSavesPauseDowntime", 1 ) != 0;
++
++    mtsLastSaveRealTime = mtsRealNow();
++    mtsRestoreRealTime = mtsRealNow();
++
++    FILE *f = fopen( MTS_SAVE_FILE, "r" );
++    if( f == NULL ) {
++        AppLog::info( "MTS player saves: no save file, nothing to restore" );
++        return;
++        }
++
++    // read whole file
++    std::string data;
++    char buf[65536];
++    size_t got;
++    while( ( got = fread( buf, 1, sizeof( buf ), f ) ) > 0 ) {
++        data.append( buf, got );
++        if( data.size() > 512 * 1024 * 1024 ) {
++            break;
++            }
++        }
++    fclose( f );
++
++    // split lines
++    std::vector<std::string> lines;
++    size_t start = 0;
++    while( start < data.size() ) {
++        size_t end = data.find( '\n', start );
++        if( end == std::string::npos ) {
++            end = data.size();
++            }
++        lines.push_back( data.substr( start, end - start ) );
++        start = end + 1;
++        }
++
++    int version = 0, savedNextID = 0, count = -1;
++    double saveReal = 0, saveGame = 0;
++    char ok = lines.size() >= 2;
++    if( ok ) {
++        MTSReader R = { lines[0].c_str(), true };
++        int len;
++        const char *tag = R.next( &len );
++        ok = R.ok && len == 13 && strncmp( tag, "MTSPLAYERSAVE", 13 ) == 0;
++        version = R.i();
++        saveReal = R.d();
++        saveGame = R.d();
++        savedNextID = R.i();
++        count = R.n( 100000 );
++        ok = ok && R.ok && version == MTS_SAVE_VERSION;
++        }
++    if( ok ) {
++        ok = ( (int)lines.size() >= count + 2 &&
++               lines[ count + 1 ] == "END" );
++        }
++
++    std::vector<MTSSavedPlayer> saved;
++    for( int k=0; ok && k<count; k++ ) {
++        MTSSavedPlayer r;
++        if( ! mtsReadPlayer( lines[ k + 1 ].c_str(), &r ) ) {
++            AppLog::errorF( "MTS player saves: bad player line %d", k + 2 );
++            ok = false;
++            break;
++            }
++        saved.push_back( r );
++        }
++
++    if( ! ok ) {
++        AppLog::error( "MTS player saves: save file is corrupt, ignoring it "
++                       "(renamed to " MTS_SAVE_FILE ".bad)" );
++        mtsRenameBad( ".bad" );
++        return;
++        }
++
++    double downtime = mtsRealNow() - saveReal;
++    if( downtime > maxDowntime || downtime < -60 ) {
++        AppLog::infoF( "MTS player saves: save is %.0f s old (max %.0f), "
++                       "not restoring %d players (renamed to "
++                       MTS_SAVE_FILE ".stale)",
++                       downtime, maxDowntime, count );
++        mtsRenameBad( ".stale" );
++        return;
++        }
++
++    mtsRestoreShift = pause ? Time::getCurrentTime() - saveGame : 0;
++    if( mtsRestoreShift < 0 ) {
++        mtsRestoreShift = 0;
++        }
++
++    // never hand out a restored id to someone new
++    int maxID = savedNextID - 1;
++    for( unsigned int k=0; k<saved.size(); k++ ) {
++        if( saved[k].id > maxID ) {
++            maxID = saved[k].id;
++            }
++        }
++    if( nextID <= maxID ) {
++        nextID = maxID + 1;
++        }
++
++    int numRestored = 0;
++    for( unsigned int k=0; k<saved.size(); k++ ) {
++        MTSSavedPlayer *r = &( saved[k] );
++
++        ObjectRecord *dispO = mtsValidObject( r->displayID ) ?
++            getObject( r->displayID ) : NULL;
++        if( dispO == NULL || ! dispO->person ) {
++            AppLog::errorF( "MTS player saves: skipping %s, bad display "
++                            "object %d", r->email.c_str(), r->displayID );
++            continue;
++            }
++        char dup = false;
++        for( int i=0; i<players.size(); i++ ) {
++            LiveObject *o = players.getElement( i );
++            if( o->id == r->id || strcmp( o->email, r->email.c_str() ) == 0 ) {
++                dup = true;
++                }
++            }
++        if( dup ) {
++            AppLog::errorF( "MTS player saves: skipping duplicate %s (%d)",
++                            r->email.c_str(), r->id );
++            continue;
++            }
++
++        CurseStatus cs = { r->curseLevel, r->excessPoints };
++        PastLifeStats ls = { r->lifeCount, r->lifeTotalSeconds,
++                             r->accountExistedDays,
++                             (char)r->lifeStatsError };
++        GridPos pos = { r->x, r->y };
++
++        mtsRestoring = r;
++        int id = processLoggedInPlayer( true, NULL, NULL,
++                                        stringDuplicate( r->email.c_str() ),
++                                        (char*)"restored",
++                                        0, cs, ls, (float)r->fitnessScore,
++                                        NULL,
++                                        // forced Eve slot: no mother is
++                                        // picked, no Eve placement
++                                        -2,
++                                        r->displayID,
++                                        &pos,
++                                        // no lifeLog birth
++                                        true );
++        mtsRestoring = NULL;
++
++        if( id > 0 ) {
++            numRestored++;
++            mtsAwaitingReconnect.push_back( id );
++            }
++        }
++
++    // babies in arms: keep only consistent pairs
++    for( int i=0; i<players.size(); i++ ) {
++        LiveObject *o = players.getElement( i );
++        if( o->heldByOther ) {
++            LiveObject *holder = getLiveObject( o->heldByOtherID );
++            if( holder == NULL || holder->holdingID != - o->id ) {
++                AppLog::infoF( "MTS player saves: %d was held by %d, "
++                               "set down", o->id, o->heldByOtherID );
++                o->heldByOther = false;
++                o->heldByOtherID = -1;
++                }
++            else {
++                o->xs = o->xd = holder->xd;
++                o->ys = o->yd = holder->yd;
++                }
++            }
++        }
++    for( int i=0; i<players.size(); i++ ) {
++        LiveObject *o = players.getElement( i );
++        if( o->holdingID < 0 ) {
++            LiveObject *baby = getLiveObject( - o->holdingID );
++            if( baby == NULL || ! baby->heldByOther ||
++                baby->heldByOtherID != o->id ) {
++                AppLog::infoF( "MTS player saves: %d was holding baby %d, "
++                               "hands emptied", o->id, - o->holdingID );
++                o->holdingID = 0;
++                }
++            }
++        }
++
++    if( nextID <= maxID ) {
++        nextID = maxID + 1;
++        }
++    SettingsManager::setSetting( "nextPlayerID", (int)nextID );
++
++    AppLog::infoF( "MTS player saves: restored %d of %d players from a "
++                   "save %.0f s old (game time shifted by %.0f s); "
++                   "waiting up to %.0f s for them to reconnect",
++                   numRestored, count, downtime, mtsRestoreShift,
++                   mtsMaxWait );
++    }
++
++
++
++// top of every main-loop step
++static void mtsPlayerSavesStep() {
++    if( ! mtsSavesEnabled ) {
++        return;
++        }
++    double now = mtsRealNow();
++
++    for( int k=0; k<mtsAwaitingReconnect.size(); k++ ) {
++        LiveObject *o =
++            getLiveObject( mtsAwaitingReconnect.getElementDirect( k ) );
++
++        if( o == NULL || o->error || o->connected ) {
++            mtsAwaitingReconnect.deleteElement( k );
++            k--;
++            continue;
++            }
++        if( mtsMaxWait > 0 && now - mtsRestoreRealTime > mtsMaxWait ) {
++            AppLog::infoF( "MTS player saves: restored player %d (%s) never "
++                           "reconnected, dies", o->id, o->email );
++            setDeathReason( o, "disconnected" );
++            o->error = true;
++            o->errorCauseString = "Restored player never reconnected";
++            mtsAwaitingReconnect.deleteElement( k );
++            k--;
++            }
++        }
++
++    if( now - mtsLastSaveRealTime >= mtsSaveInterval ) {
++        mtsSavePlayers( "periodic" );
++        }
++    }
++
++
++#endif

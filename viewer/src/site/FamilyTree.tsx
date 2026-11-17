@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { LifeRecord } from "../api-types.ts";
 import { pageHref } from "../data/index.ts";
-import { displayName, formatAge } from "../shared/index.ts";
+import { displayName, firstNameOf, formatAge } from "../shared/index.ts";
 import { treeSize, type TreeNode } from "./logic.ts";
 import { LifePortrait } from "./ui.tsx";
 import type { SiteData } from "./useSite.ts";
@@ -24,10 +24,10 @@ export interface FamilyTreeProps {
   fullNames?: boolean;
 }
 
-/** first name: "Joy Hope" -> "Joy" */
+/** first name: "Joy Hope" -> "Joy", "Aurora II Hope" -> "Aurora II" */
 function firstName(n: string | null): string {
   const d = displayName(n);
-  return d.split(/\s+/)[0] || d;
+  return firstNameOf(d) || d;
 }
 
 export function FamilyTree({ roots, site, me, folded, onToggle, portrait = 46, fullNames }: FamilyTreeProps) {

@@ -1,6 +1,9 @@
 // Demo/test page for the OHOL art renderer: viewer/ohol-demo.html
 import {
   FEMALE_POOL,
+  FLOWER_COLORS,
+  FLOWER_SHAPES,
+  flowerLabel,
   HAIR_COLOR_PARAMS,
   MALE_HAIR_POOL,
   SPAWNABLE_PEOPLE,
@@ -85,6 +88,78 @@ function buildDonorGrid(recipient: number, color: string, faceDonor?: number) {
       { h: 250, scale: 1 },
     );
   }
+}
+
+/** Per-person flowers: one family of 6 siblings, age progression, hairstyles, the whole catalogue. */
+function buildFlowers() {
+  const m = getOholAssets()!.manifest;
+  const nameOf = (id: number) => m.objects[id]?.n ?? String(id);
+  // one family: 6 living siblings, same lineage (same hairstyle + face), traits inherited with small mutations
+  const lin = "demo:11";
+  const sibs = ["demo:12", "demo:13", "demo:14", "demo:15", "demo:16", "demo:17"];
+  const bodies: [number, boolean][] = [[19, true], [347, false], [19, true], [347, false], [19, true], [347, false]];
+  const mother = mockTraits(42);
+  const r = mulberry(7);
+  const sib = (k: number) => {
+    const traits: Record<string, number> = {};
+    for (const d of DIMS) traits[d] = Math.round((mother[d] + (r() - 0.5) * 0.4) * 100) / 100;
+    const [displayId, female] = bodies[k];
+    return appearanceFor({ displayId, female, lineageId: lin, traits, traitDims: DIMS, lifeId: sibs[k], livingFamilyLifeIds: sibs });
+  };
+  const fam = sibs.map((_, k) => sib(k));
+  section(
+    "Flowers: one family of 6 living siblings",
+    "Same lineage hairstyle + face, near-identical hair colours; each wears a different flower (shape and colour).",
+    fam.map((ap, k) => ({
+      spec: { displayId: bodies[k][0], age: [24, 22, 19, 17, 13, 9][k], facingLeft: k % 2 === 1, appearance: ap },
+      x: 70 + k * 130,
+      label: flowerLabel(ap.flower!.shape, ap.flower!.color),
+    })),
+    { h: 230, scale: 0.9 },
+  );
+  // age progression, both facings, female and male
+  const ages = [0.5, 2, 5, 10, 15, 25, 45, 60];
+  for (const [displayId, female, lifeId] of [[19, true, "demo:21"], [347, false, "demo:22"]] as const) {
+    const ap = appearanceFor({ displayId, female, lineageId: female ? 102 : 104, traits: mockTraits(female ? 3 : 4), traitDims: DIMS, lifeId });
+    section(
+      `Flowers by age (${nameOf(displayId)}): ${ages.join(", ")}; facing right / left`,
+      "",
+      ages.flatMap((age, i) => [
+        { spec: { displayId, age, appearance: ap }, x: 50 + i * 150, label: `age ${age}` },
+        { spec: { displayId, age, facingLeft: true, appearance: ap }, x: 110 + i * 150 },
+      ]),
+      { h: 230, scale: 0.9 },
+    );
+  }
+  // every hairstyle (female + male pools), one flower each, plus a hat
+  const fem = FEMALE_POOL.map((p, i) => {
+    const ap = appearanceFor({ displayId: p.id, female: true, lineageId: 300 + i, traits: mockTraits(60 + i), traitDims: DIMS, lifeId: `demo:${300 + i}` });
+    return { spec: { displayId: p.id, age: 30, facingLeft: i % 2 === 1, appearance: { ...ap, hairDonorId: p.id } }, x: 60 + i * 110, label: nameOf(p.id).split(" ")[0] };
+  });
+  section("Flowers on every female hairstyle (age 30)", "", fem, { h: 230, scale: 0.9 });
+  const mal = MALE_HAIR_POOL.map((p, i) => {
+    const ap = appearanceFor({ displayId: p.id, female: false, lineageId: 400 + i, traits: mockTraits(80 + i), traitDims: DIMS, lifeId: `demo:${400 + i}` });
+    return { spec: { displayId: p.id, age: 30, facingLeft: i % 2 === 0, appearance: { ...ap, hairDonorId: p.id } }, x: 60 + i * 110, label: nameOf(p.id).split(" ")[0] };
+  });
+  mal.push({
+    spec: { displayId: 347, age: 30, facingLeft: false, appearance: appearanceFor({ displayId: 347, female: false, lineageId: 401, traits: mockTraits(9), traitDims: DIMS, lifeId: "demo:499" }), clothing: { hat: 1117 } } as never,
+    x: 60 + mal.length * 110,
+    label: "straw hat",
+  });
+  section("Flowers on every male hairstyle (age 30)", "", mal, { h: 230, scale: 0.9 });
+  // the catalogue: every shape in every colour, on a woman's head at portrait scale
+  FLOWER_SHAPES.forEach((s, si) => {
+    section(
+      si === 0 ? `Catalogue: ${FLOWER_SHAPES.length} shapes x ${FLOWER_COLORS.length} colours (${FLOWER_COLORS.map((c) => `${c.name} ${c.hex}`).join(", ")})` : "",
+      "",
+      FLOWER_COLORS.map((c, ci) => ({
+        spec: { displayId: 19, age: 30, appearance: { ...appearanceFor({ displayId: 19, female: true, lineageId: 101, traits: mockTraits(1), traitDims: DIMS }), flower: { shape: s.id, color: c.id, label: "" } } },
+        x: 60 + ci * 90,
+        label: si === 0 || ci === 0 ? `${ci === 0 ? s.name : ""}` : "",
+      })),
+      { h: 230, scale: 0.9 },
+    );
+  });
 }
 
 function build() {
@@ -255,7 +330,10 @@ async function main() {
   if (donors) {
     const [rid, col, face] = donors.split(",");
     buildDonorGrid(Number(rid), col || "3a8fd0", face ? Number(face) : undefined);
+  } else if (new URLSearchParams(location.search).has("flowers")) {
+    buildFlowers();
   } else {
+    buildFlowers();
     build();
     hairLegend(root);
   }

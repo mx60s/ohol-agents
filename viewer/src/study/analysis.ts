@@ -30,8 +30,28 @@ import {
 
 // ------------------------------------------------------------------ constants
 
-/** OHOL: one game year per real minute */
-export const YEAR_MS = 60_000;
+/** stock OHOL: one game year per real minute (TIME_SCALE 1) */
+export const BASE_YEAR_MS = 60_000;
+/** @deprecated stock year only; use yearMs(life), since runs can slow the game clock (TIME_SCALE) */
+export const YEAR_MS = BASE_YEAR_MS;
+
+/** game clock slowdown k of a life (LifeRecord.timeScale); missing / invalid = 1 (records before it existed) */
+export function timeScaleOf(l: Pick<LifeRecord, "timeScale">): number {
+  const k = l.timeScale;
+  return typeof k === "number" && Number.isFinite(k) && k > 0 ? k : 1;
+}
+
+/** wall ms per game year of this life: 60 s x its timeScale */
+export function yearMs(l: Pick<LifeRecord, "timeScale">): number {
+  return BASE_YEAR_MS * timeScaleOf(l);
+}
+
+/** shortest game year among these lives (stock if none): how often ages can change by a year */
+export function shortestYearMs(lives: readonly Pick<LifeRecord, "timeScale">[]): number {
+  let m = Infinity;
+  for (const l of lives) m = Math.min(m, yearMs(l));
+  return Number.isFinite(m) ? m : BASE_YEAR_MS;
+}
 /** OHOL adulthood (fertile, can raise children) */
 export const ADULT_AGE = 14;
 /** OHOL old-age death */
@@ -76,7 +96,7 @@ export function startAge(l: LifeRecord): number {
 
 /** game age at wall-clock time t, from birth time (capped to the 60-year lifespan) */
 export function ageAt(l: LifeRecord, t: number): number {
-  return Math.min(LIFESPAN_YEARS, Math.max(0, startAge(l) + (t - l.bornAt) / YEAR_MS));
+  return Math.min(LIFESPAN_YEARS, Math.max(0, startAge(l) + (t - l.bornAt) / yearMs(l)));
 }
 
 /**
@@ -100,7 +120,7 @@ export type AdultOutcome = "yes" | "no" | "too-young" | "lost" | "born-adult";
 export function adultOutcome(l: LifeRecord, now: number): AdultOutcome {
   const a0 = startAge(l);
   if (a0 >= ADULT_AGE) return "born-adult";
-  if (a0 + (now - l.bornAt) / YEAR_MS < ADULT_AGE) return "too-young";
+  if (a0 + (now - l.bornAt) / yearMs(l) < ADULT_AGE) return "too-young";
   const o = observedAge(l, now);
   if (o.age >= ADULT_AGE) return "yes";
   return o.event ? "no" : "lost";
@@ -154,6 +174,25 @@ export const traitOf = (l: LifeRecord, dim: string): number | null => {
   const v = l.traits?.[dim];
   return finite(v) && Math.abs(v) <= MAX_ABS_TRAIT ? v : null;
 };
+
+// ------------------------------------------------------------------ study inclusion
+
+/**
+ * false = keep out of every analysis: the backend flagged the life (validForStudy false), e.g. it was
+ * alive while the LLM provider was down and the run paused (outage true), so it couldn't think for
+ * part of its life. Records without the flags are valid.
+ */
+export function inStudy(l: Pick<LifeRecord, "validForStudy" | "outage">): boolean {
+  return l.validForStudy !== false && l.outage !== true;
+}
+
+/** split lives into those the analyses use and those excluded (see inStudy) */
+export function studyLives<L extends Pick<LifeRecord, "validForStudy" | "outage">>(lives: readonly L[]): { valid: L[]; excluded: L[]; outage: number } {
+  const valid: L[] = [];
+  const excluded: L[] = [];
+  for (const l of lives) (inStudy(l) ? valid : excluded).push(l);
+  return { valid, excluded, outage: excluded.filter((l) => l.outage === true).length };
+}
 
 // ------------------------------------------------------------------ data window
 
@@ -354,22 +393,33 @@ export interface Q2Result {
 }
 
 /** her children can no longer change: she died, or she is (would be, if lost) past FERTILE_END now */
-const fertilityClosed = (l: LifeRecord, now: number) => l.status === "dead" || startAge(l) + (now - l.bornAt) / YEAR_MS >= FERTILE_END;
+const fertilityClosed = (l: LifeRecord, now: number) => l.status === "dead" || startAge(l) + (now - l.bornAt) / yearMs(l) >= FERTILE_END;
 
 /**
  * Women observed past ADULT_AGE (incl. Eves). Children = our recorded lives whose mother she is.
  * The tests only use women whose counts are final, so recent mothers (who have had less time) don't
  * pull the counts down.
  */
-export function q2Descendants(lives: readonly LifeRecord[], dim: string, now: number, B: number | PermOptions = PERMUTATIONS): Q2Result {
-  const byId = new Map(lives.map((l) => [l.lifeId, l]));
+export function q2Descendants(
+  lives: readonly LifeRecord[],
+  dim: string,
+  now: number,
+  B: number | PermOptions = PERMUTATIONS,
+  /**
+   * every recorded life, excluded ones included (default: `lives`). Rows are only built for `lives`,
+   * but a child born to (or a daughter of) a valid woman is still her child even if the child itself
+   * is excluded from the study, and her count is only final once we know that daughter's window closed.
+   */
+  kin: readonly LifeRecord[] = lives,
+): Q2Result {
+  const byId = new Map(kin.map((l) => [l.lifeId, l]));
   const kidsOf = new Map<string, string[]>();
   const add = (m: string, c: string) => {
     const a = kidsOf.get(m) ?? [];
     if (!a.includes(c)) a.push(c);
     kidsOf.set(m, a);
   };
-  for (const l of lives) {
+  for (const l of kin) {
     for (const c of l.childLifeIds) add(l.lifeId, c);
     if (l.motherLifeId) add(l.motherLifeId, l.lifeId);
   }
@@ -581,11 +631,11 @@ export interface DimResults {
   hered: Q4Heredity;
 }
 
-export function perDim(lives: readonly LifeRecord[], dim: string, now: number, B: number | PermOptions = PERMUTATIONS, boot = SURV_BOOT): DimResults {
+export function perDim(lives: readonly LifeRecord[], dim: string, now: number, B: number | PermOptions = PERMUTATIONS, boot = SURV_BOOT, kin: readonly LifeRecord[] = lives): DimResults {
   return {
     surv: q1Survival(lives, dim, now, B, boot),
     adult: q1Adulthood(lives, dim, now, B),
-    desc: q2Descendants(lives, dim, now, B),
+    desc: q2Descendants(lives, dim, now, B, kin),
     gens: q4Generations(lives, dim),
     tracks: q4Trajectories(lives, dim),
     hered: q4Heredity(lives, dim),
@@ -654,19 +704,24 @@ export function verdict(tests: readonly TraitTest[], n: number, families = Infin
 
 export interface StudyRequest {
   id: number;
+  /** every recorded life; computeStudy leaves out those not inStudy() */
   lives: LifeRecord[];
   dims: string[];
   now: number;
 }
 export interface StudyResult {
   id: number;
+  /** lives the analyses used / left out (validForStudy false or outage) */
+  used: number;
+  excluded: number;
   per: Record<string, DimResults>;
   q3: Q3Result;
 }
 
 export function computeStudy(req: StudyRequest): StudyResult {
   const perm: PermOptions = { B: permBudget(req.dims.length), stopAfter: STOP_AFTER };
+  const { valid, excluded } = studyLives(req.lives);
   const per: Record<string, DimResults> = {};
-  for (const d of req.dims) per[d] = perDim(req.lives, d, req.now, perm);
-  return { id: req.id, per, q3: q3Roles(req.lives, req.dims, { B: perm, now: req.now }) };
+  for (const d of req.dims) per[d] = perDim(valid, d, req.now, perm, SURV_BOOT, req.lives);
+  return { id: req.id, used: valid.length, excluded: excluded.length, per, q3: q3Roles(valid, req.dims, { B: perm, now: req.now }) };
 }
