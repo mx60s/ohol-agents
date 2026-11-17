@@ -117,6 +117,28 @@ export function surnameOf(name: string | null | undefined): string | null {
   return parts[parts.length - 1];
 }
 
+/**
+ * Display copies of lives where an unnamed person shows their family name: "UNNAMED VALLEY".
+ * The game leaves babies nameless until someone names them (or the server does at age 8);
+ * the family is known from the lineage, so show it. Records are not changed; named lives and
+ * lives of a family nobody has named yet are returned as they are.
+ */
+export function withFamilyNames<T extends { name: string | null; lineageId: string; bornAt: number }>(lives: readonly T[]): T[] {
+  const surname = new Map<string, string>();
+  for (const l of [...lives].sort((a, b) => a.bornAt - b.bornAt)) {
+    if (surname.has(l.lineageId)) continue;
+    const s = surnameOf(l.name);
+    if (s) surname.set(l.lineageId, s);
+  }
+  let changed = false;
+  const out = lives.map((l) => {
+    if (l.name || !surname.has(l.lineageId)) return l;
+    changed = true;
+    return { ...l, name: `UNNAMED ${surname.get(l.lineageId)}` };
+  });
+  return changed ? out : (lives as T[]);
+}
+
 /** Truncate to n characters (by code point, so emoji are not split), adding an ellipsis. */
 export function truncate(s: string, n: number): string {
   const cps = Array.from(s);

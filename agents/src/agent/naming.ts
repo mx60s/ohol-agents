@@ -55,6 +55,20 @@ export function namingRest(said: string, phrases: readonly string[]): string | n
   return null;
 }
 
+/**
+ * The step after which a baby-naming line must be spoken, or -1 to speak it
+ * first as usual. The server names a baby only while the speaker holds it
+ * (server.cpp: with empty arms "YOU ARE X" names the nearest nameless person
+ * aged 5 or older), and the reply's say goes out before its actions, so
+ * "YOU ARE AURORA" with pick_up_baby in the same reply would reach the server
+ * before the pickup and name no one. Such a line waits for the first
+ * pick_up_baby step. `holdingBaby`: already carrying someone.
+ */
+export function namingSayAfterStep(say: string, steps: readonly { type: string }[], holdingBaby: boolean): number {
+  if (holdingBaby || namingRest(normalizeSpeech(say), BABY_NAMING_PHRASES) == null) return -1;
+  return steps.findIndex((s) => s.type === "pick_up_baby");
+}
+
 /** Letter runs, upper case, each cut to 16 letters (mtsCleanName). */
 export function letterWords(s: string): string[] {
   return (s.toUpperCase().match(/[A-Z]+/g) ?? []).map((w) => w.slice(0, 16));

@@ -463,10 +463,11 @@ export class Body {
     const s = this.world.self;
     if (!s) return "no body";
     if (this.world.currentAge(s) < 3) return `you're a baby: you can't feed yourself yet. Say "F" so a woman picks you up and nurses you`;
-    if (this.world.food >= this.world.foodCapacity) return "you're full";
+    const full = this.world.food >= this.world.foodCapacity;
     const blocked = this.conditionBlock();
     if (blocked) return `can't pick food: ${blocked}`;
-    if (s.held.id > 0 && this.gd.isFood(s.held.id)) return await this.self();
+    if (full && s.held.id !== 0) return `you're full (food ${this.world.food}/${this.world.foodCapacity}), so you can't eat; to pick food to carry, empty your hands and forage or use bare hands on the plant`;
+    if (!full && s.held.id > 0 && this.gd.isFood(s.held.id)) return await this.self();
     // pick the food source before doing anything, so a bad target costs nothing
     const sources = this.foodSources(maxDist);
     let best: { x: number; y: number; gives: number } | null = null;
@@ -489,6 +490,8 @@ export class Body {
     }
     const got = await this.use(best.x, best.y);
     const held = this.world.self?.held.id ?? 0;
+    // full: a click on the plant picks the food into your hands (as in the game); nothing is eaten
+    if (full) return held > 0 ? `you're full, so you didn't eat: you picked a ${this.gd.name(held)} and are holding it` : `you're full; ${got}`;
     if (held > 0 && this.gd.isFood(held)) parts.push(await this.self());
     else parts.push(`tried to get food at (${best.x},${best.y}): ${got}`);
     // leftovers in hand (Banana Peel, husks) would block picking the baby or tool back up
@@ -584,8 +587,13 @@ export class Body {
 
   /** Baby: jump out of arms / wiggle. */
   jump(): string {
+    const me = this.world.self;
+    const carrier = me ? this.world.carrierOf(me) : null;
+    if (me && !carrier) return "you aren't being held; wriggling does nothing";
     this.send("JUMP 0 0");
-    return "wiggled";
+    // server.cpp: a baby under 1 can't wriggle out of its own mother's arms (it only wiggles)
+    if (me && carrier && this.world.currentAge(me) < 1 && me.ancestors[0] === carrier.id) return "wiggled, but a baby under 1 can't get out of its mother's arms";
+    return "wiggled out of their arms";
   }
 
   emote(e: number): string {

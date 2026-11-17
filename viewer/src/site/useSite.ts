@@ -5,7 +5,7 @@ import { useMemo, useRef } from "react";
 import type { AgentView, Flower, LifeRecord, LineageRecord, PlayerView } from "../api-types.ts";
 import { flowersForLives } from "../ohol/flower.ts";
 import { getClient, useLineages, useLives, useWorldState } from "../data/index.ts";
-import { displayName, lineageName, lineageOrder, surnameOf } from "../shared/index.ts";
+import { displayName, lineageName, lineageOrder, surnameOf, withFamilyNames } from "../shared/index.ts";
 import { lifeAge, settleStaleLives } from "./logic.ts";
 
 export interface SiteData {
@@ -42,7 +42,7 @@ export function useSite(): SiteData {
   // after a world restart, "alive" records of the old run are not alive any more
   const runId = w.state?.run.id ?? null;
   const settled = useMemo(() => {
-    const lives = settleStaleLives(lv0.lives, runId);
+    const lives = withFamilyNames(settleStaleLives(lv0.lives, runId));
     return lives === lv0.lives ? { lives, byId: lv0.byId } : { lives, byId: Object.fromEntries(lives.map((l) => [l.lifeId, l])) };
   }, [lv0.lives, lv0.byId, runId]);
   // the site shows the current world only: a new run (world regenerated, fresh start) resets every

@@ -12,7 +12,7 @@ import type { AgentView } from "../api-types.ts";
 import { Llm, llmLogFields, type ChatMessage, type LlmResult } from "./llm.ts";
 import { buildObservation } from "./observe.ts";
 import { foodBonusOf, systemPromptFor } from "./prompt.ts";
-import { firstNameKey, mergeSurnames, reviewSpeech, surnameOf, type NamingContext } from "./naming.ts";
+import { firstNameKey, mergeSurnames, namingSayAfterStep, reviewSpeech, surnameOf, type NamingContext } from "./naming.ts";
 import { parseReply, checkActions, sanitizeAction, type Action } from "./reply.ts";
 import { stepFailed, stepLabel, seenSnapshot, staleness, type Seen } from "./steps.ts";
 import { snapshot, bodyEvents, speechEvent, deathEvent, birthEvent, type Salient, type BodySnapshot } from "./salience.ts";
@@ -542,14 +542,17 @@ export class Agent implements TurnAgent<TurnPlan> {
       if (this.notebook.length > 30) this.notebook.shift();
     }
     const say = cleanText(reply.say, 200);
-    if (say) this.record(`say "${say}"`, await this.speakSpaced(say));
     const checked = checkActions(reply, this.cfg.craftMacro, this.cfg.actionListMax ?? 4);
+    // "YOU ARE X" + pick_up_baby: spoken once the baby is in our arms (naming.ts)
+    const sayAfter = say && !("error" in checked) ? namingSayAfterStep(say, checked.steps, (this.world?.self?.held.id ?? 0) < 0) : -1;
+    if (say && sayAfter < 0) this.record(`say "${say}"`, await this.speakSpaced(say));
     if ("error" in checked) {
       this.record("(no valid action)", checked.error);
       this.ev("system", `invalid action: ${checked.error}`, { invalidAction: true });
       return;
     }
-    await this.runSteps(checked.steps, checked.notes, d.obsBuiltAt);
+    const deferred = say && sayAfter >= 0 ? { after: sayAfter, say } : undefined;
+    await this.runSteps(checked.steps, checked.notes, d.obsBuiltAt, deferred);
   }
 
   /**
@@ -558,9 +561,16 @@ export class Agent implements TurnAgent<TurnPlan> {
    * a step fails or a salient event arrives (it is listed under JUST
    * HAPPENED next turn), and the skip is recorded with its reason.
    */
-  private async runSteps(steps: Action[], notes: string[] = [], obsBuiltAt = Date.now()) {
+  private async runSteps(steps: Action[], notes: string[] = [], obsBuiltAt = Date.now(), deferredSay?: { after: number; say: string }) {
     const listStart = Date.now();
     const n = steps.length;
+    let pendingSay = deferredSay;
+    const sayDeferred = async () => {
+      if (!pendingSay || !this.alive) return;
+      const say = pendingSay.say;
+      pendingSay = undefined;
+      this.record(`say "${say}"`, await this.speakSpaced(say));
+    };
     for (let i = 0; i < n; i++) {
       // turn clock: a step starts only while the game clock runs (a long list spans act windows)
       if (this.hooks.turns) {
@@ -586,6 +596,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       // turnMs (calibration): observation built -> the reply's first action dispatched
       const timing = i === 0 ? { turnMs: startedAt - obsBuiltAt } : {};
       if (action.type !== "wait") this.ev("action", `${desc} -> ${result}`, { action, step: n > 1 ? i + 1 : undefined, steps: n > 1 ? n : undefined, ...timing, ...this.actionData(before) });
+      if (pendingSay && i >= pendingSay.after) await sayDeferred();
       if (i === n - 1 || !this.alive) break;
       const rest = steps.slice(i + 1).map(describeAction).join(", ");
       const event = this.pending.find((p) => p.t >= listStart);
@@ -595,6 +606,8 @@ export class Agent implements TurnAgent<TurnPlan> {
         break;
       }
     }
+    // the list stopped before the pickup: still say it
+    await sayDeferred();
     for (const note of notes) this.record("(actions list)", note);
   }
 

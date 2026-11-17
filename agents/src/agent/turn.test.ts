@@ -339,6 +339,35 @@ test("naming: dead and out-of-sight relatives from the lineage records count; II
   assert.equal(results(b.A)[0], 'say "YOU ARE LUNA" -> said "YOU ARE LUNA"');
 });
 
+test("naming: 'YOU ARE X' with pick_up_baby in the same reply is said after the pickup (the server names only a held baby)", async () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 30, held: 0, female: true });
+  g.addPlayer({ id: 2, x: 1, y: 0, age: 0.1, held: 0, female: true, motherId: 1 });
+  g.start();
+  g.world.handle({ type: "LN", lineages: [{ id: 1, ancestors: [], eveId: 1 }, { id: 2, ancestors: [1], eveId: 1 }] });
+  g.world.handle({ type: "NM", names: [{ id: 1, first: "LUNA", last: "VALLEY" }] });
+  const { A } = agentFor(g, ['{"say":"YOU ARE AURORA","action":{"type":"pick_up_baby","person":2}}'], {}, { familyFirstNames: () => ["AURORA"] });
+  A.sleepInterruptible = async () => {};
+  await A.turn();
+  const order = g.sent.filter((c) => /^(SAY|BABY) /.test(c)).map((c) => c.split(" ")[0]);
+  assert.deepEqual(order, ["BABY", "SAY"]);
+  // said while holding her, so the family's numbering applies too
+  assert.deepEqual(says(g), ["YOU ARE AURORA II"]);
+  const r = results(A);
+  assert.match(r[0], /^pick_up_baby #2 -> picked up/);
+  assert.match(r[1], /^say "YOU ARE AURORA" -> said "YOU ARE AURORA II"/);
+
+  // other speech still goes first
+  const g2 = new FakeGame(gd);
+  g2.addPlayer({ id: 1, x: 0, y: 0, age: 30, held: 0, female: true });
+  g2.addPlayer({ id: 2, x: 1, y: 0, age: 0.1, held: 0, female: true, motherId: 1 });
+  g2.start();
+  const b = agentFor(g2, ['{"say":"COME HERE","action":{"type":"pick_up_baby","person":2}}']);
+  b.A.sleepInterruptible = async () => {};
+  await b.A.turn();
+  assert.deepEqual(g2.sent.filter((c) => /^(SAY|BABY) /.test(c)).map((c) => c.split(" ")[0]), ["SAY", "BABY"]);
+});
+
 test("naming: a named Eve's 'I AM ...' and naming an already named baby are left alone; 'AURORA II DAWN' parses whole", async () => {
   const g = family("MIRA DAWN", "AURORA DAWN");
   g.world.handle({ type: "NM", names: [{ id: 2, first: "AURORA", last: "II DAWN" }] });

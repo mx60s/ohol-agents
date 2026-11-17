@@ -5,7 +5,7 @@ import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentView, Invention, LifeRecord, MapCellTuple, PlayerView, RunEvent } from "../api-types.ts";
 import { getClient, useInventions, useLives, useMap, useMinimap, useNow, useObjectNames, useWorldState } from "../data/index.ts";
-import { ageStage, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait } from "../shared/index.ts";
+import { ageStage, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait, withFamilyNames } from "../shared/index.ts";
 import { flowersForLives } from "../ohol/flower.ts";
 import { Sticker, Wordmark } from "../theme/index.ts";
 import { biomeName, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
@@ -47,7 +47,12 @@ function useReducedMotion(): boolean {
 
 function Stream() {
   const w = useWorldState();
-  const lives = useLives();
+  const lives0 = useLives();
+  // unnamed people show their family name ("Unnamed Valley")
+  const lives = useMemo(() => {
+    const named = withFamilyNames(lives0.lives);
+    return named === lives0.lives ? lives0 : { ...lives0, lives: named, byId: Object.fromEntries(named.map((l) => [l.lifeId, l])) };
+  }, [lives0]);
   const map = useMap();
   const minimap = useMinimap();
   const names = useObjectNames();

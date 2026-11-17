@@ -231,3 +231,17 @@ test("family body: every member of a family (per sex) gets the same body of the 
   }
   assert.equal(familyBodyId(99999, true, "x"), 99999, "an unknown sprite is kept");
 });
+
+test("withFamilyNames: unnamed people show their family name; records with names and nameless families untouched", async () => {
+  const { withFamilyNames } = await import("../src/shared/format.ts");
+  const lives = [
+    { lifeId: "1", name: "LUNA VALLEY", lineageId: "A", bornAt: 1 },
+    { lifeId: "2", name: null, lineageId: "A", bornAt: 2 },
+    { lifeId: "3", name: null, lineageId: "B", bornAt: 3 },
+  ];
+  const out = withFamilyNames(lives);
+  assert.deepEqual(out.map((l) => l.name), ["LUNA VALLEY", "UNNAMED VALLEY", null]);
+  assert.equal(lives[1].name, null, "input not mutated");
+  const same = [lives[0]];
+  assert.equal(withFamilyNames(same), same, "nothing to fill: same array");
+});

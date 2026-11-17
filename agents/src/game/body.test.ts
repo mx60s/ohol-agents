@@ -248,3 +248,17 @@ test("say limit follows the server's getSayLimit: adults are not told they were 
   assert.equal(body.say("I AM EVE AND THIS IS OUR CAMP"), 'said "I AM EVE AND THIS IS OUR CAMP"');
   assert.match(body.say("X".repeat(70)), /cut off: at your age you can only say 59 letters/);
 });
+
+test("forage while full: empty hands pick the food and keep it (nothing eaten); busy hands get told how", async () => {
+  const g = setup(0, [3, 0]);
+  g.food = 20;
+  g.start();
+  g.world.foodCapacity = 20;
+  g.world.food = 20;
+  const body = new Body(g.conn, g.world, gd);
+  const r = await body.forage();
+  assert.match(r, /you're full, so you didn't eat: you picked a .*Gooseberry/i);
+  assert.ok(gd.isFood(g.world.self!.held.id), `holding food (${r})`);
+  const r2 = await body.forage();
+  assert.match(r2, /you're full .*empty your hands/);
+});

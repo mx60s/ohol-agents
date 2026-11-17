@@ -68,7 +68,7 @@ export const REPLY_FIELDS: { name: string; meaning: string }[] = [
   { name: "thought", meaning: "one short sentence; shown back to it next turn as its previous thought (max 400 chars)" },
   { name: "goal", meaning: "optional; kept and shown every turn until it changes (max 200 chars)" },
   { name: "note", meaning: "optional; one line added to its notebook for this life (max 200 chars)" },
-  { name: "say", meaning: "optional; spoken aloud now, before the action (max 200 chars, cut further by age)" },
+  { name: "say", meaning: "optional; spoken aloud now, before the action; a baby naming line ('YOU ARE X') waits for a pick_up_baby in the same reply (max 200 chars, cut further by age)" },
   { name: "action", meaning: "one action object (see the table)" },
   { name: "actions", meaning: "instead of action: a list of steps run back to back" },
 ];

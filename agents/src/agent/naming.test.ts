@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  BABY_NAMING_PHRASES, FAMILY_NAMING_PHRASES, babyNameFrom, eveNameFrom, firstNameKey, freeFirstName, isNumeral, mergeSurnames, namingRest, reviewSpeech, surnameOf,
+  BABY_NAMING_PHRASES, FAMILY_NAMING_PHRASES, babyNameFrom, namingSayAfterStep, eveNameFrom, firstNameKey, freeFirstName, isNumeral, mergeSurnames, namingRest, reviewSpeech, surnameOf,
 } from "./naming.ts";
 
 test("naming phrases match like server.cpp isNamingSay: at the start, a space after, first listed phrase wins", () => {
@@ -63,4 +63,12 @@ test("reviewSpeech: only an unnamed Eve's family naming and a mother naming her 
 
 test("mergeSurnames: order kept, upper case, no duplicates or blanks", () => {
   assert.deepEqual(mergeSurnames(["DAWN", "sol"], [null, "SOL", "HOPE", undefined]), ["DAWN", "SOL", "HOPE"]);
+});
+
+test("namingSayAfterStep: a baby naming line waits for the reply's first pick_up_baby", () => {
+  const steps = [{ type: "drop" }, { type: "pick_up_baby" }, { type: "go" }];
+  assert.equal(namingSayAfterStep("you are aurora", steps, false), 1);
+  assert.equal(namingSayAfterStep("YOU ARE AURORA", steps, true), -1, "already holding someone");
+  assert.equal(namingSayAfterStep("I AM LUNA VALLEY", steps, false), -1, "not a baby naming line");
+  assert.equal(namingSayAfterStep("YOU ARE AURORA", [{ type: "go" }], false), -1, "no pickup in the reply");
 });
