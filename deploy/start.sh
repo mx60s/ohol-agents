@@ -68,13 +68,15 @@ NEW_RUN_FLAG="$LOG_DIR/research/new-run.flag"
 #   lastEveLocation.txt, recentPlacements.txt, eveRadius.txt, landingLocations.txt,
 #   shutdownLongLineagePos.txt, mapDummyRecall.txt
 # - playerSaves.txt (+ .tmp, .bad) from server/patches/player-saves.patch
+# - mtsLineageFamilies.txt (lineage id -> family name, free-names.patch; ids restart)
 # Each name also as <name>.temp (DB_open_timeShrunk) and lookTime_temp.db.
 # Kept: settings/, the build links, logs, curses.db / curseCount.db / trust.db
 # (keyed by email; a new run has new emails), mtsFamilyNames.txt (surnames stay
 # unique across worlds), timeScaleEpoch.txt (the game clock just goes on).
 WORLD_FILES="map.db mapTime.db biome.db floor.db floorTime.db grave.db eve.db meta.db lookTime.db lookTime_temp.db
   playerStats.db statue.db statueTime.db biomeRandSeed.txt lastEveLocation.txt recentPlacements.txt eveRadius.txt
-  landingLocations.txt shutdownLongLineagePos.txt mapDummyRecall.txt playerSaves.txt playerSaves.txt.tmp playerSaves.txt.bad"
+  landingLocations.txt shutdownLongLineagePos.txt mapDummyRecall.txt playerSaves.txt playerSaves.txt.tmp playerSaves.txt.bad
+  mtsLineageFamilies.txt"
 
 export OHOL_HOST=127.0.0.1
 export OHOL_PORT="$GAME_PORT"

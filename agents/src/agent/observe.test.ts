@@ -415,7 +415,7 @@ test("new-player prompt (default): controls and our rules only; no game name, re
   assert.equal(p, systemPromptFor({ timeScale: 3, decisionCycleMs: 8000, promptBaseline: "new" } as object));
   assert.match(p, /^You are a person in a world\./);
   assert.match(p, /A year passes every 25 turns\./);
-  assert.match(p, /people within 16 tiles of you hear it\. Some phrases also have specific consequences/);
+  assert.match(p, /people within 16 tiles of you hear it\. Numbers can't be spoken: they are removed\. Some phrases also have specific consequences/);
   assert.match(p, /"I FOLLOW YOU": the nearest person becomes your leader/);
   assert.match(p, /Name yourself as soon as you appear as an Eve, and name each baby you have while you hold it\./);
   assert.match(p, /What you can do depends on your age:/);

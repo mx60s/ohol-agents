@@ -13,21 +13,44 @@ so Eves can say "I AM <FIRST> <FAMILY>". Naming rules:
   any other second word is dropped as before). A name in use or used
   recently (the curse-name list) gets the next numeral instead of a stock
   first name, and the said phrase shows the numeral.
+- Family names outlive their members: when an Eve names her family, her
+  living descendants born before the naming get it as their family name,
+  and the lineage's name is kept by lineage (Eve) id in
+  mtsLineageFamilies.txt (run dir; a world reset deletes it, a new Eve
+  with a reused id clears her entry). Forced naming at 8 minutes
+  (getLineageLastName) and nameBaby fall back to it, so a child whose
+  named relatives all died still gets the family surname, not a random one.
 With mtsFreeNames=0 everything is stock.
 
 diff --git a/server/server.cpp b/server/server.cpp
+index 4273fd4..ab85768 100644
 --- a/server/server.cpp
 +++ b/server/server.cpp
-@@ -16549,16 +16549,193 @@ void executeKillAction( int inKillerIndex,
-                     }
-                 }
-             }
-+        }
-+    }
+@@ -4180,6 +4180,9 @@ static void leaderDied( LiveObject *inLeader );
+ 
+ static void forcePickName( LiveObject *inPlayer );
+ 
++// MTS patch (free-names): a new Eve's lineage id forgets an old family
++static void mtsForgetLineageFamily( int inLineageEveID );
 +
+ 
+ double computeAge( LiveObject *inPlayer ) {
+     double age = computeAge( inPlayer->lifeStartTimeSeconds );
+@@ -10715,6 +10718,10 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+ 
+         newObject.isEve = true;
+         newObject.lineageEveID = newObject.id;
 +
-+
-+
++        // MTS patch: player ids restart with a new world, so a family
++        // recorded for an old lineage with this id is not hers
++        mtsForgetLineageFamily( newObject.id );
+         
+         newObject.lifeStartTimeSeconds -= 14 * ( 1.0 / getAgeRate() );
+         
+@@ -16555,10 +16562,287 @@ void executeKillAction( int inKillerIndex,
+ 
+ 
+ 
 +// MTS patch: with setting mtsFreeNames=1, names are taken as spoken
 +// (letters only, max 2 words of 16 chars) instead of being snapped to the
 +// closest entry in firstNames/lastNames.txt.
@@ -57,10 +80,10 @@ diff --git a/server/server.cpp b/server/server.cpp
 +        { "", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X" };
 +    if( inN < 0 || inN > 10 ) {
 +        return "";
-         }
++        }
 +    return numerals[ inN ];
-     }
- 
++    }
++
 +// any words
 +#define MTS_NAME_ANY 0
 +// numerals skipped (an Eve has no namesakes to count)
@@ -169,7 +192,107 @@ diff --git a/server/server.cpp b/server/server.cpp
 +        fclose( f );
 +        }
 +    }
- 
++
++
++// With mtsFreeNames=1: each lineage's family name, by lineage (Eve) id, so
++// the surname outlives every named member (stock looks only at living
++// members with a family name). mtsLineageFamilies.txt in the run dir, lines
++// "<lineageEveID> <FAMILY>" ("-" = forgotten), last line wins; a world reset
++// deletes it with the other world files.
++static SimpleVector<int> mtsLineageIDs;
++static SimpleVector<char*> mtsLineageFams;
++static char mtsLineageLoaded = false;
++static const char *mtsLineageFile = "mtsLineageFamilies.txt";
++
++static void mtsLineageSet( int inID, const char *inFamily, char inWrite ) {
++    char *fam = ( inFamily == NULL ) ? NULL : stringDuplicate( inFamily );
++    char found = false;
++    for( int i=0; i<mtsLineageIDs.size(); i++ ) {
++        if( mtsLineageIDs.getElementDirect( i ) == inID ) {
++            char *old = mtsLineageFams.getElementDirect( i );
++            if( old != NULL ) {
++                delete [] old;
++                }
++            *( mtsLineageFams.getElement( i ) ) = fam;
++            found = true;
++            break;
++            }
++        }
++    if( ! found ) {
++        if( fam == NULL ) {
++            return;
++            }
++        mtsLineageIDs.push_back( inID );
++        mtsLineageFams.push_back( fam );
++        }
++    if( inWrite ) {
++        FILE *f = fopen( mtsLineageFile, "a" );
++        if( f != NULL ) {
++            fprintf( f, "%d %s\n", inID, inFamily == NULL ? "-" : inFamily );
++            fclose( f );
++            }
++        }
++    }
++
++static void mtsLoadLineageFamilies() {
++    if( mtsLineageLoaded ) {
++        return;
++        }
++    mtsLineageLoaded = true;
++    FILE *f = fopen( mtsLineageFile, "r" );
++    if( f == NULL ) {
++        return;
++        }
++    int id;
++    char word[64];
++    while( fscanf( f, "%d %63s", &id, word ) == 2 ) {
++        mtsLineageSet( id, strcmp( word, "-" ) == 0 ? NULL : word, false );
++        }
++    fclose( f );
++    }
++
++// NULL if none recorded (or mtsFreeNames=0)
++static const char *mtsLineageFamily( int inLineageEveID ) {
++    if( ! SettingsManager::getIntSetting( "mtsFreeNames", 0 ) ) {
++        return NULL;
++        }
++    mtsLoadLineageFamilies();
++    for( int i=0; i<mtsLineageIDs.size(); i++ ) {
++        if( mtsLineageIDs.getElementDirect( i ) == inLineageEveID ) {
++            return mtsLineageFams.getElementDirect( i );
++            }
++        }
++    return NULL;
++    }
++
++static void mtsForgetLineageFamily( int inLineageEveID ) {
++    if( mtsLineageFamily( inLineageEveID ) != NULL ) {
++        mtsLineageSet( inLineageEveID, NULL, true );
++        }
++    }
++
++// an Eve named her family: record it, and give it to her living
++// descendants born before the naming (their familyName is still NULL)
++static void mtsLineageNamed( LiveObject *inEve ) {
++    if( ! SettingsManager::getIntSetting( "mtsFreeNames", 0 ) ||
++        inEve->familyName == NULL ) {
++        return;
++        }
++    mtsLoadLineageFamilies();
++    const char *old = mtsLineageFamily( inEve->lineageEveID );
++    if( old == NULL || strcmp( old, inEve->familyName ) != 0 ) {
++        mtsLineageSet( inEve->lineageEveID, inEve->familyName, true );
++        }
++    for( int i=0; i<players.size(); i++ ) {
++        LiveObject *o = players.getElement( i );
++        if( o != inEve && ! o->error &&
++            o->lineageEveID == inEve->lineageEveID &&
++            o->familyName == NULL ) {
++            o->familyName = stringDuplicate( inEve->familyName );
++            }
++        }
++    }
++
 +// With mtsFreeNames=1: true if naming an Eve with these words must be
 +// refused because her family name is taken; tells inNamer why.
 +static char mtsEveNamingRefused( LiveObject *inNamer, const char *inName ) {
@@ -191,8 +314,8 @@ diff --git a/server/server.cpp b/server/server.cpp
 +    delete [] family;
 +    return refused;
 +    }
- 
- 
++
++
  static void nameEve( LiveObject *nextPlayer, const char *name ) {
      
 +    if( SettingsManager::getIntSetting( "mtsFreeNames", 0 ) ) {
@@ -212,7 +335,7 @@ diff --git a/server/server.cpp b/server/server.cpp
      
                                  
      nextPlayer->name = getUniqueCursableName( 
-@@ -16583,11 +16760,15 @@ static void nameEve( LiveObject *nextPlayer, const cha
+@@ -16583,11 +16867,17 @@ static void nameEve( LiveObject *nextPlayer, const char *name ) {
                  firstName, lastName );
          }
      
@@ -226,13 +349,25 @@ diff --git a/server/server.cpp b/server/server.cpp
 +    if( SettingsManager::getIntSetting( "mtsFreeNames", 0 ) ) {
 +        // MTS patch: this surname is now taken for good
 +        mtsRecordFamilyName( nextPlayer->familyName );
++        // ... and her family's, also for those born before it
++        mtsLineageNamed( nextPlayer );
 +        }
 +
 +    if( ! nextPlayer->isTutorial ) {
          logName( nextPlayer->id,
                   nextPlayer->email,
                   nextPlayer->name,
-@@ -16669,8 +16850,15 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby
+@@ -16663,14 +16953,25 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby, char *inName,
+     else if( babyO->familyName != NULL ) {
+         lastName = babyO->familyName;
+         }
++    else if( mtsLineageFamily( babyO->lineageEveID ) != NULL ) {
++        // MTS patch: born before the family was named
++        lastName = mtsLineageFamily( babyO->lineageEveID );
++        }
+     else if( nextPlayer->familyName != NULL ) {
+         lastName = nextPlayer->familyName;
+         }
                                      
  
  
@@ -250,7 +385,21 @@ diff --git a/server/server.cpp b/server/server.cpp
  
      if( strcmp( lastName, "" ) != 0 ) {    
          babyO->name = autoSprintf( "%s %s",
-@@ -16706,16 +16894,45 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby
+@@ -16682,6 +16983,13 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby, char *inName,
+         }
+     
+     
++    if( babyO->familyName == NULL &&
++        mtsLineageFamily( babyO->lineageEveID ) != NULL ) {
++        // MTS patch: the family named after this baby's birth
++        babyO->familyName =
++            stringDuplicate( mtsLineageFamily( babyO->lineageEveID ) );
++        }
++
+     if( babyO->familyName == NULL &&
+         nextPlayer->familyName != NULL ) {
+         // mother didn't have a family 
+@@ -16706,16 +17014,45 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby, char *inName,
              }
          }
                                      
@@ -301,7 +450,7 @@ diff --git a/server/server.cpp b/server/server.cpp
      logName( babyO->id,
               babyO->email,
               babyO->name,
-@@ -16743,6 +16960,15 @@ void replaceNameInSaidPhrase( char *inSaidName, char *
+@@ -16743,6 +17080,15 @@ void replaceNameInSaidPhrase( char *inSaidName, char **inSaidPhrase,
          trueName = stringDuplicate( inNamedPerson->name );
          // trim off last name, if there is one
          char *spacePos = strstr( trueName, " " );
@@ -317,7 +466,17 @@ diff --git a/server/server.cpp b/server/server.cpp
          if( spacePos != NULL ) {
              spacePos[0] = '\0';
              }
-@@ -25146,8 +25372,11 @@ int main( int inNumArgs, const char **inArgs ) {
+@@ -16797,7 +17143,8 @@ static char *getLineageLastName( int inLineageEveID ) {
+             return p->familyName;
+             }
+         }
+-    return NULL;
++    // MTS patch: every named member is gone, the family is still known
++    return (char*)mtsLineageFamily( inLineageEveID );
+     }
+ 
+ 
+@@ -25146,8 +25493,11 @@ int main( int inNumArgs, const char **inArgs ) {
                                  &&
                                  strcmp( name, "" ) != 0
                                  &&
@@ -331,7 +490,7 @@ diff --git a/server/server.cpp b/server/server.cpp
                                  nameEve( nextPlayer, name );
                                  playerIndicesToSendNamesAbout.push_back( i );
                                  replaceNameInSaidPhrase( 
-@@ -25844,8 +26073,13 @@ int main( int inNumArgs, const char **inArgs ) {
+@@ -25844,8 +26194,13 @@ int main( int inNumArgs, const char **inArgs ) {
                                              strcmp( name, "" ) != 0
                                              &&
                                              ! isEveNamingBlocked(

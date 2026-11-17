@@ -71,7 +71,7 @@ export class Body {
    * move, or their attack distance + 1 if larger),
    * within DANGER_SCAN of `from`: tile key -> the animal's tile and id.
    */
-  dangerZone(from: Pos): Map<string, { x: number; y: number; id: number }> {
+  dangerZone(from: Pos, core = false): Map<string, { x: number; y: number; id: number }> {
     const m = new Map<string, { x: number; y: number; id: number }>();
     for (let dy = -DANGER_SCAN; dy <= DANGER_SCAN; dy++)
       for (let dx = -DANGER_SCAN; dx <= DANGER_SCAN; dx++) {
@@ -79,7 +79,8 @@ export class Body {
         const id = this.world.objAt(x, y).id;
         const r = this.gd.dangerRadius(id);
         if (!r) continue;
-        const k = Math.max(r + 1, ANIMAL_JUMP_TILES);
+        // core: only the tiles it can bite from (its attack distance); else also how far it can jump
+        const k = core ? r : Math.max(r + 1, ANIMAL_JUMP_TILES);
         for (let ry = -k; ry <= k; ry++) for (let rx = -k; rx <= k; rx++) m.set(`${x + rx},${y + ry}`, { x, y, id });
       }
     return m;
@@ -94,9 +95,17 @@ export class Body {
     const plain = this.astar(from, goals, maxNodes);
     if (!plain || !plain.length) return plain;
     const danger = this.dangerZone(from);
-    if (!danger.size || danger.has(`${from[0]},${from[1]}`) || !plain.some((s) => danger.has(`${s[0]},${s[1]}`))) return plain;
-    const safe = this.astar(from, goals, maxNodes, danger);
-    return safe && safe.length <= plain.length + DANGER_DETOUR ? safe : plain;
+    if (!danger.size || !plain.some((s) => danger.has(`${s[0]},${s[1]}`))) return plain;
+    // well clear of every animal, when that's not much longer (not possible if we start inside the margin)
+    if (!danger.has(`${from[0]},${from[1]}`)) {
+      const safe = this.astar(from, goals, maxNodes, danger);
+      if (safe && safe.length <= plain.length + DANGER_DETOUR) return safe;
+    }
+    // at least out of biting range (starting near a swarm used to mean walking straight through it)
+    const core = this.dangerZone(from, true);
+    if (core.has(`${from[0]},${from[1]}`) || !plain.some((s) => core.has(`${s[0]},${s[1]}`))) return plain;
+    const dodge = this.astar(from, goals, maxNodes, core);
+    return dodge && dodge.length <= plain.length + DANGER_DETOUR ? dodge : plain;
   }
 
   /** A* over known cells. 8-way, no diagonal corner cutting. `avoid`: tiles treated as blocked (goals excepted). */
@@ -167,11 +176,18 @@ export class Body {
       }
       if (!legPath.length) return "no path found";
       // no way around: say which animal the path passes
+      // the closest the path comes to each animal, once per animal
       const danger = this.dangerZone(p);
+      const closest = new Map<string, { x: number; y: number; id: number; d: number }>();
       for (const s of legPath) {
-        const d = danger.get(`${s[0]},${s[1]}`);
-        if (d) this.notes.push(`your path went right past a ${this.gd.name(d.id)} at (${d.x},${d.y}); no short safe way around`);
+        const a = danger.get(`${s[0]},${s[1]}`);
+        if (!a) continue;
+        const d = Math.max(Math.abs(s[0] - a.x), Math.abs(s[1] - a.y));
+        const k = `${a.x},${a.y}`;
+        if (!closest.has(k) || closest.get(k)!.d > d) closest.set(k, { ...a, d });
       }
+      for (const a of closest.values())
+        this.notes.push(`your path passed ${a.d === 0 ? "through" : `within ${a.d} tile${a.d === 1 ? "" : "s"} of`} a ${this.gd.name(a.id)} at (${a.x},${a.y}); no safer way around`);
       const heldBefore = this.world.self?.held.id ?? 0;
       const ok = await this.move(p, legPath);
       const wound = this.newWound(heldBefore);
@@ -281,6 +297,8 @@ export class Body {
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
     const target = this.world.objAt(x, y).id;
     const heldId = this.world.self?.held.id ?? 0;
+    const blocked = this.conditionBlock();
+    if (blocked) return `use at (${x},${y}): ${blocked}`;
     // arms full with a baby: the server ignores the click; a human sees the baby in their arms
     if (heldId < 0) return `use at (${x},${y}): nothing happened (your arms are full: you're carrying baby #${-heldId}; put the baby down first)`;
     const r = await this.act(`USE ${x} ${y}${target > 0 ? " " + target : ""}`, x, y);
@@ -577,12 +595,16 @@ export class Body {
 
   say(text: string): string {
     // printable ASCII only: '#' ends a protocol message, and the game font has nothing else
-    const clean = text.toUpperCase().replace(/[^\x20-\x22\x24-\x7E]/g, " ").replace(/\s+/g, " ").trim();
-    if (!clean) return "said nothing";
+    const upper = text.toUpperCase().replace(/[^\x20-\x22\x24-\x7E]/g, " ").replace(/\s+/g, " ").trim();
+    // the game removes numbers from speech (the echo comes back without them): say what was really said
+    const clean = upper.replace(/[0-9]/g, "").replace(/\s+/g, " ").trim();
+    const lostNumbers = clean !== upper;
+    if (!clean) return lostNumbers ? "said nothing (numbers can't be spoken)" : "said nothing";
     const s = this.world.self;
     const limit = s ? sayLimit(this.world.currentAge(s)) : 10;
     this.send(`SAY 0 0 ${clean}`);
-    return clean.length > limit ? `said "${clean.slice(0, limit)}" (cut off: at your age you can only say ${limit} letters)` : `said "${clean}"`;
+    const nums = lostNumbers ? " (numbers can't be spoken: they were left out)" : "";
+    return clean.length > limit ? `said "${clean.slice(0, limit)}" (cut off: at your age you can only say ${limit} letters)${nums}` : `said "${clean}"${nums}`;
   }
 
   /** Baby: jump out of arms / wiggle. */

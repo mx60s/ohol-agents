@@ -264,6 +264,15 @@ test("eat while holding clothing puts it on even when full (as the real client d
   await b.A.turn();
   assert.equal(results(b.A)[0], "eat -> you're full, can't eat now");
   assert.ok(!g2.sent.some((c) => c.startsWith("SELF ")));
+
+  // full and holding something that isn't food: say so, not "you're full"
+  const g3 = new FakeGame(gd);
+  g3.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: id("Banana Peel"), female: true });
+  g3.food = 20;
+  g3.start();
+  const c = agentFor(g3, ['{"action":{"type":"eat"}}']);
+  await c.A.turn();
+  assert.equal(results(c.A)[0], "eat -> the Banana Peel is not food and can't be worn");
 });
 
 /** an Eve (#1) holding her unnamed newborn (#2); #3 is her grown daughter; #9 is another family's Eve */

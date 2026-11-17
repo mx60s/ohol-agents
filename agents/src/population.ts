@@ -192,6 +192,7 @@ export class Population implements SpeechSink {
         const l = lives.book.reconnectOf(this.cfg.runId, a.id, playerId, Date.now(), age);
         return l ? { lifeIndex: l.lifeIndex } : null;
       },
+      lastLifeIndex: (a: Agent) => this.extras.lives?.book.lastLifeIndex(this.cfg.runId, a.id) ?? 0,
       takenSurnames: () => this.extras.lives?.takenSurnames() ?? [],
       familyFirstNames: (playerId: number) => this.extras.lives?.familyFirstNames(this.cfg.runId, playerId) ?? [],
       speechScrambled: (speakerId: number, text: string) => this.speechScrambled(speakerId, text),
@@ -397,6 +398,9 @@ export class Population implements SpeechSink {
       for (const [k, c] of w.cells) {
         const m = this.merged.get(k);
         if (!m || m.t < c.t) this.merged.set(k, { biome: c.biome >= 0 ? c.biome : m?.biome ?? -1, floor: c.floor, obj: c.obj.id, t: c.t });
+        // the biome never changes: take it from any view that knows it, even an older one (a newer
+        // object-only update from another agent used to leave the cell "unexplored" for good)
+        else if (m.biome < 0 && c.biome >= 0) m.biome = c.biome;
       }
     }
     // an always-on run explores forever: keep the most recently seen cells only

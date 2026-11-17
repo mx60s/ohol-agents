@@ -398,3 +398,17 @@ test("a ghost (age 60 past the usual end) reconnects as the same life; split rec
   assert.ok(s.get("run1:11")!.childLifeIds.includes("run1:12"));
   assert.equal(s.healSplitReconnects().removed.length, 0, "idempotent");
 });
+
+test("lastLifeIndex: the slot's highest lifeIndex in the run, so a restarted process keeps counting", () => {
+  const b = book();
+  const f = new FakeEvents();
+  assert.equal(b.lastLifeIndex(R, "a05"), 0);
+  b.apply(R, f.child("a05", 6, 4));
+  b.apply(R, f.death("a05", 6, 1.5));
+  const second = f.child("a05", 10, 4);
+  (second.data as Record<string, unknown>).lifeIndex = 2;
+  b.apply(R, second);
+  assert.equal(b.lastLifeIndex(R, "a05"), 2);
+  assert.equal(b.lastLifeIndex("other-run", "a05"), 0);
+  assert.equal(b.lastLifeIndex(R, "a06"), 0);
+});

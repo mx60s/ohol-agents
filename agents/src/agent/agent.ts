@@ -52,6 +52,8 @@ export interface AgentHooks {
    * (then only a same-process reconnect to the same player id counts).
    */
   reconnect?(agent: Agent, playerId: number, age: number): { lifeIndex: number | null } | null | undefined;
+  /** the highest lifeIndex this slot already had in the run (LifeStore), so a new process doesn't restart at 1 */
+  lastLifeIndex?(agent: Agent): number;
   /** family surnames any of our lives ever carried, most recent first (LifeStore; naming rule 1, see naming.ts) */
   takenSurnames?(): string[];
   /** first names used in the family of our life with this player id (LifeStore; naming rule 2) */
@@ -294,7 +296,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       return;
     }
 
-    this.lifeIndex++;
+    this.lifeIndex = Math.max(this.lifeIndex, this.hooks.lastLifeIndex?.(this) ?? 0) + 1;
     this.status = "alive";
     if (this.cfg.memoryMode === "persistent" && this.notebook.length) {
       this.pastLifeNotes.push(...this.notebook);
@@ -727,7 +729,9 @@ export class Agent implements TurnAgent<TurnPlan> {
         case "use_on_self": {
           const w = this.world!;
           // the real client puts clothing on when you "eat" it, full or not
-          if (a.type === "eat" && w.food >= w.foodCapacity && !this.holdingClothing()) return "you're full, can't eat now";
+          // "full" only applies to food: a Banana Peel in hand got "you're full", and agents waited to get hungry to "eat" it
+          const held = w.self?.held.id ?? 0;
+          if (a.type === "eat" && held > 0 && this.gd.isFood(held) && w.food >= w.foodCapacity) return "you're full, can't eat now";
           return await b.self();
         }
         case "forage":

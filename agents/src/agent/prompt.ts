@@ -114,7 +114,7 @@ Heat and cold make your food run out faster. If your food runs out, you starve.
 
 Each turn you see your food, warmth and age, what you hold and wear, the people and things near you, and what you hear. You hold one thing at a time. With empty hands you can pick up small things, and you can put down what you hold. Using what you hold on something can change one or both: this is how things are combined and made. Food you hold can be eaten; clothing you hold can be worn. Trees and bushes can't be carried. You walk next to a target automatically.
 
-You can say whatever you want; people within ${SPEECH_RADIUS_TILES} tiles of you hear it. Some phrases also have specific consequences, whenever they are said:
+You can say whatever you want; people within ${SPEECH_RADIUS_TILES} tiles of you hear it. Numbers can't be spoken: they are removed. Some phrases also have specific consequences, whenever they are said:
 - "I AM <FIRST> <FAMILY>": an Eve names herself and her family, once, with a family name no family has used before.
 - "YOU ARE <FIRST>": names the nameless baby you hold, or, with your arms empty, the nearest nameless person aged 5 or older within 20 tiles; a first name already used in the family gets a number (AURORA II).
 - "I FOLLOW YOU": the nearest person becomes your leader. "ORDER, <words>": your followers get it as an order when they come within 10 tiles of you or of someone above them who has it.

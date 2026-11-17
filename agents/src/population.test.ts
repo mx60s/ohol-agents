@@ -157,3 +157,19 @@ test("speechScrambled: never below 15 alive (server minActivePlayersForLanguages
     assert.equal(pop.speechScrambled(2, "HOBA"), null, "never heard #2 speak");
   });
 });
+
+test("merged map keeps a known biome when a newer object-only update for that cell comes from another agent", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pop-"));
+  try {
+    const cfg: Config = { ...config, logDir: dir, runId: "t", narratorIntervalMs: 0 };
+    const pop = new Population(cfg, { name: () => "Stone" } as unknown as GameData, new EventLog(dir, "t"));
+    const cell = (biome: number, t: number) => new Map([["5,5", { biome, floor: 0, obj: { id: 0, contained: [] }, t }]]);
+    // agent A saw the cell in a map chunk (biome known), agent B later only saw an object change there
+    pop.agents.push({ status: "alive", world: { self: { x: 5, y: 5 }, cells: cell(-1, 200) } } as never);
+    pop.agents.push({ status: "alive", world: { self: { x: 5, y: 5 }, cells: cell(3, 100) } } as never);
+    const m = pop.map(60, 1_000);
+    assert.equal(m.cells.find((c) => c[0] === 5 && c[1] === 5)?.[2], 3);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

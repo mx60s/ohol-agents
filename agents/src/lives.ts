@@ -267,6 +267,13 @@ export class LifeBook {
     return best;
   }
 
+  /** highest lifeIndex this slot has had in the run (0 = none), so a restarted process keeps counting */
+  lastLifeIndex(runId: string, agentId: string): number {
+    let n = 0;
+    for (const l of this.lives.values()) if (l.runId === runId && l.agentId === agentId && l.lifeIndex != null) n = Math.max(n, l.lifeIndex);
+    return n;
+  }
+
   /**
    * Would a login of `agentId` that landed in `playerId` at age `age` be the
    * run's still-open life again (a reconnect, e.g. after an agents-service

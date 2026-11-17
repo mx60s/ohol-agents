@@ -113,8 +113,21 @@ test("pathing that has to pass a dangerous animal says so", async () => {
   g.start();
   const body = new Body(g.conn, g.world, gd);
   assert.equal(await body.walkTo([[10, 0]]), "arrived");
-  assert.match(body.takeNotes().join(), /your path went right past a Wild Boar at \(10,2\); no short safe way around/);
+  const notes = body.takeNotes();
+  assert.match(notes.join(), /your path passed within 2 tiles of a Wild Boar at \(10,2\); no safer way around/);
+  assert.equal(notes.length, 1, "one note per animal, at its closest");
   assert.ok(walked(g).some(([x, y]) => x === 10 && y === 0));
+});
+
+test("starting within a swarm's jump margin still routes around its biting range", async () => {
+  const g = setup(0, [99, 99]);
+  const SWARM = gd.idByName("Mosquito Swarm")!;
+  g.setTile(3, 0, SWARM); // straight ahead, 3 tiles away: we start inside its 4-tile margin
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.equal(await body.walkTo([[6, 0]]), "arrived");
+  const bitten = walked(g).filter(([x, y]) => Math.max(Math.abs(x - 3), Math.abs(y)) <= 1);
+  assert.deepEqual(bitten, [], "never within the swarm's biting range");
 });
 
 test("pick_up_baby with full hands says why instead of a silent 'nothing happened'", async () => {
@@ -261,4 +274,13 @@ test("forage while full: empty hands pick the food and keep it (nothing eaten); 
   assert.ok(gd.isFood(g.world.self!.held.id), `holding food (${r})`);
   const r2 = await body.forage();
   assert.match(r2, /you're full .*empty your hands/);
+});
+
+test("say: numbers are left out as the game does, and the result says so; a sickness blocks use with the real reason", async () => {
+  const g = setup(0, [99, 99]);
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.equal(body.say("go to 44,2 now"), `said "GO TO , NOW" (numbers can't be spoken: they were left out)`);
+  assert.ok(g.sent.includes("SAY 0 0 GO TO , NOW"));
+  assert.equal(body.say("hello"), `said "HELLO"`);
 });
