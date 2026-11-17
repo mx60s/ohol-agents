@@ -65,6 +65,14 @@ export interface ObservationOptions {
 }
 
 const DEFAULT_CLOCK: TurnClock = { cycleMs: 8000, timeScale: 1 };
+/**
+ * How long deaths and heard lines stay in the observation: 300 s / 90 s of
+ * wall time, or with the turn clock (where wall time includes everyone's
+ * thinking) the same number of 8 s turns: 37 and 12 turns.
+ */
+const DEATHS_SHOWN_MS = 300_000;
+const HEARD_SHOWN_MS = 90_000;
+const shownMs = (wallMs: number, clock: TurnClock) => (clock.lockstep ? Math.round(wallMs / DEFAULT_CLOCK.cycleMs) * clock.cycleMs : wallMs);
 
 export function playerLabel(w: World, gd: GameData, p: Player, flower?: string | null): string {
   const age = w.currentAge(p);
@@ -226,7 +234,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   }
 
   // --- deaths we witnessed
-  const deaths = w.deaths.filter((d) => now - d.t < 300_000);
+  const deaths = w.deaths.filter((d) => now - d.t < shownMs(DEATHS_SHOWN_MS, clock));
   if (deaths.length) {
     L.push(``);
     L.push(`== DEATHS YOU SAW ==`);
@@ -237,7 +245,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   }
 
   // --- speech
-  const heard = w.heard.filter((h) => now - h.t < 90_000).slice(-10);
+  const heard = w.heard.filter((h) => now - h.t < shownMs(HEARD_SHOWN_MS, clock)).slice(-10);
   L.push(``);
   L.push(`== HEARD ==`);
   if (!heard.length) L.push(`Nothing.`);

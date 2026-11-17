@@ -39,6 +39,14 @@ if [ -n "${TIME_SCALE:-}" ]; then
   echo "setting override: timeScale=$TIME_SCALE (TIME_SCALE)"
 fi
 
+# TURN_CLOCK=1 (same var the agents read): game clock runs only up to the
+# target in mtsClockTarget.txt, see server/patches/turn-clock.patch and
+# docs/turn-clock.md. Default off. OHOL_SETTING_mtsTurnClock wins if both set.
+if [ -n "${TURN_CLOCK:-}" ]; then
+  printf '%s' "$TURN_CLOCK" > settings/mtsTurnClock.ini
+  echo "setting override: mtsTurnClock=$TURN_CLOCK (TURN_CLOCK)"
+fi
+
 # Env overrides: OHOL_SETTING_<name>=<value> writes settings/<name>.ini
 # e.g. OHOL_SETTING_maxPlayers=80
 while IFS='=' read -r key value; do
@@ -46,6 +54,15 @@ while IFS='=' read -r key value; do
   printf '%s' "$value" > "settings/$name.ini"
   echo "setting override: $name=$value"
 done < <(env | grep '^OHOL_SETTING_' || true)
+
+# The turn clock persists its game time in mtsClockGame.txt. With the turn
+# clock off the server doesn't update that file, so set it aside: switching
+# back on then starts from the normal game clock instead of jumping back.
+tc="$(tr -d '[:space:]' < settings/mtsTurnClock.ini 2>/dev/null || true)"
+if [ "${tc:-0}" = 0 ] && [ -f mtsClockGame.txt ]; then
+  mv -f mtsClockGame.txt mtsClockGame.txt.off
+  echo "turn clock off: moved mtsClockGame.txt to mtsClockGame.txt.off"
+fi
 
 if [ -n "${PORT_OVERRIDE:-}" ]; then
   printf '%s' "$PORT_OVERRIDE" > settings/port.ini

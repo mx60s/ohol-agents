@@ -414,7 +414,8 @@ export async function runCraft(body: CraftBody, w: World, gd: GameData, planner:
   if (!me) return "no body";
   if (w.currentAge(me) < 3) return "you're too young to craft";
   if (me.held.id < 0) return `can't craft ${name} while carrying a baby: crafting needs your hands. Put the baby down first (drop), or craft later.`;
-  const t0 = Date.now();
+  // the world's clock: with the turn clock it only runs in act windows
+  const t0 = w.now();
   const startPos = w.posOf(me);
   const startHeld = me.held.id;
   // where crafting took us, and where what we were holding ended up
@@ -440,7 +441,7 @@ export async function runCraft(body: CraftBody, w: World, gd: GameData, planner:
       stopped = `interrupted: ${why}`;
       break;
     }
-    if (Date.now() - t0 > maxMs) {
+    if (w.now() - t0 > maxMs) {
       stopped = "out of time for this turn";
       break;
     }
@@ -490,8 +491,8 @@ async function doStep(body: CraftBody, w: World, gd: GameData, step: CraftStep, 
   if (step.wait) {
     const p = nearest(w, t.target);
     if (!p) return { ok: false, why: `${gd.name(t.target)} is gone` };
-    const until = Date.now() + waitMs(t.autoDecaySeconds) + 1500;
-    while (Date.now() < until && w.objAt(p[0], p[1]).id === t.target) {
+    const until = w.now() + waitMs(t.autoDecaySeconds) + 1500;
+    while (w.now() < until && w.objAt(p[0], p[1]).id === t.target) {
       if (body.interruptReason()) return { ok: false, why: "interrupted while waiting" };
       await sleep(250);
     }

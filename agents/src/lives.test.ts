@@ -262,6 +262,30 @@ test("time scale: each life keeps the k it was born under; presumedEnd and recon
   assert.equal(toDeath(slow.get("slowRun:10")!).timeScale, 3);
 });
 
+test("turn clock: a resumed body's age may lag wall time (never run ahead of it)", () => {
+  for (const lags of [true, false]) {
+    const f = new FakeEvents();
+    const b = new LifeBook({ dims: DIMS, mutationSd: 0.15, traitSource: "mock", rng: seededRng(1), gameClockLags: lags });
+    b.apply(R, f.eve("a01", 10));
+    b.apply(R, f.child("a02", 20, 10));
+    // 20 wall minutes later (20 years by wall time), the baby is 3 by the game clock
+    f.wait(20 * 60_000);
+    const back = b.reconnectOf(R, "a02", 20, f.t, 3);
+    b.apply(R, f.ev("birth", "a02", 20, { playerId: 20, motherId: 10, eve: false, generation: 2, age: 3 }));
+    if (lags) {
+      assert.equal(back?.lifeId, "run1:20", "same life");
+      assert.equal(b.lives.size, 2, "no new life");
+      // still rejected: younger than at birth, or older than wall time allows
+      assert.equal(b.reconnectOf(R, "a01", 10, f.t, 12), null);
+      assert.equal(b.reconnectOf(R, "a01", 10, f.t, 40), null);
+      assert.ok(b.reconnectOf(R, "a01", 10, f.t, 15));
+    } else {
+      assert.equal(back, null, "wall-time expectation (20) is 17 years off");
+      assert.equal(b.lives.size, 3);
+    }
+  }
+});
+
 test("flowers: distinct among living relatives, stable for life, a dead relative's can come back, reconnect keeps it", () => {
   const b = book();
   const f = new FakeEvents();

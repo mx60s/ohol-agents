@@ -19,6 +19,7 @@ import { snapshot, bodyEvents, speechEvent, deathEvent, birthEvent, type Salient
 import { turnClock, realMs } from "./turns.ts";
 import { CraftPlanner, craftBudgetMs, runCraft } from "../game/craft.ts";
 import { cleanText } from "../safety.ts";
+import type { TurnAgent, TurnLink, TurnStatus } from "../turnclock.ts";
 
 export { sanitizeAction, type Action };
 
@@ -57,7 +58,20 @@ export interface AgentHooks {
   familyFirstNames?(playerId: number): string[];
   /** was this heard line scrambled by the server's family languages? null = unknown (see observe.ts) */
   speechScrambled?(speakerId: number, text: string): boolean | null;
+  /**
+   * Turn clock (TURN_CLOCK=1): the TurnCoordinator paces this agent (decideTurn /
+   * actTurn) instead of its own loop; World runs on the coordinator's game-paced clock.
+   */
+  turns?: TurnLink;
 }
+
+/** A decision waiting for the act window (turn clock): the parsed reply, or the starving reflex. */
+export type TurnPlan = { kind: "reflex" } | Decision;
+
+/** What the model said, parsed (or why it couldn't be). */
+type Decision =
+  | { kind: "reply"; reply: Record<string, any>; obsBuiltAt: number }
+  | { kind: "unparseable"; reason: string; cut: boolean };
 
 /** Per-process memory of models that ignore the reasoning cap (see cappedDecision). */
 export interface CapState {
@@ -115,8 +129,10 @@ export async function cappedDecision(
 }
 
 const BABY_AGE = 3;
+/** turn clock: wall ms between our SAY messages (the server's flood gap is 1 wall s) */
+const SAY_GAP_MS = 1100;
 
-export class Agent {
+export class Agent implements TurnAgent<TurnPlan> {
   status: AgentView["status"] = "waiting";
   lifeIndex = 0;
   world: World | null = null;
@@ -143,6 +159,8 @@ export class Agent {
   private actionStartedAt = Infinity;
   /** tiles and people as the model last saw them (built with the observation) */
   private seen: Seen | null = null;
+  /** counts lives (logins); the turn coordinator ignores work left over from an earlier one */
+  private lifeSeq = 0;
   private get clock() {
     return turnClock(this.cfg);
   }
@@ -200,7 +218,9 @@ export class Agent {
 
   private async live() {
     this.status = "connecting";
+    this.lifeSeq++;
     const gd = this.gd;
+    const turns = this.hooks.turns;
     const world = new World(gd, {
       onSelfDied: (reason, age) => {
         this.ev("death", `${this.nameOf() ?? this.id} died at age ${age.toFixed(1)} (${reason.replace("reason_", "")})`, { playerId: world.selfId, age, reason });
@@ -217,7 +237,7 @@ export class Agent {
         }
       },
       onPlayerDied: (p) => this.noteSalient(deathEvent(world, p)),
-    });
+    }, turns ? () => turns.now() : undefined);
     this.pending = [];
     this.lastSnap = null;
     this.knownKids = new Set();
@@ -294,6 +314,10 @@ export class Agent {
 
   /** decide/act until the character dies or the connection drops */
   private async playLife(world: World, conn: Connection) {
+    if (this.hooks.turns) {
+      // turn clock: the coordinator calls decideTurn / actTurn; death or a dropped connection pokes us
+      while (!this.stopped && !world.dead && !conn.closed) await this.sleepInterruptible(1000);
+    }
     while (!this.stopped && !world.dead && !conn.closed) {
       const t0 = Date.now();
       await this.turn();
@@ -374,33 +398,86 @@ export class Agent {
     });
   }
 
-  /** One observe -> decide -> act cycle. */
+  /** One observe -> decide -> act cycle (own pacing; with the turn clock see decideTurn / actTurn). */
   private async turn() {
-    const world = this.world!;
-    const body = this.body!;
-    body.syncForce();
-
-    // reflex: starving and holding food -> eat, no LLM needed
-    const me = world.self!;
-    // reflex: about to starve -> grab the nearest hand-pickable food and eat
-    // (puts a carried baby down and picks it back up). Logged as a reflex so
-    // analysis can separate it from LLM decisions.
-    // If there's no food in reach, fall through to the LLM so it can decide
-    // to travel; and don't retry the reflex more than every 20s.
-    if (world.food <= 2 && world.currentAge(me) >= 3 && world.food < world.foodCapacity && Date.now() - this.lastReflexAt > 20000) {
-      this.lastReflexAt = Date.now();
-      const before = this.actionContext();
-      const r = await body.forage();
-      this.record("forage (reflex: starving)", r);
-      this.ev("action", `reflex forage -> ${r}`, { reflex: true, ...this.actionData(before) });
-      if (!r.startsWith("no food")) return;
-    }
+    this.body!.syncForce();
+    if (this.reflexDue() && (await this.reflex())) return;
 
     if (this.llm.overBudget) {
       await this.sleepInterruptible(10000);
       return;
     }
+    const d = await this.think();
+    if (!d) {
+      // infrastructure failures (HTTP errors, outages, backoff) are logged only: they are not
+      // the character's experience and must never reach the model's observation
+      await this.sleepInterruptible(3000);
+      return;
+    }
+    await this.apply(d);
+  }
 
+  // --- turn clock (TurnAgent): the coordinator decides when we think and act
+
+  turnStatus(): TurnStatus {
+    const w = this.world;
+    const me = w?.self;
+    const ready = this.alive && this.status === "alive" && !!me && !!this.body;
+    return { ready, life: this.lifeSeq, baby: ready && w!.currentAge(me!) < BABY_AGE, news: this.pending.length > 0 };
+  }
+
+  /** Decide phase (world frozen): the starving reflex or one model call. null = nothing to do this turn. */
+  async decideTurn(): Promise<TurnPlan | null> {
+    if (!this.alive || !this.body || !this.world?.self) return null;
+    this.body.syncForce();
+    if (this.reflexDue()) return { kind: "reflex" };
+    if (this.llm.overBudget) return null;
+    return this.think();
+  }
+
+  /** Act phase: run the decision (its steps wait for act windows; a long walk spans several). */
+  async actTurn(plan: TurnPlan): Promise<void> {
+    if (!this.alive) return;
+    await this.hooks.turns?.actWindow();
+    if (!this.alive) return;
+    this.body!.syncForce();
+    if (plan.kind === "reflex") await this.reflex();
+    else await this.apply(plan);
+  }
+
+  /** The decide phase ended before our reply: it is dropped. */
+  tooSlow() {
+    if (!this.alive) return;
+    this.record("(thinking)", "you were too slow to act this turn; nothing happened");
+    this.ev("system", "too slow: reply missed the decide phase and was dropped", { tooSlow: true });
+  }
+
+  /**
+   * Reflex: about to starve -> grab the nearest hand-pickable food and eat (puts
+   * a carried baby down and picks it back up). Logged as a reflex so analysis can
+   * separate it from LLM decisions. Not more than every 20 s (world clock).
+   */
+  private reflexDue(): boolean {
+    const world = this.world!;
+    const me = world.self!;
+    return world.food <= 2 && world.currentAge(me) >= 3 && world.food < world.foodCapacity && world.now() - this.lastReflexAt > 20000;
+  }
+
+  /** Runs the reflex; false = no food in reach (then the model decides, e.g. to travel). */
+  private async reflex(): Promise<boolean> {
+    this.lastReflexAt = this.world!.now();
+    const before = this.actionContext();
+    const r = await this.body!.forage();
+    this.record("forage (reflex: starving)", r);
+    this.ev("action", `reflex forage -> ${r}`, { reflex: true, ...this.actionData(before) });
+    return !r.startsWith("no food");
+  }
+
+  /** Observe and call the model. null = the call failed (logged only). */
+  private async think(): Promise<Decision | null> {
+    const world = this.world!;
+    const body = this.body!;
+    const me = world.self!;
     // what woke us / happened since the last decision
     const alerts = this.pending.splice(0).map((s) => s.reason);
     let obs = buildObservation(world, this.gd, {
@@ -412,6 +489,7 @@ export class Agent {
       lastThought: this.lastThought,
       foodSources: body.foodSources(),
       clock: this.clock,
+      now: world.now(),
       foodBonusS: foodBonusOf(this.cfg),
       flowerOf: this.hooks.flowerOf,
       speechScrambled: this.hooks.speechScrambled,
@@ -420,7 +498,7 @@ export class Agent {
     if (alerts.length) obs += `\n\n== JUST HAPPENED ==\n${[...new Set(alerts)].map((a) => `- ${a}`).join("\n")}`;
     const obsBuiltAt = Date.now(); // turn timing for calibration: observation built -> action dispatched
     // what the model is about to see; checked again when its action runs (staleness)
-    this.seen = seenSnapshot(world);
+    this.seen = seenSnapshot(world, world.now());
     const messages: ChatMessage[] = [
       { role: "system", content: systemPromptFor(this.cfg) },
       { role: "user", content: obs + "\n\nWhat do you do next? Reply with JSON only." },
@@ -430,25 +508,27 @@ export class Agent {
       llmRes = await this.decide(messages);
     } catch (e) {
       this.log.write("llm.jsonl", { t: Date.now(), agentId: this.id, playerId: world.selfId, error: String(e) });
-      // infrastructure failures (HTTP errors, outages, backoff) are logged only: they are not
-      // the character's experience and must never reach the model's observation
-      await this.sleepInterruptible(3000);
-      return;
+      return null;
     }
     this.log.write("llm.jsonl", {
       t: Date.now(), agentId: this.id, playerId: world.selfId, lifeIndex: this.lifeIndex,
       observation: obs, reply: llmRes.text, ...llmLogFields(llmRes), finishReason: llmRes.finishReason,
     });
     const parsed = parseReply(llmRes.text);
-    if (!parsed.ok) {
-      const cut = llmRes.finishReason === "length" ? " (it was cut off: keep it short)" : "";
-      this.record("think", `wasted turn: ${parsed.reason}${cut}. Reply with one JSON object like {"thought":"...","action":{"type":"go","x":3,"y":4}}`);
-      this.ev("system", `unparseable reply: ${parsed.reason}`, { parseError: true });
+    if (!parsed.ok) return { kind: "unparseable", reason: parsed.reason, cut: llmRes.finishReason === "length" };
+    return { kind: "reply", reply: parsed.value as Record<string, any>, obsBuiltAt };
+  }
+
+  /** Act on a decision: thought, goal, note, speech, then the action list. */
+  private async apply(d: Decision) {
+    if (d.kind === "unparseable") {
+      const cut = d.cut ? " (it was cut off: keep it short)" : "";
+      this.record("think", `wasted turn: ${d.reason}${cut}. Reply with one JSON object like {"thought":"...","action":{"type":"go","x":3,"y":4}}`);
+      this.ev("system", `unparseable reply: ${d.reason}`, { parseError: true });
       return;
     }
-
     // model output is untrusted: it reaches the public API, the stream and other prompts
-    const reply = parsed.value as Record<string, any>;
+    const reply = d.reply;
     const thought = cleanText(reply.thought, 400);
     if (thought) {
       this.lastThought = thought;
@@ -462,14 +542,14 @@ export class Agent {
       if (this.notebook.length > 30) this.notebook.shift();
     }
     const say = cleanText(reply.say, 200);
-    if (say) this.record(`say "${say}"`, this.speak(say));
+    if (say) this.record(`say "${say}"`, await this.speakSpaced(say));
     const checked = checkActions(reply, this.cfg.craftMacro, this.cfg.actionListMax ?? 4);
     if ("error" in checked) {
       this.record("(no valid action)", checked.error);
       this.ev("system", `invalid action: ${checked.error}`, { invalidAction: true });
       return;
     }
-    await this.runSteps(checked.steps, checked.notes, obsBuiltAt);
+    await this.runSteps(checked.steps, checked.notes, d.obsBuiltAt);
   }
 
   /**
@@ -482,6 +562,11 @@ export class Agent {
     const listStart = Date.now();
     const n = steps.length;
     for (let i = 0; i < n; i++) {
+      // turn clock: a step starts only while the game clock runs (a long list spans act windows)
+      if (this.hooks.turns) {
+        await this.hooks.turns.actWindow();
+        if (!this.alive) break;
+      }
       const action = steps[i];
       const desc = describeAction(action);
       this.lastAction = desc;
@@ -519,6 +604,20 @@ export class Agent {
       this.log.emitEvent("system", { agentId: this.id, text: `model ${model} keeps running out of tokens under the reasoning cap; using the full budget for it from now on` }),
     );
   }
+
+  /**
+   * Turn clock: the server drops a second SAY within 1 wall second (its flood gap
+   * is wall time in turn mode, docs/turn-clock.md), so space our lines out.
+   */
+  private async speakSpaced(text: string): Promise<string> {
+    if (this.hooks.turns) {
+      const gap = SAY_GAP_MS - (Date.now() - this.lastSayAt);
+      if (gap > 0) await sleep(gap);
+      this.lastSayAt = Date.now();
+    }
+    return this.speak(text);
+  }
+  private lastSayAt = 0;
 
   /** Say something, after the naming rules (naming.ts): a refused family name isn't sent; a repeated baby name gets a numeral. */
   private speak(text: string): string {
@@ -585,7 +684,7 @@ export class Agent {
   }
 
   private record(action: string, result: string) {
-    this.history.push({ t: Date.now(), action, result });
+    this.history.push({ t: this.world?.now() ?? Date.now(), action, result });
     if (this.history.length > 20) this.history.shift();
   }
 
@@ -626,7 +725,7 @@ export class Agent {
           const goal = planner.resolve(a.item ?? "");
           if ("error" in goal) return goal.error;
           return await runCraft(b, this.world!, this.gd, planner, goal.id, {
-            maxMs: craftBudgetMs(this.clock.cycleMs, this.clock.timeScale),
+            maxMs: craftBudgetMs(this.clock.turnGameMs ?? this.clock.cycleMs, this.clock.timeScale),
             waitMs: (s) => realMs(s, this.clock),
           });
         }
@@ -645,14 +744,20 @@ export class Agent {
           // accepted as an action too ({"type":"say","text":...}); speech is the whole turn.
           // Without text, the reply's top-level "say" carried the words (already spoken)
           if (!a.text) return "spoke (your \"say\")";
-          return this.speak(a.text);
+          return await this.speakSpaced(a.text);
         case "wait": {
           // no model calls while waiting; a salient event (noteSalient) ends the wait early
           const turns = Math.min(Math.max(Math.round(Number(a.turns ?? 1)), 1), 4);
           const t0 = Date.now();
           if (this.pending.length) return `didn't wait: ${this.pending[0].reason}`;
-          await this.sleepInterruptible(turns * this.clock.cycleMs);
-          const waited = Math.max(0, Math.round((Date.now() - t0) / this.clock.cycleMs));
+          let waited: number;
+          if (this.hooks.turns) {
+            // turn clock: skip `turns` decide phases (a salient event ends it at the next one)
+            waited = await this.hooks.turns.turns(turns, () => this.pending.length > 0 || !this.alive);
+          } else {
+            await this.sleepInterruptible(turns * this.clock.cycleMs);
+            waited = Math.max(0, Math.round((Date.now() - t0) / this.clock.cycleMs));
+          }
           const woke = this.pending[0];
           return woke ? `waited ${waited} of ${turns} turn${turns === 1 ? "" : "s"}; woken: ${woke.reason}` : `waited ${turns} turn${turns === 1 ? "" : "s"}`;
         }

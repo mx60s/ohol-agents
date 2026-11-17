@@ -35,8 +35,8 @@ export class FakeGame {
   readonly babyLog: [number, number, "down" | "up"][] = [];
   private moveSeqDone = 0;
 
-  constructor(private gd: GameData, readonly selfId = 1, private delayMs = 5) {
-    this.world = new World(gd);
+  constructor(private gd: GameData, readonly selfId = 1, private delayMs = 5, now?: () => number) {
+    this.world = new World(gd, {}, now);
   }
 
   /** Body's connection */

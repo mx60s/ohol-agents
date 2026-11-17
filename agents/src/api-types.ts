@@ -68,6 +68,26 @@ export interface RunInfo {
    * wall time (stock OHOL: 1). Always sent by the agents service; treat missing as 1.
    */
   timeScale?: number;
+  /** the turn clock's state (TURN_CLOCK=1, docs/turn-clock.md); absent when it is off */
+  turn?: TurnInfo;
+}
+
+/** Turn clock state: the world is frozen in "decide" (everyone thinks) and runs for turnGameS game seconds in "act". */
+export interface TurnInfo {
+  /** turns started since the agents service started this run */
+  n: number;
+  /** "idle" = no turns (nobody to play, run paused, no clock report yet): the game clock stays paused */
+  phase: "idle" | "decide" | "act";
+  /** decide phase: replies in / agents asked this turn */
+  decided: number;
+  total: number;
+  /** game clock (s) as last reported by the server (extrapolated in an act window); null = no report yet */
+  gameTime: number | null;
+  /** the game time the clock may run to; null = not written yet */
+  target: number | null;
+  /** agents still running an earlier action list (long walk, wait) */
+  busy: number;
+  turnGameS: number;
 }
 
 /**

@@ -159,7 +159,13 @@ export class World {
   /** objects that just left a cell or our hands, by id: their timers carry over when they turn up again */
   private handoff = new Map<number, Since & { at: number }>();
 
-  constructor(private gd: GameData, private ev: WorldEvents = {}) {}
+  /**
+   * @param now the clock timestamps and extrapolation run on: wall time, or with
+   * the turn clock (TURN_CLOCK=1) a game-paced clock that stands still while the
+   * server's game clock is paused (TurnCoordinator.now), so ages, walks and
+   * timers don't advance while everyone thinks
+   */
+  constructor(private gd: GameData, private ev: WorldEvents = {}, readonly now: () => number = Date.now) {}
 
   get self(): Player | undefined {
     return this.selfId == null ? undefined : this.players.get(this.selfId);
@@ -226,7 +232,7 @@ export class World {
    * mid-walk is at their interpolated spot along the path (x,y already hold
    * the destination). Our own x,y is exact (actions wait for done_moving).
    */
-  posOf(p: Player, now = Date.now()): [number, number] {
+  posOf(p: Player, now = this.now()): [number, number] {
     const c = this.carrierOf(p);
     if (c) return this.posOf(c, now);
     if (p.id === this.selfId || !this.isWalking(p, now) || !p.move) return [p.x, p.y];
@@ -238,7 +244,7 @@ export class World {
   }
 
   /** someone else is walking right now (their x,y is where they're going) */
-  isWalking(p: Player, now = Date.now()): boolean {
+  isWalking(p: Player, now = this.now()): boolean {
     return p.moving && now < p.moveEndsAt;
   }
 
@@ -250,11 +256,11 @@ export class World {
   currentAge(p: Player): number {
     if (!p.ageRate) return Math.min(p.age, MAX_AGE);
     // ageRate is wall s/year from the server, so this already follows TIME_SCALE
-    return Math.min(MAX_AGE, p.age + (Date.now() - p.ageAt) / 1000 / p.ageRate);
+    return Math.min(MAX_AGE, p.age + (this.now() - p.ageAt) / 1000 / p.ageRate);
   }
 
   handle(m: ServerMessage) {
-    const now = Date.now();
+    const now = this.now();
     switch (m.type) {
       case "MC": {
         const { chunk } = m;

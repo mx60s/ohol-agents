@@ -165,6 +165,11 @@ export interface LifeBookOptions {
   rng: Rng;
   /** game clock slowdown k stamped on new lives (default config.timeScale) */
   timeScale?: number;
+  /**
+   * TURN_CLOCK=1: the game clock is paused while agents think, so ages lag the
+   * wall-time expectation (they never run ahead of it). See sameBody.
+   */
+  gameClockLags?: boolean;
 }
 
 export interface ApplyResult {
@@ -269,7 +274,7 @@ export class LifeBook {
    */
   reconnectOf(runId: string, agentId: string, playerId: number, t: number, age: number | null): LifeCore | null {
     const l = this.byRunPlayer(runId, playerId);
-    if (!l || l.bornAt < this.epochStart || !sameBody(l, agentId, t, age)) return null;
+    if (!l || l.bornAt < this.epochStart || !sameBody(l, agentId, t, age, this.opts.gameClockLags)) return null;
     return l;
   }
 
@@ -355,7 +360,7 @@ export class LifeBook {
     // game-server restart, a different character that was handed a recycled id. Merging the latter into
     // the old record corrupted it (activity, lineage and children piled onto a dead Eve).
     let existing = this.byRunPlayer(runId, playerId);
-    if (existing && (existing.bornAt < this.epochStart || !sameBody(existing, agentId, ev.t, age))) existing = null;
+    if (existing && (existing.bornAt < this.epochStart || !sameBody(existing, agentId, ev.t, age, this.opts.gameClockLags))) existing = null;
     let lifeId = existing?.lifeId ?? lifeIdOf(runId, playerId);
     for (let n = 2; !existing && this.lives.has(lifeId); n++) lifeId = `${runId}.${n}:${playerId}`;
 
@@ -572,13 +577,14 @@ export class LifeBook {
  * that life is still open, in the same slot, and the reported age matches the
  * age it should have reached by now (a recycled id comes with a newborn/Eve age).
  */
-function sameBody(l: LifeCore, agentId: string, t: number, age: number | null): boolean {
+function sameBody(l: LifeCore, agentId: string, t: number, age: number | null, gameClockLags = false): boolean {
   if (l.diedAt != null || l.agentId !== agentId) return false;
   // with a reported age the age test below decides: a ghost (allowGhosts) stays at 60 past the usual end
   if (age == null && t > presumedEndAt(l) + 5 * 60_000) return false;
   if (age != null && l.ageAtBirth != null) {
     const expected = Math.min(LIFESPAN_YEARS, l.ageAtBirth + (t - l.bornAt) / yearMsOf(l));
-    if (Math.abs(age - expected) > 3) return false;
+    // turn clock: anywhere from the age at birth up to the wall-time expectation
+    if (gameClockLags ? age < l.ageAtBirth - 0.5 || age > expected + 3 : Math.abs(age - expected) > 3) return false;
   }
   return true;
 }

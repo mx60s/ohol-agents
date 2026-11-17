@@ -84,7 +84,7 @@ export class RunController extends EventEmitter {
     mkdirSync(researchDir, { recursive: true });
     this.spend = new SpendLedger({ file: path.join(researchDir, "spend.jsonl") });
     this.spend.load();
-    this.lives = new LifeStore({ logDir: cfg.logDir, dims: cfg.traitDims, mutationSd: cfg.traitMutationSd, traitSource: cfg.traitSource, timeScale: cfg.timeScale });
+    this.lives = new LifeStore({ logDir: cfg.logDir, dims: cfg.traitDims, mutationSd: cfg.traitMutationSd, traitSource: cfg.traitSource, timeScale: cfg.timeScale, gameClockLags: cfg.turnClock });
     let decision: RunDecision | null = null;
     let prev: RunRecord | null = null;
     let regenerated: ReturnType<typeof parseWorldRegenerated> = null;

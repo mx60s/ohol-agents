@@ -25,6 +25,14 @@ export interface FakeLlmOptions {
   jsonErrorRate?: number;
   failStatus?: number;
   random?: () => number;
+  /**
+   * --mixed (end-to-end tests): instead of forage/wait/jump, a third of replies say a
+   * unique "HI C<n>" (n = call number), a third walk 6-10 tiles from "At (x, y)" in the
+   * observation, the rest forage
+   */
+  mixed?: boolean;
+  /** called with each request body and the reply sent (test drivers) */
+  onCall?: (n: number, body: any, reply: { say?: string; action: Record<string, unknown> }) => void;
 }
 
 export function startFakeLlm(o: FakeLlmOptions = {}) {
@@ -63,8 +71,16 @@ export function startFakeLlm(o: FakeLlmOptions = {}) {
         }
         const promptChars = JSON.stringify(body.messages ?? "").length;
         const r = rnd();
-        const action = r < 0.5 ? { type: "forage" } : r < 0.7 ? { type: "wait", seconds: 3 } : r < 0.85 ? { type: "jump" } : { type: "wait", seconds: 1 };
-        const reply = { thought: "fake model: keep eating", say: rnd() < 0.15 ? "HELLO" : undefined, action };
+        let action: Record<string, unknown> = r < 0.5 ? { type: "forage" } : r < 0.7 ? { type: "wait", seconds: 3 } : r < 0.85 ? { type: "jump" } : { type: "wait", seconds: 1 };
+        let say: string | undefined = rnd() < 0.15 ? "HELLO" : undefined;
+        if (o.mixed) {
+          const at = String(body.messages?.at(-1)?.content ?? "").match(/At \((-?\d+), (-?\d+)\)/);
+          const d = () => (rnd() < 0.5 ? -1 : 1) * (6 + Math.floor(rnd() * 5));
+          say = r < 0.34 ? `HI C${calls}` : undefined;
+          action = r >= 0.34 && r < 0.67 && at ? { type: "go", x: Number(at[1]) + d(), y: Number(at[2]) + d() } : r < 0.34 ? { type: "jump" } : { type: "forage" };
+        }
+        const reply = { thought: "fake model: keep eating", say, action };
+        o.onCall?.(calls, body, reply);
         const content = rnd() < (o.jsonErrorRate ?? 0) ? "I would like to forage now." : JSON.stringify(reply);
         const reasoning = "Fake reasoning: food is low, so forage.";
         const usage = {
@@ -114,7 +130,7 @@ if (process.argv[1]?.endsWith("fake-llm.ts")) {
   };
   const f = startFakeLlm({
     port: opt("port", 8791), latencyMs: opt("latency-ms", 800), ttftMs: opt("ttft-ms", 200),
-    jsonErrorRate: opt("json-error-rate", 0.05), failStatus: opt("fail", 200),
+    jsonErrorRate: opt("json-error-rate", 0.05), failStatus: opt("fail", 200), mixed: a.includes("--mixed"),
   });
   f.ready.then((port) => console.log(`fake LLM provider on http://127.0.0.1:${port} (OpenAI-compatible /chat/completions)`));
 }

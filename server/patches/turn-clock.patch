@@ -1,0 +1,449 @@
+MTS patch: turn-based clock (setting mtsTurnClock, default 0 = off).
+
+Extends server/mtsGameTime.h (time-scale.patch): with mtsTurnClock=1 the
+game clock only runs while below the target in mtsClockTarget.txt (run
+dir), holds exactly at it, reports "<gameSeconds> <paused>" in
+mtsClockNow.txt and persists itself in mtsClockGame.txt, so a restart
+resumes paused at the same game time. Hooks in server.cpp: turnStep() at
+the top of each main-loop pass, a 20 ms socket-wait cap (and no zero
+wait on frozen events while paused), the final persist at shutdown, and
+the wall clock for housekeeping that must work while paused (login
+timeout, closing dead players' sockets, SAY flood gap). Off: unchanged.
+See docs/turn-clock.md.
+
+--- a/server/mtsGameTime.h
++++ b/server/mtsGameTime.h
+@@ -29,12 +29,41 @@
+ // (static initializers) Time:: calls return the real clock.
+ //
+ // k == 1 (the default) returns the real clock untouched: stock behaviour.
++//
++// Turn clock (turn-clock.patch, setting mtsTurnClock, default 0 = off and
++// everything below is skipped). With 1 the game clock only runs while it is
++// below a target the agents service writes, see docs/turn-clock.md:
++//
++//   mtsClockTarget.txt  (read)  one number, game seconds. The clock runs at
++//                               the normal 1/k rate while below it and holds
++//                               exactly at it. Re-read when its inode, size
++//                               or mtime changes, checked at most every 20 ms
++//                               (turnStep(), called once per main-loop pass).
++//                               A target below the clock never moves it back.
++//                               Missing = paused. A file left over from
++//                               before boot is ignored until it changes, so
++//                               the clock always boots paused.
++//   mtsClockNow.txt     (write) "<gameSeconds> <paused 0|1>", temp + rename,
++//                               on every pause/run change and at most every
++//                               100 ms while running.
++//   mtsClockGame.txt    (write) the game time, same moments; read at boot so
++//                               a restart resumes (paused) at the same game
++//                               time. First boot starts from the time-scale
++//                               clock above, continuous with the world.
++//
++// getCurrentTime() is cheap (no file access): min( target,
++// anchorGame + ( real - anchorReal ) / k ), with the anchor moved only by
++// turnStep(), and never goes backwards. bookkeepingTime() is the wall clock
++// in turn mode and the game clock otherwise, for server housekeeping that
++// must keep working while paused (login timeout, closing dead players'
++// sockets, the SAY flood gap).
+ 
+ #ifndef MTS_GAME_TIME_H
+ #define MTS_GAME_TIME_H
+ 
+ #include <stdio.h>
+ #include <math.h>
++#include <sys/stat.h>
+ #include "minorGems/system/Time.h"
+ #include "minorGems/util/SettingsManager.h"
+ 
+@@ -52,6 +81,9 @@
+         static double getCurrentTime() {
+             State *s = state();
+             double real = Time::getCurrentTime();
++            if( s->turn ) {
++                return turnGame( s, turnReal( s, real ) );
++                }
+             if( s->scale == 1.0 ) {
+                 return real;
+                 }
+@@ -61,6 +93,9 @@
+         // whole seconds, like Time::timeSec()
+         static timeSec_t timeSec() {
+             State *s = state();
++            if( s->turn ) {
++                return (timeSec_t)floor( getCurrentTime() );
++                }
+             if( s->scale == 1.0 ) {
+                 return Time::timeSec();
+                 }
+@@ -71,8 +106,72 @@
+         // called once at the top of main(), after settings are usable
+         static void start() {
+             init( state() );
++            turnInit( state() );
+             }
+ 
++        static char turnClock() {
++            return state()->turn;
++            }
++
++        // turn clock holding at its target (always false when off)
++        static char paused() {
++            State *s = state();
++            if( ! s->turn ) {
++                return false;
++                }
++            return ! s->running ||
++                turnGame( s, turnReal( s, Time::getCurrentTime() ) ) >=
++                s->target;
++            }
++
++        // wall clock in turn mode, game clock otherwise (see top)
++        static double bookkeepingTime() {
++            if( state()->turn ) {
++                return Time::getCurrentTime();
++                }
++            return getCurrentTime();
++            }
++
++        // once per main-loop pass: poll the target (every 20 ms at most),
++        // notice reaching it, report in mtsClockNow.txt
++        static void turnStep() {
++            State *s = state();
++            if( ! s->turn ) {
++                return;
++                }
++            double real = turnReal( s, Time::getCurrentTime() );
++
++            if( real - s->lastPoll >= 0.02 ) {
++                s->lastPoll = real;
++                turnPollTarget( s, real );
++                }
++
++            if( s->running && turnGame( s, real ) >= s->target ) {
++                // reached the target: hold exactly there
++                s->anchorGame = s->target;
++                s->anchorReal = real;
++                s->running = false;
++                }
++
++            char p = ! s->running;
++            if( p != s->reportedPaused ||
++                ( s->running && real - s->lastWrite >= 0.1 ) ) {
++                turnWrite( turnGame( s, real ), p );
++                s->reportedPaused = p;
++                s->lastWrite = real;
++                }
++            }
++
++        // at shutdown: persist the exact game time
++        static void turnShutdown() {
++            State *s = state();
++            if( ! s->turn ) {
++                return;
++                }
++            double real = turnReal( s, Time::getCurrentTime() );
++            turnWrite( turnGame( s, real ), ! s->running );
++            }
++
+         // file timestamps (minorGems File.h) stay real
+         static timeSec_t normalize( time_t inTime ) {
+             return Time::normalize( inTime );
+@@ -83,12 +182,28 @@
+         struct State {
+                 double scale;
+                 double epoch;
++
++                // turn clock (all unused when turn == false)
++                char turn;
++                char running;
++                char reportedPaused;
++                double anchorGame;
++                double anchorReal;
++                double target;
++                double lastReal;
++                double lastPoll;
++                double lastWrite;
++                // identity of the last target file seen
++                char targetExists;
++                double targetIno, targetSize, targetMtime;
+             };
+ 
+         // starts as the real clock (scale 1) until start() is called;
+         // constant-initialized, so safe to use during static init
+         static State *state() {
+-            static State s = { 1.0, 0 };
++            static State s = { 1.0, 0,
++                                false, false, true, 0, 0, 0, 0, 0, 0,
++                                false, 0, 0, 0 };
+             return &s;
+             }
+ 
+@@ -124,7 +239,158 @@
+                 }
+             printf( "MTS timeScale = %f (game clock epoch %.0f)\n",
+                     k, s->epoch );
++            }
++
++        // wall clock that never goes backwards (turn mode only)
++        static double turnReal( State *s, double inReal ) {
++            if( inReal < s->lastReal ) {
++                return s->lastReal;
++                }
++            s->lastReal = inReal;
++            return inReal;
++            }
++
++        static double turnGame( State *s, double inReal ) {
++            if( ! s->running ) {
++                return s->anchorGame;
++                }
++            double g = s->anchorGame +
++                ( inReal - s->anchorReal ) / s->scale;
++            if( g > s->target ) {
++                g = s->target;
++                }
++            if( g < s->anchorGame ) {
++                g = s->anchorGame;
++                }
++            return g;
+             }
++
++        // hold at the current game time
++        static void turnHold( State *s, double inReal ) {
++            s->anchorGame = turnGame( s, inReal );
++            s->anchorReal = inReal;
++            s->target = s->anchorGame;
++            s->running = false;
++            }
++
++        // stat the target file; returns true if it is a new file version
++        static char turnTargetChanged( State *s, char *outExists ) {
++            struct stat st;
++            if( stat( "mtsClockTarget.txt", &st ) != 0 ) {
++                *outExists = false;
++                char changed = s->targetExists;
++                s->targetExists = false;
++                return changed;
++                }
++            *outExists = true;
++#ifdef __APPLE__
++            double mtime = st.st_mtimespec.tv_sec +
++                st.st_mtimespec.tv_nsec * 1e-9;
++#else
++            double mtime = st.st_mtim.tv_sec + st.st_mtim.tv_nsec * 1e-9;
++#endif
++            if( s->targetExists &&
++                s->targetIno == (double)st.st_ino &&
++                s->targetSize == (double)st.st_size &&
++                s->targetMtime == mtime ) {
++                return false;
++                }
++            s->targetExists = true;
++            s->targetIno = (double)st.st_ino;
++            s->targetSize = (double)st.st_size;
++            s->targetMtime = mtime;
++            return true;
++            }
++
++        static void turnPollTarget( State *s, double inReal ) {
++            char exists;
++            if( ! turnTargetChanged( s, &exists ) ) {
++                return;
++                }
++            if( ! exists ) {
++                // removed: paused
++                turnHold( s, inReal );
++                return;
++                }
++            FILE *f = fopen( "mtsClockTarget.txt", "r" );
++            if( f == NULL ) {
++                return;
++                }
++            double t;
++            int n = fscanf( f, "%lf", &t );
++            fclose( f );
++            if( n != 1 || ! ( t == t ) ) {
++                printf( "MTS turn clock: unreadable mtsClockTarget.txt, "
++                        "ignored\n" );
++                return;
++                }
++            double g = turnGame( s, inReal );
++            s->anchorGame = g;
++            s->anchorReal = inReal;
++            s->target = ( t > g ) ? t : g;
++            s->running = ( s->target > g );
++            }
++
++        static void turnWriteFile( const char *inName, const char *inText ) {
++            char tmp[ 256 ];
++            snprintf( tmp, sizeof( tmp ), "%s.tmp", inName );
++            FILE *f = fopen( tmp, "w" );
++            if( f == NULL ) {
++                return;
++                }
++            fputs( inText, f );
++            if( fclose( f ) == 0 ) {
++                rename( tmp, inName );
++                }
++            }
++
++        static void turnWrite( double inGame, char inPaused ) {
++            char buf[ 64 ];
++            snprintf( buf, sizeof( buf ), "%.6f\n", inGame );
++            turnWriteFile( "mtsClockGame.txt", buf );
++            snprintf( buf, sizeof( buf ), "%.6f %d\n", inGame,
++                      inPaused ? 1 : 0 );
++            turnWriteFile( "mtsClockNow.txt", buf );
++            }
++
++        static void turnInit( State *s ) {
++            s->turn =
++                ( SettingsManager::getIntSetting( "mtsTurnClock", 0 ) != 0 );
++            if( ! s->turn ) {
++                return;
++                }
++            double real = Time::getCurrentTime();
++            double g = real;
++            if( s->scale != 1.0 ) {
++                g = s->epoch + ( real - s->epoch ) / s->scale;
++                }
++            const char *from = "time-scale clock";
++            FILE *f = fopen( "mtsClockGame.txt", "r" );
++            if( f != NULL ) {
++                double saved;
++                if( fscanf( f, "%lf", &saved ) == 1 && saved > 0 ) {
++                    g = saved;
++                    from = "mtsClockGame.txt";
++                    }
++                fclose( f );
++                }
++            s->lastReal = real;
++            s->anchorGame = g;
++            s->anchorReal = real;
++            s->target = g;
++            s->running = false;
++            s->lastPoll = real;
++            s->lastWrite = real;
++            // a target file from before this boot counts as already seen
++            char exists;
++            turnTargetChanged( s, &exists );
++            turnWrite( g, true );
++            s->reportedPaused = true;
++            printf( "MTS turn clock on: paused at game time %.3f (from %s)"
++                    "%s\n", g, from,
++                    exists ? ", old mtsClockTarget.txt ignored until it "
++                    "changes" : "" );
++            }
+     };
+ 
+ 
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -9996,7 +9996,8 @@
+     newObject.ghostDestroyed = false;
+ 
+ 
+-    newObject.lastSayTimeSeconds = Time::getCurrentTime();
++    // MTS patch: SAY flood gap on the wall clock in turn-clock mode
++    newObject.lastSayTimeSeconds = MTSGameTime::bookkeepingTime();
+     newObject.firstEmoteTimeSeconds = Time::getCurrentTime();
+     
+     newObject.emoteCountInWindow = 0;
+@@ -20582,6 +20583,9 @@
+ 
+     while( !quit ) {
+ 
++        // MTS patch: turn clock (mtsTurnClock) target poll + report
++        MTSGameTime::turnStep();
++
+         double curStepTime = Time::getCurrentTime();
+ 
+         mtsPlayerSavesStep(); // MTS patch: periodic save
+@@ -21219,6 +21223,21 @@
+         // we thus use zero CPU as long as no messages or new connections
+         // come in, and only wake up when some timed action needs to be
+         // handled
++
++        // MTS patch: with the turn clock on, wake at least every 20 ms (to
++        // see target changes and reaching the target), and while paused
++        // never spin on events that are due but frozen (only fresh client
++        // messages and tutorial loads may skip the wait)
++        if( MTSGameTime::turnClock() ) {
++            if( MTSGameTime::paused() &&
++                ! someClientMessageReceived &&
++                tutorialLoadingPlayers.size() == 0 ) {
++                pollTimeout = 0.02;
++                }
++            if( pollTimeout > 0.02 ) {
++                pollTimeout = 0.02;
++                }
++            }
+ 
+         double timeSpentPolling = Time::getCurrentTime();
+         
+@@ -21277,7 +21296,7 @@
+ 
+                 
+                 newConnection.connectionStartTimeSeconds = 
+-                    Time::getCurrentTime();
++                    MTSGameTime::bookkeepingTime(); // MTS patch
+ 
+                 newConnection.email = NULL;
+ 
+@@ -21682,8 +21701,8 @@
+                 }
+             else if( nextConnection->ticketServerRequest == NULL ) {
+ 
+-                double timeDelta = Time::getCurrentTime() -
+-                    nextConnection->connectionStartTimeSeconds;
++                double timeDelta = MTSGameTime::bookkeepingTime() -
++                    nextConnection->connectionStartTimeSeconds; // MTS
+                 
+ 
+                 
+@@ -24781,7 +24800,7 @@
+                             }
+                         }
+                     else if( m.type == SAY && m.saidText != NULL &&
+-                             Time::getCurrentTime() - 
++                             MTSGameTime::bookkeepingTime() - // MTS patch
+                              nextPlayer->lastSayTimeSeconds > 
+                              minSayGapInSeconds ) {
+ 
+@@ -24820,7 +24839,7 @@
+ 
+                         
+                         nextPlayer->lastSayTimeSeconds = 
+-                            Time::getCurrentTime();
++                            MTSGameTime::bookkeepingTime(); // MTS patch
+ 
+                         unsigned int sayLimit = getSayLimit( nextPlayer );
+                         
+@@ -29719,7 +29738,8 @@
+                 nextPlayer->deleteSent = true;
+                 // wait 10 seconds before closing their connection
+                 // so they can get the message
+-                nextPlayer->deleteSentDoneETA = Time::getCurrentTime() + 10;
++                nextPlayer->deleteSentDoneETA =
++                    MTSGameTime::bookkeepingTime() + 10; // MTS patch
+                 
+                 if( areTriggersEnabled() ) {
+                     // add extra time so that rest of triggers can be received
+@@ -34210,7 +34230,8 @@
+             LiveObject *nextPlayer = players.getElement(i);
+ 
+             if( nextPlayer->error && nextPlayer->deleteSent &&
+-                nextPlayer->deleteSentDoneETA < Time::getCurrentTime() ) {
++                nextPlayer->deleteSentDoneETA <
++                MTSGameTime::bookkeepingTime() ) { // MTS patch
+                 AppLog::infoF( "Closing connection to player %d on error "
+                                "(cause: %s)",
+                                nextPlayer->id, nextPlayer->errorCauseString );
+@@ -34357,6 +34378,7 @@
+     
+     // MTS patch: final save on graceful quit (SIGTSTP)
+     mtsSavePlayers( "shutdown" );
++    MTSGameTime::turnShutdown(); // MTS patch: persist turn clock
+ 
+     // stop listening on server socket immediately, before running
+     // cleanup steps.  Cleanup may take a while, and we don't want to leave

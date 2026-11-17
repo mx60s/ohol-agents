@@ -116,8 +116,11 @@ test("mirrored constants match observe.ts, salience.ts, agent.ts and prompt.ts",
   assert.equal(L.peopleRadius, L.viewRadius + 4);
   assert.match(o, /<= VIEW_RADIUS \+ 4\)/);
   assert.match(o, new RegExp(`people\\.slice\\(0, ${L.maxPeople}\\)`));
-  assert.match(o, new RegExp(`now - h\\.t < ${L.heardWindowS}_000\\)\\.slice\\(-${L.heardMax}\\)`));
-  assert.match(o, new RegExp(`now - d\\.t < ${L.deathsWindowS}_000\\)`));
+  // windows in wall s (turn clock: the same number of 8 s turns, see observe.ts shownMs)
+  assert.match(o, new RegExp(`const HEARD_SHOWN_MS = ${L.heardWindowS}_000;`));
+  assert.match(o, new RegExp(`now - h\\.t < shownMs\\(HEARD_SHOWN_MS, clock\\)\\)\\.slice\\(-${L.heardMax}\\)`));
+  assert.match(o, new RegExp(`const DEATHS_SHOWN_MS = ${L.deathsWindowS}_000;`));
+  assert.match(o, /now - d\.t < shownMs\(DEATHS_SHOWN_MS, clock\)\)/);
   assert.match(o, new RegExp(`deaths\\.slice\\(-${L.deathsMax}\\)`));
   assert.match(o, new RegExp(`notebook\\.slice\\(-${L.notebookShown}\\)`));
   assert.match(src("agent/salience.ts"), new RegExp(`const HEAR_RADIUS = ${L.wakeSpeechRadius};`));

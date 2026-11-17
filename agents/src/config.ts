@@ -232,6 +232,17 @@ export const config = {
    * action per turn. Human-UI equivalent (see README "Interventions").
    */
   actionListMax: Math.max(1, Math.floor(num("ACTION_LIST_MAX", 4))),
+  // --- turn-based clock (lockstep; docs/turn-clock.md). Needs the game server's mtsTurnClock=1.
+  /** 1 = the game clock runs only in act windows the agents service opens (TurnCoordinator, turnclock.ts) */
+  turnClock: env.TURN_CLOCK === "1",
+  /** game seconds the clock runs per turn (60 game s = 1 year, so 2.4 = 25 turns a year) */
+  turnGameS: num("TURN_GAME_S", 2.4) > 0 ? num("TURN_GAME_S", 2.4) : 2.4,
+  /** decide phase timeout: replies later than this are dropped (TURN_DECIDE_TIMEOUT_S, default 20; healthy capped replies take 3-5 s) */
+  turnDecideTimeoutMs: Math.max(1, num("TURN_DECIDE_TIMEOUT_S", 20)) * 1000,
+  /** the game server's run dir, where mtsClockTarget.txt / mtsClockNow.txt live (deploy/start.sh exports it) */
+  clockDir: env.MTS_CLOCK_DIR || env.WORLD_DIR || path.join(root, ".ohol-run"),
+  /** turn clock: a baby with nothing salient happening decides at most every this many turns */
+  babyIdleTurns: Math.max(1, Math.floor(num("BABY_IDLE_TURNS", 10))),
 };
 
 export type Config = typeof config;

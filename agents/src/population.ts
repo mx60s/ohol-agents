@@ -9,6 +9,7 @@ import type { LifeStore } from "./lifestore.ts";
 import type { MapCellTuple, MapResponse, MinimapResponse, PlayerView, StateResponse } from "./api-types.ts";
 import { LoginScheduler, type LoginDeps } from "./logins.ts";
 import { LANGUAGES_MIN_PLAYERS } from "./agent/observe.ts";
+import { FileClockPort, TurnCoordinator, type ClockPort } from "./turnclock.ts";
 
 /** how long a character's own lines are kept for speechScrambled (heard lines are shown for 90 s) */
 const SPOKEN_KEEP_MS = 120_000;
@@ -35,6 +36,8 @@ export interface PopulationExtras {
   resume?: { startedAt: number | null; slots: string[] };
   /** true = hold every login (the run is extinct and the world may be regenerated, regen.ts) */
   holdLogins?: () => boolean;
+  /** TURN_CLOCK=1: the game server's clock files (default: FileClockPort in cfg.clockDir) */
+  clockPort?: ClockPort;
 }
 
 /** An LLM outage that paused the run (see checkOutage). */
@@ -108,6 +111,8 @@ export class Population implements SpeechSink {
   /** "agentId|playerId" already counted as births (a reconnect after a pause re-announces the same body) */
   private bornPlayers = new Set<string>();
   readonly logins: LoginScheduler;
+  /** TURN_CLOCK=1: paces every agent in lockstep turns (turnclock.ts) */
+  turns: TurnCoordinator | null = null;
 
   constructor(private cfg: Config, private gd: GameData, private log: EventLog, private extras: PopulationExtras = {}) {
     this.llm = new Llm(cfg, extras.spend, extras.llmHealth);
@@ -160,9 +165,23 @@ export class Population implements SpeechSink {
         llmMaxTokens: c.llmMaxTokens, llmReasoningEffort: c.llmReasoningEffort || null, llmProviderSort: c.llmProviderSort || null,
         llmProviderOrder: c.llmProviderOrder, llmStream: c.llmStream, llmPromptCache: c.llmPromptCache,
         timeScale: (c as Config & { timeScale?: number }).timeScale ?? null,
+        turnClock: c.turnClock ? { turnGameS: c.turnGameS, decideTimeoutMs: c.turnDecideTimeoutMs, babyIdleTurns: c.babyIdleTurns } : null,
       },
     });
     this.limitTimer = setInterval(() => this.checkLimits(), 5000);
+    if (c.turnClock) {
+      this.turns = new TurnCoordinator(this.extras.clockPort ?? new FileClockPort(c.clockDir), () => this.agents, {
+        turnGameS: c.turnGameS,
+        timeScale: c.timeScale ?? 1,
+        decideTimeoutMs: c.turnDecideTimeoutMs,
+        babyIdleTurns: c.babyIdleTurns,
+        paused: () => !this.playing,
+        warn: (text) => {
+          this.log.emitEvent("system", { text });
+          console.error(text);
+        },
+      });
+    }
     // every slot starts now; the login scheduler decides when each one actually logs in
     const hooks = {
       beforeLogin: (a: Agent) => this.logins.beforeLogin(a.id, a.lifeIndex === 0),
@@ -176,12 +195,14 @@ export class Population implements SpeechSink {
       takenSurnames: () => this.extras.lives?.takenSurnames() ?? [],
       familyFirstNames: (playerId: number) => this.extras.lives?.familyFirstNames(this.cfg.runId, playerId) ?? [],
       speechScrambled: (speakerId: number, text: string) => this.speechScrambled(speakerId, text),
+      turns: this.turns?.link(),
     };
     for (let i = 0; i < c.agentCount && !this.halted; i++) {
       const a = new Agent(agentIdOf(i), c, this.gd, this.llm, this.log, this, hooks);
       this.agents.push(a);
       void a.run();
     }
+    this.turns?.start();
   }
 
   /** started, not halted, not paused (LLM outage or daily cap): our characters are being played */
@@ -195,6 +216,8 @@ export class Population implements SpeechSink {
   }
 
   stop() {
+    // the clock stays paused at the last target (nothing new is written)
+    void this.turns?.stop();
     this.logins.close();
     for (const a of this.agents) a.stop();
   }
@@ -304,7 +327,7 @@ export class Population implements SpeechSink {
     const id = speaker.world?.selfId;
     if (id == null) return;
     const now = Date.now();
-    const said = (this.recentSpoken.get(id) ?? []).filter((s) => now - s.t < SPOKEN_KEEP_MS);
+    const said = (this.recentSpoken.get(id) ?? []).filter((s) => now - s.t < this.spokenKeepMs);
     said.push({ t: now, text });
     this.recentSpoken.set(id, said.slice(-10));
     const e = this.pending(id, text);
@@ -323,9 +346,14 @@ export class Population implements SpeechSink {
     const alive = this.agents.filter((a) => a.status === "alive").length;
     if (alive < LANGUAGES_MIN_PLAYERS) return false;
     const now = Date.now();
-    const said = (this.recentSpoken.get(speakerId) ?? []).filter((s) => now - s.t < SPOKEN_KEEP_MS);
+    const said = (this.recentSpoken.get(speakerId) ?? []).filter((s) => now - s.t < this.spokenKeepMs);
     if (!said.length) return null;
     return !said.some((s) => s.text === text);
+  }
+
+  /** turn clock: heard lines stay in observations for 12 turns, which can be minutes of wall time */
+  private get spokenKeepMs() {
+    return this.cfg.turnClock ? SPOKEN_KEEP_MS * 10 : SPOKEN_KEEP_MS;
   }
 
   heard(hearer: Agent, speakerPlayerId: number, text: string) {
@@ -437,7 +465,7 @@ export class Population implements SpeechSink {
         players.set(p.id, {
           id: p.id, x: w.posOf(p)[0], y: w.posOf(p)[1], age: Math.round(w.currentAge(p) * 10) / 10, female: p.female,
           name: p.name ?? w.names.get(p.id) ?? null, held, agentId: agentsByPlayer.get(p.id) ?? null, dying: p.dying, condition, seen: p.lastSeen,
-          moving: p.moving && Date.now() < p.moveEndsAt, displayId: p.displayId,
+          moving: w.isWalking(p), displayId: p.displayId,
           ...(this.extras.lives?.playerFields(p.id) ?? { lifeId: null, lineageId: null, flower: null }),
         });
       }
@@ -465,6 +493,7 @@ export class Population implements SpeechSink {
         dailySpend: { last24hUsd: Math.round((this.extras.spend?.last24hUsd() ?? 0) * 10000) / 10000, capUsd: this.cfg.dailyCostUsd },
         llmStatus: this.llm.health.status(),
         timeScale: this.cfg.timeScale ?? 1,
+        ...(this.turns ? { turn: this.turns.info() } : {}),
       },
       traitDims: this.cfg.traitDims,
       traitSource: this.cfg.traitSource,

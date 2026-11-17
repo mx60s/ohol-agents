@@ -198,8 +198,9 @@ export class Body {
     const deltas = path.map(([x, y]) => `${x - start[0]} ${y - start[1]}`).join(" ");
     this.send(`MOVE ${start[0]} ${start[1]} @${seq} ${deltas}`);
     // server-reported walking speed (follows TIME_SCALE); generous margin for babies, elders, loads
-    const deadline = Date.now() + this.world.walkMs(path.length) * 3 + 3000;
-    while (Date.now() < deadline) {
+    // on the world's clock: with the turn clock a walk only progresses in act windows
+    const deadline = this.world.now() + this.world.walkMs(path.length) * 3 + 3000;
+    while (this.world.now() < deadline) {
       await sleep(100);
       if (this.world.dead) return false;
       if (this.world.forcedPos) {
@@ -229,12 +230,13 @@ export class Body {
     this.syncForce();
     const before = this.gd.describeStack(this.world.objAt(x, y));
     const heldBefore = this.heldName();
-    const t0 = Date.now();
+    const t0 = this.world.now();
+    const wall0 = Date.now();
     this.send(cmd);
-    // wait for a self PU or a tile change, up to 2.5s
+    // wait for a self PU or a tile change, up to 2.5s (wall: the server answers even while its clock is paused)
     let lastSeen = this.world.self?.lastSeen ?? 0;
     const cellT = this.world.cell(x, y)?.t ?? 0;
-    while (Date.now() - t0 < 2500) {
+    while (Date.now() - wall0 < 2500) {
       await sleep(100);
       const s = this.world.self;
       if ((s && s.lastSeen > lastSeen && s.lastSeen >= t0) || (this.world.cell(x, y)?.t ?? 0) > cellT) {

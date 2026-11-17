@@ -81,6 +81,7 @@ export OHOL_PORT="$GAME_PORT"
 export PORT_OVERRIDE="$GAME_PORT"   # run.sh writes it to settings/port.ini
 export CONTINUOUS="${CONTINUOUS:-1}"
 export AUTOSTART="${AUTOSTART:-1}"
+export MTS_CLOCK_DIR="${MTS_CLOCK_DIR:-$WORLD_DIR}"   # turn clock files (TURN_CLOCK=1): the server's run dir
 
 log() { echo "[start.sh] $*"; }
 

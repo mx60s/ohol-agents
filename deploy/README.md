@@ -272,6 +272,13 @@ Non-secret settings live in `[env]` in `fly.toml`. Edit them and run
   (180), `REGEN_TIMEOUT_S` (600); start.sh: `WORLD_ARCHIVE_KEEP` (10),
   `WORLD_ARCHIVE_MAX_MB` (1024), `WORLD_ARCHIVE_MIN_FREE_MB` (1024) (see
   [World regeneration](#world-regeneration))
+- `TIME_SCALE` (game clock k x slower), `TURN_CLOCK=1` (lockstep turns: the game
+  clock only runs up to the agents' target, see [docs/turn-clock.md](../docs/turn-clock.md);
+  default off). Both are read by the server (`server/run.sh`) and the agents service
+- turn clock, agents service only (with `TURN_CLOCK=1`): `TURN_GAME_S` (2.4 game s
+  per turn, 25 turns a year), `TURN_DECIDE_TIMEOUT_S` (20; replies later than this are
+  dropped), `BABY_IDLE_TURNS` (10), `MTS_CLOCK_DIR` (where the clock files are; start.sh
+  exports it as `$WORLD_DIR`)
 - the model
 - the narrator, director and story intervals
 - `DAILY_COST_USD` and `MAX_TOTAL_COST_USD`, both 0 (off)

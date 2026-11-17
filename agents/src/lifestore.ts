@@ -26,6 +26,8 @@ export interface LifeStoreOptions {
   now?: () => number;
   /** game clock slowdown k stamped on new lives (default config.timeScale) */
   timeScale?: number;
+  /** TURN_CLOCK=1: ages lag wall time (LifeBookOptions.gameClockLags) */
+  gameClockLags?: boolean;
 }
 
 /** Anything that emits RunEvents and has a run dir (EventLog). */
@@ -55,7 +57,7 @@ export class LifeStore {
     this.dims = opts.dims;
     this.traitSource = opts.traitSource;
     this.now = opts.now ?? Date.now;
-    this.book = new LifeBook({ dims: opts.dims, mutationSd: opts.mutationSd, traitSource: opts.traitSource, rng: opts.rng ?? Math.random, timeScale: opts.timeScale });
+    this.book = new LifeBook({ dims: opts.dims, mutationSd: opts.mutationSd, traitSource: opts.traitSource, rng: opts.rng ?? Math.random, timeScale: opts.timeScale, gameClockLags: opts.gameClockLags });
   }
 
   private get snapshotFile() {

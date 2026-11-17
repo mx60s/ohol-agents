@@ -14,20 +14,35 @@
 //   already WALL seconds (server/patches/time-scale.patch converts them): use
 //   turnsForWall / turnsTextWall, which must not scale again.
 
+//
+// Turn clock (TURN_CLOCK=1, docs/turn-clock.md): one turn = TURN_GAME_S game
+// seconds, which the server's clock runs in TURN_GAME_S * timeScale wall
+// seconds (the act window). The agents then measure time on the World's
+// game-paced clock (World.now: it stands still while the server is paused),
+// so cycleMs = TURN_GAME_S * timeScale * 1000 of that clock and every helper
+// below keeps working unchanged: a year (60 game s) is 60 / TURN_GAME_S turns.
+
 export interface TurnClock {
-  /** real ms per decision cycle */
+  /** real ms per decision cycle (turn clock: ms of the game-paced World.now clock per turn) */
   cycleMs: number;
   /** real seconds per game second (server clock dilation; 1 = stock speed) */
   timeScale: number;
+  /** TURN_CLOCK=1: turns are the coordinator's lockstep turns */
+  lockstep?: boolean;
+  /** turn clock: game ms per turn (TURN_GAME_S * 1000) */
+  turnGameMs?: number;
 }
 
 const DEFAULT_CYCLE_MS = 8000;
 
 /** Read the clock from config, tolerating fields that may not exist yet. */
 export function turnClock(cfg: object): TurnClock {
-  const c = cfg as { decisionCycleMs?: unknown; timeScale?: unknown };
-  const cycleMs = typeof c.decisionCycleMs === "number" && c.decisionCycleMs > 0 ? c.decisionCycleMs : DEFAULT_CYCLE_MS;
+  const c = cfg as { decisionCycleMs?: unknown; timeScale?: unknown; turnClock?: unknown; turnGameS?: unknown };
   const timeScale = typeof c.timeScale === "number" && c.timeScale > 0 ? c.timeScale : 1;
+  if (c.turnClock === true && typeof c.turnGameS === "number" && c.turnGameS > 0) {
+    return { cycleMs: c.turnGameS * timeScale * 1000, timeScale, lockstep: true, turnGameMs: c.turnGameS * 1000 };
+  }
+  const cycleMs = typeof c.decisionCycleMs === "number" && c.decisionCycleMs > 0 ? c.decisionCycleMs : DEFAULT_CYCLE_MS;
   return { cycleMs, timeScale };
 }
 
