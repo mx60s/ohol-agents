@@ -10,6 +10,7 @@ import type {
   LifeRecord,
   LineagesResponse,
   MapResponse,
+  MinimapResponse,
   RunEvent,
   StateResponse,
   StorySoFar,
@@ -227,6 +228,11 @@ export function useLineages(): Resource<LineagesResponse> & { refresh: () => voi
 
 export function useDeaths(limit = 50): Resource<DeathsResponse> & { refresh: () => void } {
   return useResource(poller(`deaths:${limit}`, (c) => c.deaths({ limit }), 5000));
+}
+
+/** the whole explored world, coarse, for the stream's inset (polled every 15 s) */
+export function useMinimap(): Resource<MinimapResponse> & { refresh: () => void } {
+  return useResource(poller("minimap", (c) => c.minimap(), 15_000));
 }
 
 export function useMap(): Resource<MapResponse> & { refresh: () => void } {

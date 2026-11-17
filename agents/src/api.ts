@@ -96,6 +96,8 @@ export function startApi(port: number, runs: RunController, gd: GameData, cfgTok
           return json({ shapes: [...FLOWER_SHAPES], colors: [...FLOWER_COLORS] } satisfies FlowersResponse);
         case "/api/map":
           return json(runs.pop.map());
+        case "/api/minimap":
+          return json(runs.pop.minimap());
         case "/api/events":
           return json({ events: runs.log.since(Number(url.searchParams.get("since") ?? 0)) });
         case "/api/objects":

@@ -3,7 +3,7 @@ import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useMemo, useState } from "react";
 import type { LifeRecord } from "../api-types.ts";
 import { pageHref } from "../data/index.ts";
-import { deathReasonText, displayName, formatAge, truncate } from "../shared/index.ts";
+import { deathReasonText, displayName, formatAge } from "../shared/index.ts";
 import { PersonalityCloud } from "../site/Cloud.tsx";
 import { RecentDeaths } from "../site/Deaths.tsx";
 import { median, sortBy } from "../site/logic.ts";
@@ -113,9 +113,7 @@ function PersonCard({ l, site }: { l: LifeRecord; site: SiteData }) {
       ? `Died at ${formatAge(l.ageAtDeath)}, ${deathReasonText(l.deathReason)}`
       : l.status === "lost"
         ? "Out of sight"
-        : a?.goal
-          ? truncate(a.goal, 80)
-          : a?.held && !/^nothing$/i.test(a.held.trim())
+        : a?.held && !/^nothing$/i.test(a.held.trim())
             ? `Holding ${displayName(a.held.replace(/^baby:?\s*/i, ""))}`
             : "";
   return (

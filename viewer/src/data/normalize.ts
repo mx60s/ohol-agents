@@ -20,6 +20,7 @@ import type {
   LivesResponse,
   LlmStatus,
   MapResponse,
+  MinimapResponse,
   PlayerView,
   RunEvent,
   RunInfo,
@@ -327,6 +328,12 @@ export function normMap(v: unknown): MapResponse {
     ? (r.cells.filter((c) => Array.isArray(c) && c.length >= 5 && c.every((x) => typeof x === "number")) as MapResponse["cells"])
     : [];
   return { cells, names: normNames(r.names) };
+}
+
+export function normMinimap(v: unknown): MinimapResponse {
+  const r = isObj(v) ? v : {};
+  const block = typeof r.block === "number" && r.block >= 1 && r.block <= 64 ? Math.floor(r.block) : 1;
+  return { block, cells: normMap({ cells: r.cells }).cells };
 }
 
 export function normNames(v: unknown): Record<number, string> {

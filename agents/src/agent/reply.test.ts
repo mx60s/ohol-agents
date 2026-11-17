@@ -200,3 +200,14 @@ test('{"type":"say"} without text is fine when the reply has top-level "say" wor
   const bad = checkActions({ action: { type: "say" } }, false, 4);
   assert.ok("error" in bad);
 });
+
+test('the type written as the only key is accepted: {"wait":{"turns":1}}, lists of {"drop":{x,y}}', () => {
+  const w = checkActions({ action: { wait: { turns: 1 } } }, false, 4);
+  assert.ok(!("error" in w), JSON.stringify(w));
+  if (!("error" in w)) assert.deepEqual([w.steps[0].type, w.steps[0].turns], ["wait", 1]);
+  const l = checkActions({ actions: [{ drop: { x: 57, y: -71 } }, { go: { x: 61, y: -73 } }, { eat: {} }] }, false, 4);
+  assert.ok(!("error" in l), JSON.stringify(l));
+  if (!("error" in l)) assert.deepEqual(l.steps.map((s) => [s.type, s.x, s.y]), [["drop", 57, -71], ["go", 61, -73], ["eat", undefined, undefined]]);
+  assert.ok("error" in checkActions({ action: { banana: { x: 1, y: 2 } } }, false, 4), "unknown key is still an error");
+  assert.ok("error" in checkActions({ action: { go: { x: 1, y: 2 }, use: { x: 1, y: 2 } } }, false, 4), "two keys: ambiguous");
+});

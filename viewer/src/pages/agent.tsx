@@ -136,11 +136,7 @@ function RightNow({ life }: { life: LifeRecord }) {
           <b>Holding</b> {a.held}
         </p>
       )}
-      {a.goal && (
-        <p className="ugc">
-          <b>Goal</b> {a.goal}
-        </p>
-      )}
+
       {a.lastThought && <div className="thought ugc">{a.lastThought}</div>}
       {a.lastSaid && (
         <p>

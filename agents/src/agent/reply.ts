@@ -281,8 +281,8 @@ function coords(a: Record<string, unknown>): [number, number] | null {
 export function sanitizeAction(v: unknown): Action | null {
   if (typeof v === "string") v = { type: v };
   if (!isObj(v)) return null;
-  const a = v;
-  if (typeof a.type !== "string") return null;
+  const a = typeof v.type === "string" ? v : keyedType(v);
+  if (!a || typeof a.type !== "string") return null;
   const n = normType(a.type);
   const out: Action = { type: "invalid" };
   const xy = coords(a);
@@ -307,6 +307,22 @@ export function sanitizeAction(v: unknown): Action | null {
   else if (ALIASES[n]) type = ALIASES[n];
   if (/^[a-z_]{1,24}$/.test(type) && (SPECS[type] || type === "say")) out.type = type;
   return out;
+}
+
+/**
+ * {"wait":{"turns":1}}, {"drop":{"x":1,"y":2}}, {"eat":{}}: the type written as
+ * the only key, its arguments as the value (Qwen does this). Only when that key
+ * is a known type or alias; otherwise null.
+ */
+function keyedType(v: Record<string, unknown>): Record<string, unknown> | null {
+  const keys = Object.keys(v);
+  if (keys.length !== 1) return null;
+  const k = keys[0], n = normType(k);
+  if (!(SPECS[n] || ALIASES[n] || n === "pick_up" || n === "pickup")) return null;
+  const val = v[k];
+  if (val == null) return { type: k };
+  if (isObj(val)) return { ...val, type: k };
+  return null;
 }
 
 /**

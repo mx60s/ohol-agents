@@ -46,7 +46,7 @@ before(async () => {
   const runs = Object.assign(new EventEmitter(), {
     lives,
     inventions,
-    pop: { state: () => ({ run: { id: "run1", status: "running" }, agents: [], players: [] }), map: () => ({ cells: [], names: {} }) },
+    pop: { state: () => ({ run: { id: "run1", status: "running" }, agents: [], players: [] }), map: () => ({ cells: [], names: {} }), minimap: () => ({ block: 1, cells: [] }) },
     log: { since: (n: number) => [{ seq: n + 1, kind: "system" }] },
     openControl: false,
     maxTotalCostUsd: 0,
@@ -79,6 +79,7 @@ test("existing endpoints still work", async () => {
   assert.equal(st.cors, "*");
   assert.equal((await get("/api/events?since=4")).body.events[0].seq, 5);
   assert.deepEqual((await get("/api/map")).body.cells, []);
+  assert.deepEqual((await get("/api/minimap")).body, { block: 1, cells: [] });
   assert.equal((await get("/api/objects")).body.names[1], "Stone");
   assert.equal((await get("/api/halt", { method: "POST" })).status, 403);
   assert.equal((await get("/api/nope")).status, 404);

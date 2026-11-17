@@ -6,7 +6,7 @@ import type { GameData } from "./game/gameData.ts";
 import type { Config } from "./config.ts";
 import type { EventLog } from "./events.ts";
 import type { LifeStore } from "./lifestore.ts";
-import type { MapCellTuple, MapResponse, PlayerView, StateResponse } from "./api-types.ts";
+import type { MapCellTuple, MapResponse, MinimapResponse, PlayerView, StateResponse } from "./api-types.ts";
 import { LoginScheduler, type LoginDeps } from "./logins.ts";
 import { LANGUAGES_MIN_PLAYERS } from "./agent/observe.ts";
 
@@ -47,11 +47,28 @@ export interface OutagePause {
 }
 
 /** agent slot ids: a01, a02, ... (login emails derive from them) */
+/** Known cells ("x,y" -> biome), one sample per block x block tiles, block chosen so there are at most ~maxBlocks. */
+export function coarseMap(cells: Map<string, { biome: number }>, maxBlocks: number): MinimapResponse {
+  const block = Math.max(1, Math.ceil(Math.sqrt(cells.size / Math.max(1, maxBlocks))));
+  const seen = new Map<string, MapCellTuple>();
+  for (const [k, c] of cells) {
+    if (!(c.biome >= 0)) continue;
+    const [x, y] = k.split(",").map(Number);
+    const bx = Math.floor(x / block) * block, by = Math.floor(y / block) * block;
+    const key = `${bx},${by}`;
+    if (!seen.has(key)) seen.set(key, [bx, by, c.biome, 0, 0]);
+  }
+  return { block, cells: [...seen.values()] };
+}
+
 export const agentIdOf = (i: number) => `a${String(i + 1).padStart(2, "0")}`;
 
 /** cells kept in the run's merged map (~100 bytes each) */
 export const MAP_MAX_CELLS = 200_000;
 const MAP_CACHE_MS = 2000;
+/** the minimap overview: samples sent at most, and how long one is reused */
+const MINIMAP_MAX_BLOCKS = 15_000;
+const MINIMAP_CACHE_MS = 10_000;
 
 interface PendingSay {
   speaker: Agent | null;
@@ -366,6 +383,16 @@ export class Population implements SpeechSink {
    * nobody is alive, near where they were last). Cached briefly: every viewer
    * polls this, and merging walks every agent's cells.
    */
+  /** the whole explored world, coarse (see MinimapResponse); at most ~MINIMAP_MAX_BLOCKS samples, cached */
+  minimap(now = Date.now()): MinimapResponse {
+    if (this.minimapCache && now - this.minimapCache.at < MINIMAP_CACHE_MS) return this.minimapCache.body;
+    this.mergeMaps();
+    const body = coarseMap(this.merged, MINIMAP_MAX_BLOCKS);
+    this.minimapCache = { at: now, body };
+    return body;
+  }
+  private minimapCache: { at: number; body: MinimapResponse } | null = null;
+
   map(radius = 60, now = Date.now()): MapResponse {
     if (this.mapCache && this.mapCache.radius === radius && now - this.mapCache.at < MAP_CACHE_MS) return this.mapCache.body;
     this.mergeMaps();

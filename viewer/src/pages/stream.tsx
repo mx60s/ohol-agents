@@ -3,7 +3,7 @@
 import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentView, Invention, LifeRecord, MapCellTuple, PlayerView, RunEvent } from "../api-types.ts";
-import { getClient, useInventions, useLives, useMap, useNow, useObjectNames, useWorldState } from "../data/index.ts";
+import { getClient, useInventions, useLives, useMap, useMinimap, useNow, useObjectNames, useWorldState } from "../data/index.ts";
 import { ageStage, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait } from "../shared/index.ts";
 import { flowersForLives } from "../ohol/flower.ts";
 import { Sticker, Wordmark } from "../theme/index.ts";
@@ -48,6 +48,7 @@ function Stream() {
   const w = useWorldState();
   const lives = useLives();
   const map = useMap();
+  const minimap = useMinimap();
   const names = useObjectNames();
   const now = useNow(1000);
   const scale = useFitScale();
@@ -194,6 +195,8 @@ function Stream() {
               </div>
             )}
             <MiniMap
+              overview={minimap.data ?? null}
+              worldKey={state?.run.id ?? null}
               cells={map.data?.cells ?? EMPTY_CELLS}
               players={players}
               agents={state?.agents ?? EMPTY_AGENTS}

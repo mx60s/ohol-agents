@@ -229,6 +229,16 @@ export interface InventionsResponse {
 /** [x, y, biome, floorId, objectId] ; objectId/floorId 0 = empty */
 export type MapCellTuple = [number, number, number, number, number];
 
+/**
+ * GET /api/minimap: every cell any agent has seen in this world, coarsened to
+ * one sample per `block` x `block` tiles (biome only; floor and obj are 0), so
+ * the stream's inset can show the whole explored world.
+ */
+export interface MinimapResponse {
+  block: number;
+  cells: MapCellTuple[];
+}
+
 export interface MapResponse {
   cells: MapCellTuple[];
   /** names for every object id that appears in cells */

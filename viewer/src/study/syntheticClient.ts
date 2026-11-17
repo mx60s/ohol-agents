@@ -27,6 +27,7 @@ export class SyntheticClient implements ApiClient {
     };
   }
   async map() { return { cells: [], names: {} }; }
+  async minimap() { return { block: 1, cells: [] }; }
   async events() { return []; }
   stream(h: StreamHandlers) {
     const t = setTimeout(() => h.onStatus?.("open"), 0);

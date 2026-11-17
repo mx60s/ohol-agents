@@ -116,8 +116,9 @@ export function clampToBox(p: { px: number; py: number }, W: number, H: number, 
  * therefore never bigger than the box (bounded work for any map), and each
  * bucket shows its most common biome.
  */
-export function biomeGrid(cells: readonly MapCellTuple[], b: Bounds, fit: Fit): BiomeGrid {
-  const block = Math.max(1, Math.ceil(1 / fit.scale));
+export function biomeGrid(cells: readonly MapCellTuple[], b: Bounds, fit: Fit, minBlock = 1): BiomeGrid {
+  // the overview is already coarsened to minBlock tiles: a finer grid would leave gaps
+  const block = Math.max(1, minBlock, Math.ceil(1 / fit.scale));
   const x0 = Math.floor(b.x0);
   const y1 = Math.ceil(b.y1);
   const gw = Math.max(1, Math.ceil((Math.ceil(b.x1) - x0) / block));

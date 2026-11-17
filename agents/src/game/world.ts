@@ -71,6 +71,8 @@ export interface Heard {
   text: string;
   /** a server notice (MS), not speech */
   notice?: boolean;
+  /** this line named that player (see markNaming) */
+  named?: number;
 }
 
 export interface SeenDeath {
@@ -353,6 +355,8 @@ export class World {
         for (const n of m.names) {
           const name = cleanText([n.first, n.last].filter(Boolean).join(" "), NAME_MAX) || null;
           const p = this.players.get(n.id);
+          const wasNamed = !!(p?.name ?? this.names.get(n.id));
+          if (name && !wasNamed) this.markNaming(n.id, name, now);
           if (p) p.name = name;
           if (name) this.names.set(n.id, name);
           else this.names.delete(n.id);
@@ -420,6 +424,24 @@ export class World {
   /** names and lineage persist even when players go out of range */
   names = new Map<number, string>();
   lineage = new Map<number, { ancestors: number[]; eveId: number }>();
+
+  /**
+   * Someone just got their first name: the naming line heard moments ago
+   * ("YOU ARE AURORA BREEZE", the server writes the full name into it) gets
+   * "[this named #7]", the text version of seeing the name appear over that
+   * person in the client. Without it a bystander can't tell who was named.
+   */
+  private markNaming(id: number, name: string, now: number) {
+    const first = name.split(" ")[0];
+    for (let i = this.heard.length - 1; i >= 0; i--) {
+      const h = this.heard[i];
+      if (now - h.t > 15_000) break;
+      if (h.notice || h.named || !NAMING_LINE.test(h.text) || !new RegExp(`\\b${first.replace(/[^A-Z0-9]/gi, "")}\\b`, "i").test(h.text)) continue;
+      h.named = id;
+      h.text = `${h.text} [this named ${id === this.selfId ? "you" : `#${id}`}]`;
+      return;
+    }
+  }
 
   private pushHeard(h: Heard) {
     this.heard.push(h);
@@ -497,6 +519,9 @@ export class World {
   }
 }
 
+
+/** naming phrases (server settings babyNamingPhrases / familyNamingPhrases) at the start of a line */
+const NAMING_LINE = /^(YOU ARE|YOU'RE|YOURE|YOUR NAME IS|I NAME YOU|I CALL YOU|I AM|I'M|IM|CALL ME)\b/i;
 
 /** private-line tags (server.cpp PS "... *leader <id> *map x y"): what the line points at */
 const NOTICE_TAGS: Record<string, string> = {

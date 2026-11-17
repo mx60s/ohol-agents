@@ -23,6 +23,10 @@ export interface MiniMapProps {
   players: PlayerView[];
   agents: AgentView[];
   focusPlayerId: number | null;
+  /** the whole explored world, coarse (/api/minimap); null: draw from `cells` */
+  overview?: { block: number; cells: MapCellTuple[] } | null;
+  /** the current world (run id): the inset's bounds only grow within one world */
+  worldKey?: string | null;
   /** camera target tile (null: no camera) */
   camera: { x: number; y: number } | null;
   /** the camera's px per tile and focus drop (tiles), to draw its visible area */
@@ -34,23 +38,36 @@ function MiniMapImpl(p: MiniMapProps) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [view, setView] = useState<{ w: number; h: number } | null>(null);
 
-  // base layer: once per map change (the map is re-polled every few seconds; the signature skips unchanged polls)
-  const sig = mapSignature(p.cells);
-  const noCells = p.cells.length === 0;
-  const pointsKey = noCells ? p.players.map((q) => `${q.x},${q.y}`).join(";") : "";
+  // The whole explored world (overview) when the service has it, else the nearby map. The bounds
+  // only grow within one world: the inset never zooms in or jumps when someone travels or dies;
+  // it zooms out a little when someone reaches new land, and starts over in a regenerated world.
+  const source = p.overview && p.overview.cells.length ? p.overview.cells : p.cells;
+  const minBlock = p.overview && p.overview.cells.length ? p.overview.block : 1;
+  const sig = mapSignature(source);
+  const grown = useRef<{ key: string | null; b: Bounds | null }>({ key: null, b: null });
+  if (grown.current.key !== (p.worldKey ?? null)) grown.current = { key: p.worldKey ?? null, b: null };
+  // everyone on the map stays inside, even past the explored cells
+  let seen = worldBounds(source, p.players);
+  for (const q of p.players) {
+    if (!seen || !Number.isFinite(q.x) || !Number.isFinite(q.y)) continue;
+    seen = { x0: Math.min(seen.x0, q.x - 0.5), y0: Math.min(seen.y0, q.y - 0.5), x1: Math.max(seen.x1, q.x + 0.5), y1: Math.max(seen.y1, q.y + 0.5) };
+  }
+  const prev = grown.current.b;
+  const b = !seen ? prev : !prev ? seen : { x0: Math.min(prev.x0, seen.x0), y0: Math.min(prev.y0, seen.y0), x1: Math.max(prev.x1, seen.x1), y1: Math.max(prev.y1, seen.y1) };
+  grown.current.b = b;
+  const boundsKey = b ? `${b.x0},${b.y0},${b.x1},${b.y1}` : "";
   const base = useMemo(() => {
-    const bounds0 = worldBounds(p.cells, noCells ? p.players : []);
-    if (!bounds0) return null;
-    const bounds = padBounds(bounds0);
+    if (!b) return null;
+    const bounds = padBounds(b);
     const fit = fitBounds(bounds, MINIMAP_W, MINIMAP_H);
     const canvas = document.createElement("canvas");
     canvas.width = MINIMAP_W * RES;
     canvas.height = MINIMAP_H * RES;
     const g = canvas.getContext("2d");
-    if (g) drawBiomes(g, p.cells, bounds, fit);
+    if (g) drawBiomes(g, source, bounds, fit, minBlock);
     return { canvas, fit };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sig, pointsKey]);
+  }, [sig, boundsKey, minBlock]);
 
   const hasBase = base != null;
   // the camera panel's size (our parent), for the visible-area rectangle
@@ -123,9 +140,9 @@ function MiniMapImpl(p: MiniMapProps) {
   );
 }
 
-function drawBiomes(g: CanvasRenderingContext2D, cells: MapCellTuple[], bounds: Bounds, fit: Fit) {
+function drawBiomes(g: CanvasRenderingContext2D, cells: readonly MapCellTuple[], bounds: Bounds, fit: Fit, minBlock = 1) {
   g.setTransform(RES, 0, 0, RES, 0, 0);
-  const grid = biomeGrid(cells, bounds, fit);
+  const grid = biomeGrid(cells, bounds, fit, minBlock);
   const size = grid.block * fit.scale;
   for (let gy = 0; gy < grid.gh; gy++)
     for (let gx = 0; gx < grid.gw; gx++) {

@@ -10,6 +10,7 @@ import type {
   LineagesResponse,
   LivesResponse,
   MapResponse,
+  MinimapResponse,
   RunEvent,
   StateResponse,
   StoryHistoryResponse,
@@ -26,6 +27,7 @@ import {
   normLineages,
   normLives,
   normMap,
+  normMinimap,
   normNames,
   normState,
   normStoryHistory,
@@ -56,6 +58,8 @@ export interface ApiClient {
   readonly isStatic: boolean;
   state(): Promise<StateResponse>;
   map(): Promise<MapResponse>;
+  /** the whole explored world, coarse (stream inset); older services: the nearby map */
+  minimap(): Promise<MinimapResponse>;
   /** events with seq > since, oldest first (server caps at 500 per call) */
   events(since?: number): Promise<RunEvent[]>;
   /** SSE /api/stream with auto-reconnect. Returns an unsubscribe function. */
@@ -118,6 +122,14 @@ export class HttpClient implements ApiClient {
    * An unchanged body returns the previous object, so nothing downstream re-parses,
    * re-indexes or redraws it.
    */
+  async minimap() {
+    try {
+      return normMinimap(await this.get("/api/minimap"));
+    } catch {
+      return { block: 1, cells: (await this.map()).cells };
+    }
+  }
+
   async map() {
     const text = (await this.get("/api/map", false, true)) as string;
     if (this.lastMap && this.lastMap.text === text) return this.lastMap.map;
@@ -237,6 +249,7 @@ export class FixtureClient implements ApiClient {
 
   async state() { return normState(await this.load("state.json")); }
   async map() { return normMap(await this.load("map.json", true)); }
+  async minimap() { return { block: 1, cells: (await this.map()).cells }; }
   async events(since = 0) {
     return normEvents(await this.load("events.json", true)).filter((e) => e.seq > since).slice(0, 500);
   }
