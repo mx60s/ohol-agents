@@ -199,6 +199,10 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   if (cond) L.push(cond);
   const heldTimer = me.held.id > 0 && w.heldSince && !gd.condition(me.held.id) ? decayTimer(gd, me.held.id, w.heldSince, now, clock) : null;
   L.push(`Holding: ${heldText(w, gd, me)}${heldTimer ? ` (${heldTimer})` : ""}. Wearing: ${worn.length ? worn.join(", ") : "nothing"}.`);
+  // your own baby in your arms without a name: ask for it (the user's rule: mothers name their babies)
+  const heldBaby = me.held.id < 0 ? w.players.get(-me.held.id) : undefined;
+  if (heldBaby && !heldBaby.name && !w.names.get(heldBaby.id) && heldBaby.ancestors[0] === me.id)
+    L.push(`Your baby #${heldBaby.id} has no name yet: name her or him now by saying "YOU ARE <FIRST NAME>".`);
   // the official client's speech box stops accepting letters at this length (getSayLimit)
   if (age < 20) L.push(`Speech: at your age you can say at most ${sayLimit(age)} letters.`);
   if (w.craving) L.push(`Craving: ${gd.name(w.craving)} (bonus food if eaten).`);

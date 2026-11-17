@@ -364,16 +364,32 @@ export class Body {
       if (!spot) return `no empty spot within ${DROP_SEARCH_RADIUS} tiles to drop on`;
       [x, y] = spot;
     }
+    // an item aimed at a tile with something on it (not a container): put it on the nearest empty tile
+    // instead. The game would swap with a loose item there; deliberate swaps are the swap action
+    let moved = "";
+    const heldNow = this.world.self?.held.id ?? 0;
+    const occupant = this.gd.get(this.world.objAt(x, y).id);
+    if (heldNow > 0 && occupant && !(occupant.numSlots > 0)) {
+      const spot = this.nearestEmpty([x, y], DROP_SEARCH_RADIUS);
+      if (spot) {
+        moved = ` (the tile at (${x},${y}) has a ${this.gd.name(occupant.id)}, so you put it on the empty tile at (${spot[0]},${spot[1]}))`;
+        [x, y] = spot;
+      }
+    }
     const a = await this.approach(x, y);
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
     const heldId = this.world.self?.held.id ?? 0;
     const there = this.world.objAt(x, y).id;
     const r = await this.act(`DROP ${x} ${y} -1`, x, y);
-    const out = this.summarize("drop", x, y, r);
+    const out = this.summarize("drop", x, y, r) + moved;
     // server.cpp DROP: an item goes only onto an empty tile or into a container with room
     const o = this.gd.get(there);
     if (/nothing happened$/.test(out) && heldId > 0 && o && !(o.numSlots > 0)) return `${out} (the tile has a ${this.gd.name(there)}; an item can only be put on an empty tile)`;
     if (/nothing happened$/.test(out) && heldId < 0 && o) return `${out} (the baby wasn't set down on the ${this.gd.name(there)}; drop without x,y sets it down where you stand)`;
+    // dropping onto a loose item swaps them (the game's rule): say it plainly, the raw "tile A -> B; holding B -> A" was missed
+    const nowHeld = this.world.self?.held.id ?? 0;
+    if (heldId > 0 && there > 0 && nowHeld > 0 && nowHeld !== heldId && this.world.objAt(x, y).id === heldId)
+      return `swapped at (${x},${y}): you put down the ${this.gd.name(heldId)} and picked up the ${this.gd.name(nowHeld)} that was lying there (dropping onto an item swaps them; drop without x,y finds an empty tile)`;
     return out;
   }
 

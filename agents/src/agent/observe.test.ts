@@ -512,3 +512,20 @@ test("a named character is told its name in so many words", () => {
   const base = { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock };
   assert.match(buildObservation(g.world, gd, base), /^Your name is LILA PINE\.$/m);
 });
+
+test("a mother holding her own unnamed baby is asked to name it; not once it has a name, not for someone else's baby", () => {
+  const base = { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock };
+  const mk = (motherId: number) => {
+    const g = new FakeGame(gd);
+    g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: -2, female: true });
+    g.addPlayer({ id: 2, x: 0, y: 0, age: 0.1, held: 0, female: true, motherId });
+    g.start();
+    return g;
+  };
+  const own = mk(1);
+  assert.match(buildObservation(own.world, gd, base), /Your baby #2 has no name yet: name her or him now by saying "YOU ARE <FIRST NAME>"/);
+  own.world.handle({ type: "NM", names: [{ id: 2, first: "AURORA", last: "SAGE" }] });
+  assert.doesNotMatch(buildObservation(own.world, gd, base), /has no name yet/);
+  const other = mk(9);
+  assert.doesNotMatch(buildObservation(other.world, gd, base), /has no name yet/);
+});

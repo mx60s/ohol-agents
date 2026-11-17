@@ -179,11 +179,13 @@ test("drop with a baby in arms sets it down on your own tile even when every til
   assert.ok(g.sent.some((c) => c.startsWith("DROP 0 0")), g.sent.join("|"));
 });
 
-test("drop onto an occupied tile says the tile is taken", async () => {
+test("drop aimed at an occupied tile puts the item on the nearest empty tile and says so", async () => {
   const g = setup(SHARP_STONE, [1, 0]);
   g.start();
   const body = new Body(g.conn, g.world, gd);
-  assert.match(await body.drop(1, 0), /nothing happened \(the tile has a Wild Gooseberry Bush.*; an item can only be put on an empty tile\)$/);
+  const r = await body.drop(1, 0);
+  assert.match(r, /the tile at \(1,0\) has a Wild Gooseberry Bush.*, so you put it on the empty tile at/);
+  assert.equal(g.world.self!.held.id, 0, r);
 });
 
 test("drop with every tile around taken steps to the nearest empty tile within 3", async () => {
@@ -283,4 +285,16 @@ test("say: numbers are left out as the game does, and the result says so; a sick
   assert.equal(body.say("go to 44,2 now"), `said "GO TO , NOW" (numbers can't be spoken: they were left out)`);
   assert.ok(g.sent.includes("SAY 0 0 GO TO , NOW"));
   assert.equal(body.say("hello"), `said "HELLO"`);
+});
+
+test("drop aimed at a loose item puts it on the nearest empty tile instead of swapping", async () => {
+  const PEEL = gd.idByName("Banana Peel")!, BANANA = gd.idByName("Banana")!;
+  const g = setup(PEEL, [99, 99]);
+  g.setTile(1, 0, BANANA);
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  const r = await body.drop(1, 0);
+  assert.equal(g.world.self!.held.id, 0, `hands empty (${r})`);
+  assert.equal(g.world.objAt(1, 0).id, BANANA, "the banana is still there");
+  assert.match(r, /has a Banana, so you put it on the empty tile at/);
 });

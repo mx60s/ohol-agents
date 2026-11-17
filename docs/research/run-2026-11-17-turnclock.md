@@ -36,3 +36,14 @@ Turn metrics come from sampling the server's `/data/world/mtsClockNow.txt` + `mt
 - Speech is mostly self-narration from Eves ("I WILL FEED MY BABY WITH BANANA.") and short child words ("MAMA", "SIBLIN", "I GO SAFE N"); little real back-and-forth yet.
 - Play (data): "you're full" 87x + "you're full ..., so you can't eat" 36x before ffe8b97; drops onto occupied tiles 59x (the result names the occupant: explained, model's own). Babies' replies without an action ~12 (model's own).
 - **F found and fixed (3d8c074, not yet deployed):** a restarted agents process starts every slot's lifeIndex at 0, so a slot that was dead at the restart starts again at "life 1": a05 has two life-1 records (p6 dead, p10) and a07 too (p8 dead, p11). lifeIds (runId:playerId) are unaffected, so it is cosmetic in /api/lives but wrong bookkeeping. Fix: Agent takes max(own, LifeStore's highest lifeIndex for the slot in the run) + 1 for a new life. Test added; typecheck ok, 369/369 pass (tree also had the coordinator's uncommitted body.ts/start.sh/free-names.patch edits, not mine; not committed by me). Deploy ≥16:10, unless a coordinator hot update ships it first.
+
+## 15:26 coordinator announces a full fly deploy (~15:50)
+- Contents: server free-names fix bc3e83d (family surname kept per lineage, given to children born before naming), my 3d8c074 (lifeIndex), pathing fix (starting inside an animal's 4-tile margin still routes around its biting range), speech without digits (the game drops them) with feedback, sickness use reason, eat/peel fix. World should survive via player saves (same run, same lives). My hourly window counts from this deploy. I won't deploy 3d8c074 separately.
+- Pre-deploy snapshot (15:26, refreshed every 30 s until the version changes): run pilot1-r5-mwla4cnm, turn n=56, gameTime 1794956357.5; 9 open lives: a01#2 p9, a02 p3, a03 p4, a04 p5, a05 p10, a06 p7, a08 p12, a09 p13, a10 p14.
+
+## 15:27 full fly deploy verified (image 20261117T232656Z)
+- The deploy went live at ~15:27:15 (version change seen 15:27:21; last pre-deploy snapshot 15:26:51), earlier than the announced 15:50. My hourly window counts from 15:27: next ≥ 16:27.
+- **Same run id** pilot1-r5-mwla4cnm, status running.
+- **Same lives:** all 9 open lives back with the same agent/player ids (a01#2 p9, a02 p3, a03 p4, a04 p5, a05 p10, a06 p7, a08 p12, a09 p13, a10 p14); /api/lives diff before/after = only a08 gaining a name (ROSE CHEVALLIER, given by her mother SHALEI). 0 lost, 0 new lives. alive 9 = 9.
+- **Game time continued:** pre 1794956364.6 (turn 58, 15:26:51) -> 1794956369.6 at 15:27:29 (+5.0 s, i.e. ~2 act windows; no jump back or forward).
+- **Turns running:** n 2 -> 5 -> 8 -> 11 in 60 s (15:27:29–15:28:30), ~9 turns/min, 7–8 agents deciding per turn.

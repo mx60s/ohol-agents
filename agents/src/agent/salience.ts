@@ -89,7 +89,7 @@ export function speechEvent(w: World, h: Heard, now = Date.now()): Salient | nul
 }
 
 export function birthEvent(w: World, p: Player, now = Date.now()): Salient | null {
-  if (w.selfId != null && p.ancestors[0] === w.selfId) return { reason: `you gave birth to #${p.id}: pick the baby up now`, urgent: true, t: now };
+  if (w.selfId != null && p.ancestors[0] === w.selfId) return { reason: `you gave birth to #${p.id}: pick the baby up now, and name her or him while you hold the baby by saying "YOU ARE <FIRST NAME>"`, urgent: true, t: now };
   return null;
 }
 

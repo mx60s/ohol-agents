@@ -47,10 +47,20 @@ export function lifeIdOf(runId: string, playerId: number) {
   return `${runId}:${playerId}`;
 }
 
+/**
+ * Wall time per game year is only known without the turn clock: with it (TURN_CLOCK=1) the game
+ * clock stands still while agents think, so a life lasts longer in wall time. setLifespanWallFactor
+ * (from LifeBook, gameClockLags) stretches the wall-clock estimates by this much.
+ */
+let lifespanWallFactor = 1;
+export function setLifespanWallFactor(f: number) {
+  lifespanWallFactor = f > 0 ? f : 1;
+}
+
 /** Latest time a character that we stopped watching can still be alive. */
 export function presumedEndAt(l: LifeCore): number {
   const age0 = l.ageAtBirth ?? (l.generation === 1 ? EVE_AGE : 0);
-  return l.bornAt + Math.max(0, LIFESPAN_YEARS - age0) * yearMsOf(l);
+  return l.bornAt + Math.max(0, LIFESPAN_YEARS - age0) * yearMsOf(l) * lifespanWallFactor;
 }
 
 /** Alive anywhere in the world, as far as we know. */
@@ -198,7 +208,10 @@ export class LifeBook {
   /** `${runId}|${agentId}` -> current lifeId */
   private slotLife = new Map<string, string>();
 
-  constructor(readonly opts: LifeBookOptions) {}
+  constructor(readonly opts: LifeBookOptions) {
+    // turn clock: game time runs well behind wall time (11-15 turns of 2.4 game s per wall minute ~ 0.5x)
+    setLifespanWallFactor(opts.gameClockLags ? 4 : 1);
+  }
 
   /** Insert or replace a stored record (rebuild from disk). Children links are taken as stored. */
   load(l: LifeCore) {
@@ -261,7 +274,9 @@ export class LifeBook {
       if (t >= this.epochStart && l.bornAt < this.epochStart) continue;
       // alive at t: no death before t, and not past the max lifespan
       if (l.diedAt != null && l.diedAt < t - 60_000) continue;
-      if (t > presumedEndAt(l) + 5 * 60_000) continue;
+      // turn clock: an open life (no death or loss seen) is alive whatever the wall clock says
+      const open = this.opts.gameClockLags && l.diedAt == null && l.lostAt == null;
+      if (!open && t > presumedEndAt(l) + 5 * 60_000) continue;
       if (!best || l.bornAt > best.bornAt) best = l;
     }
     return best;

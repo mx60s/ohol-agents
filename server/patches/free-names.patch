@@ -20,23 +20,50 @@ so Eves can say "I AM <FIRST> <FAMILY>". Naming rules:
   with a reused id clears her entry). Forced naming at 8 minutes
   (getLineageLastName) and nameBaby fall back to it, so a child whose
   named relatives all died still gets the family surname, not a random one.
-With mtsFreeNames=0 everything is stock.
+- mtsForceNameSeconds (any mtsFreeNames; default 480 = stock): game seconds
+  alive before an unnamed person is force-named (random first name, family
+  surname).
+With mtsFreeNames=0 (and no mtsForceNameSeconds) everything is stock.
 
 diff --git a/server/server.cpp b/server/server.cpp
-index 4273fd4..ab85768 100644
+index 4273fd4..da95ae8 100644
 --- a/server/server.cpp
 +++ b/server/server.cpp
-@@ -4180,6 +4180,9 @@ static void leaderDied( LiveObject *inLeader );
+@@ -4180,6 +4180,23 @@ static void leaderDied( LiveObject *inLeader );
  
  static void forcePickName( LiveObject *inPlayer );
  
 +// MTS patch (free-names): a new Eve's lineage id forgets an old family
 +static void mtsForgetLineageFamily( int inLineageEveID );
 +
++
++// MTS patch: game seconds alive before an unnamed person gets a forced
++// name (setting mtsForceNameSeconds, stock 480 = 8 minutes); read once,
++// computeAge runs too often for a settings file read
++static double mtsForceNameSeconds() {
++    static double s = -1;
++    if( s < 0 ) {
++        s = SettingsManager::getFloatSetting( "mtsForceNameSeconds", 480 );
++        if( ! ( s >= 0 ) ) {
++            s = 480;
++            }
++        }
++    return s;
++    }
  
  double computeAge( LiveObject *inPlayer ) {
      double age = computeAge( inPlayer->lifeStartTimeSeconds );
-@@ -10715,6 +10718,10 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+@@ -4188,7 +4205,8 @@ double computeAge( LiveObject *inPlayer ) {
+         &&
+         inPlayer->name == NULL
+         &&
+-        Time::getCurrentTime() - inPlayer->trueStartTimeSeconds > 480 ) {
++        Time::getCurrentTime() - inPlayer->trueStartTimeSeconds >
++        mtsForceNameSeconds() ) {
+         /* they've been alive more than 8 minutes and have no name */
+         forcePickName( inPlayer );
+         }
+@@ -10715,6 +10733,10 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
  
          newObject.isEve = true;
          newObject.lineageEveID = newObject.id;
@@ -47,7 +74,7 @@ index 4273fd4..ab85768 100644
          
          newObject.lifeStartTimeSeconds -= 14 * ( 1.0 / getAgeRate() );
          
-@@ -16555,10 +16562,287 @@ void executeKillAction( int inKillerIndex,
+@@ -16555,10 +16577,287 @@ void executeKillAction( int inKillerIndex,
  
  
  
@@ -335,7 +362,7 @@ index 4273fd4..ab85768 100644
      
                                  
      nextPlayer->name = getUniqueCursableName( 
-@@ -16583,11 +16867,17 @@ static void nameEve( LiveObject *nextPlayer, const char *name ) {
+@@ -16583,11 +16882,17 @@ static void nameEve( LiveObject *nextPlayer, const char *name ) {
                  firstName, lastName );
          }
      
@@ -357,7 +384,7 @@ index 4273fd4..ab85768 100644
          logName( nextPlayer->id,
                   nextPlayer->email,
                   nextPlayer->name,
-@@ -16663,14 +16953,25 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby, char *inName,
+@@ -16663,14 +16968,25 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby, char *inName,
      else if( babyO->familyName != NULL ) {
          lastName = babyO->familyName;
          }
@@ -385,7 +412,7 @@ index 4273fd4..ab85768 100644
  
      if( strcmp( lastName, "" ) != 0 ) {    
          babyO->name = autoSprintf( "%s %s",
-@@ -16682,6 +16983,13 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby, char *inName,
+@@ -16682,6 +16998,13 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby, char *inName,
          }
      
      
@@ -399,7 +426,7 @@ index 4273fd4..ab85768 100644
      if( babyO->familyName == NULL &&
          nextPlayer->familyName != NULL ) {
          // mother didn't have a family 
-@@ -16706,16 +17014,45 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby, char *inName,
+@@ -16706,16 +17029,45 @@ void nameBaby( LiveObject *inNamer, LiveObject *inBaby, char *inName,
              }
          }
                                      
@@ -450,7 +477,7 @@ index 4273fd4..ab85768 100644
      logName( babyO->id,
               babyO->email,
               babyO->name,
-@@ -16743,6 +17080,15 @@ void replaceNameInSaidPhrase( char *inSaidName, char **inSaidPhrase,
+@@ -16743,6 +17095,15 @@ void replaceNameInSaidPhrase( char *inSaidName, char **inSaidPhrase,
          trueName = stringDuplicate( inNamedPerson->name );
          // trim off last name, if there is one
          char *spacePos = strstr( trueName, " " );
@@ -466,7 +493,7 @@ index 4273fd4..ab85768 100644
          if( spacePos != NULL ) {
              spacePos[0] = '\0';
              }
-@@ -16797,7 +17143,8 @@ static char *getLineageLastName( int inLineageEveID ) {
+@@ -16797,7 +17158,8 @@ static char *getLineageLastName( int inLineageEveID ) {
              return p->familyName;
              }
          }
@@ -476,7 +503,7 @@ index 4273fd4..ab85768 100644
      }
  
  
-@@ -25146,8 +25493,11 @@ int main( int inNumArgs, const char **inArgs ) {
+@@ -25146,8 +25508,11 @@ int main( int inNumArgs, const char **inArgs ) {
                                  &&
                                  strcmp( name, "" ) != 0
                                  &&
@@ -490,7 +517,7 @@ index 4273fd4..ab85768 100644
                                  nameEve( nextPlayer, name );
                                  playerIndicesToSendNamesAbout.push_back( i );
                                  replaceNameInSaidPhrase( 
-@@ -25844,8 +26194,13 @@ int main( int inNumArgs, const char **inArgs ) {
+@@ -25844,8 +26209,13 @@ int main( int inNumArgs, const char **inArgs ) {
                                              strcmp( name, "" ) != 0
                                              &&
                                              ! isEveNamingBlocked(

@@ -412,3 +412,20 @@ test("lastLifeIndex: the slot's highest lifeIndex in the run, so a restarted pro
   assert.equal(b.lastLifeIndex("other-run", "a05"), 0);
   assert.equal(b.lastLifeIndex(R, "a06"), 0);
 });
+
+test("turn clock: an open life stays findable past its wall-clock lifespan (viewer look, mother of a new baby)", () => {
+  const b = new LifeBook({ dims: DIMS, mutationSd: 0.15, traitSource: "mock", rng: seededRng(1), gameClockLags: true });
+  const f = new FakeEvents();
+  b.apply(R, f.eve("a01", 10));
+  f.wait(60 * 60_000); // an hour of wall time: past 46 wall-minutes, but under the turn clock she is ~35
+  assert.equal(b.findByPlayer(10, f.t)?.lifeId, "run1:10", "still her");
+  b.apply(R, f.child("a02", 11, 10));
+  assert.equal(b.get("run1:11")!.motherLifeId, "run1:10", "the baby has its mother");
+  assert.equal(b.get("run1:11")!.lineageId, "run1:10", "and her family");
+  // without the turn clock the old wall-clock cut-off still applies
+  const n = new LifeBook({ dims: DIMS, mutationSd: 0.15, traitSource: "mock", rng: seededRng(1) });
+  const g = new FakeEvents();
+  n.apply(R, g.eve("a01", 10));
+  g.wait(60 * 60_000);
+  assert.equal(n.findByPlayer(10, g.t), null);
+});
