@@ -19,6 +19,10 @@ const VIEW_RADIUS = 12;
 const RESOURCE_RADIUS = 20;
 const MAX_KINDS = 20;
 const MAX_HINTS = 8;
+/** lines from the held object's hint list (the client's hint pane) */
+const HELD_HINTS = 4;
+/** lines on what goes on the thing our last use just made */
+const MADE_HINTS = 3;
 /** recent action results shown (an actions list adds one line per step) */
 const HISTORY_SHOWN = 8;
 const FERTILE_MIN = 14, FERTILE_MAX = 40;
@@ -273,7 +277,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   if (sorted.length > MAX_KINDS) L.push(`- ...and ${sorted.length - MAX_KINDS} more kinds`);
 
   if (o.recipeHints) {
-    const hints = recipeHints(w, gd, sorted.map(([, g]) => g.pos[0]));
+    const hints = recipeHints(w, gd, sorted.map(([, g]) => g.pos[0]), now, clock);
     if (hints.length) {
       L.push(``);
       L.push(`== YOU COULD (with what you hold) ==`);
@@ -408,7 +412,9 @@ export function conditionLine(w: World, gd: GameData, me: Player, clock: TurnClo
   const from = c?.from.length ? ` from a ${c.from[0]}` : "";
   if (c?.kind === "sickness") return `You are SICK: ${name}. It passes with time if you survive; until then it fills your hands (it can't be dropped).`;
   if (c?.kind === "wound") {
-    const dying = me.dying ? ` You are bleeding: you die within ~${turnsText(WOUND_DEATH_SECONDS, clock).replace("about ", "")} unless someone heals you.` : "";
+    const h = gd.healers(me.held.id);
+    const heal = h.length ? ` heals you (only ${h.slice(0, 3).map((n) => `a ${n}`).join(" or ")} used on you treats a ${name})` : " heals you";
+    const dying = me.dying ? ` You are bleeding: you die within ~${turnsText(WOUND_DEATH_SECONDS, clock).replace("about ", "")} unless someone${heal}.` : "";
     return `You are WOUNDED: ${name}${from}. A wound fills your hands; it can't be dropped or eaten.${dying}`;
   }
   if (me.dying) return `You are DYING unless someone heals you (within ~${turnsText(WOUND_DEATH_SECONDS, clock).replace("about ", "")}).`;
@@ -418,7 +424,10 @@ export function conditionLine(w: World, gd: GameData, me: Player, clock: TurnClo
 /** "WOUNDED (Hog Cut)", "SICK (Yellow Fever)", "DYING" for someone else, or "" */
 function othersCondition(gd: GameData, p: Player): string {
   const c = gd.condition(p.held.id);
-  if (c?.kind === "wound") return `, WOUNDED (${gd.name(p.held.id)})${p.dying ? ", bleeding" : ""}`;
+  if (c?.kind === "wound") {
+    const h = gd.healers(p.held.id);
+    return `, WOUNDED (${gd.name(p.held.id)}${h.length ? `; treated only by ${h.slice(0, 3).map((n) => `a ${n}`).join(" or ")}` : ""})${p.dying ? ", bleeding" : ""}`;
+  }
   if (c?.kind === "sickness") return `, SICK (${gd.name(p.held.id)})`;
   return p.dying ? ", DYING" : "";
 }
@@ -427,30 +436,81 @@ function dist(a: [number, number], b: [number, number]) {
   return Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
 }
 
-/** Transitions available right now with the held item / bare hands on nearby things. */
-function recipeHints(w: World, gd: GameData, positions: [number, number][]): string[] {
+/** what a use does, from the hand's point of view: "get Ember Leaf, it becomes Long Straight Shaft" */
+function useResult(gd: GameData, t: { newActor: number; newTarget: number }, held: number, target: number): string {
+  const results: string[] = [];
+  if (t.newActor !== held) results.push(t.newActor ? `get ${gd.name(t.newActor)}` : held ? `uses up ${gd.name(held)}` : "");
+  // "it becomes Maple Tree" (same name, branch gone) says nothing; skip it
+  if (t.newTarget !== target && gd.name(t.newTarget) !== gd.name(target)) results.push(t.newTarget ? `it becomes ${gd.name(t.newTarget)}` : "it's gone");
+  return results.filter(Boolean).join(", ") || "something happens";
+}
+
+/**
+ * Transitions available right now with the held item / bare hands on nearby
+ * things, then what the client's hint pane shows a human (gd.hints): the
+ * held object's other uses, whatever is in view, and the uses of a thing
+ * our own last use just turned into something else (the client switches its
+ * hint to that thing: after the drill makes an Ember Shaft it shows what
+ * goes on the Ember Shaft).
+ */
+function recipeHints(w: World, gd: GameData, positions: [number, number][], now: number, clock: TurnClock): string[] {
   const me = w.self!;
   if (gd.condition(me.held.id)) return []; // a wound or sickness fills the hands: nothing to use
   const held = me.held.id > 0 ? me.held.id : 0;
   const out: string[] = [];
   const seen = new Set<string>();
+  const inView = new Set<number>();
   if (held && gd.isFood(held)) out.push(`- eat the ${gd.name(held)} ("eat")`);
   if (held && gd.get(held)?.clothing && gd.get(held)!.clothing !== "n") out.push(`- wear the ${gd.name(held)} ("eat")`);
   for (const pos of positions) {
     const target = w.objAt(pos[0], pos[1]).id;
     if (!target) continue;
+    inView.add(target);
+    if (out.length >= MAX_HINTS) continue;
     const t = gd.transition(held, target);
     if (!t) continue;
     const key = `${held},${target}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const results: string[] = [];
-    if (t.newActor !== held) results.push(t.newActor ? `get ${gd.name(t.newActor)}` : held ? `uses up ${gd.name(held)}` : "");
-    // "it becomes Maple Tree" (same name, branch gone) says nothing; skip it
-    if (t.newTarget !== target && gd.name(t.newTarget) !== gd.name(target)) results.push(t.newTarget ? `it becomes ${gd.name(t.newTarget)}` : "it's gone");
-    const r = results.filter(Boolean).join(", ") || "something happens";
-    out.push(`- ${held ? "use on" : "bare hands on"} ${gd.name(target)} (${pos[0]}, ${pos[1]}): ${r}`);
-    if (out.length >= MAX_HINTS) break;
+    out.push(`- ${held ? "use on" : "bare hands on"} ${gd.name(target)} (${pos[0]}, ${pos[1]}): ${useResult(gd, t, held, target)}`);
+  }
+
+  // the thing our last use just made, next to us (the client's hint follows it)
+  const pos = w.posOf(me, now);
+  let made: { x: number; y: number; id: number; prev: number; t: number } | null = null;
+  for (let dy = -2; dy <= 2; dy++)
+    for (let dx = -2; dx <= 2; dx++) {
+      const c = w.cell(pos[0] + dx, pos[1] + dy);
+      if (!c || c.by !== me.id || !c.sinceExact || c.since == null || !(c.prev && c.prev > 0) || c.prev === c.obj.id || !(c.obj.id > 0)) continue;
+      if (now - c.since > clock.cycleMs * 1.5 || (made && made.t >= c.since)) continue;
+      made = { x: pos[0] + dx, y: pos[1] + dy, id: c.obj.id, prev: c.prev, t: c.since };
+    }
+  // as in the client, a use that also changed what we hold points the hint at the new held thing
+  // instead: show this only if what we hold now made it and stayed (or the hand is empty)
+  const sameHand = (m: { prev: number; id: number }) => {
+    const t = held ? gd.transition(held, m.prev) : null;
+    return !held || (!!t && t.newActor === held && t.newTarget === m.id);
+  };
+  if (made && made.id !== held && sameHand(made)) {
+    const uses = gd.hints(made.id).filter((t) => t.target === made!.id && !(t.actor === held && seen.has(`${held},${made!.id}`)));
+    for (const t of uses.slice(0, MADE_HINTS))
+      out.push(`- on the ${gd.name(made.id)} you just made (${made.x}, ${made.y}): ${t.actor ? `a ${gd.name(t.actor)}` : "bare hands"} -> ${useResult(gd, t, t.actor, made.id)}`);
+  }
+
+  // the held object's hint list, minus what is shown above
+  if (held) {
+    let n = 0;
+    for (const t of gd.hints(held)) {
+      if (n >= HELD_HINTS) break;
+      if (t.actor === held) {
+        if (t.target > 0 && inView.has(t.target)) continue; // in view: shown above with its place, or not usable from here
+        const where = t.target === -1 ? "on empty ground" : `on a ${gd.name(t.target)} (none in view)`;
+        out.push(`- use it ${where}: ${useResult(gd, t, held, t.target)}`);
+      } else {
+        out.push(`- ${t.actor ? `a ${gd.name(t.actor)} used` : "bare hands"} on it, once it is on the ground: ${useResult(gd, t, t.actor, held)}`);
+      }
+      n++;
+    }
   }
   return out;
 }

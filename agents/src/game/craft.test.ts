@@ -130,6 +130,13 @@ test("missing ingredients are named", () => {
   assert.match(r.reason, /Recipe: Stone on Big Hard Rock/);
 });
 
+test("everything in view but too few of it: the shortage is named", () => {
+  const r = planner.plan(id("Rope"), inv(null, ["Milkweed Stalk"]));
+  assert.ok(!r.ok);
+  assert.match(r.reason, /missing: more Milkweed/);
+  assert.doesNotMatch(r.reason, /none in view/);
+});
+
 test("item names resolve forgivingly, ambiguity and natural objects are explained", () => {
   assert.deepEqual(planner.resolve("sharp stones"), { id: id("Sharp Stone") });
   assert.deepEqual(planner.resolve("FIRE"), { id: id("Fire") });

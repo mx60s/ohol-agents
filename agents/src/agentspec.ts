@@ -155,7 +155,7 @@ export function interventions(cfg: Config, s: AgentSpecSettings): AgentSpecInter
     { id: "stale-check", name: "Stale-target check", category: "human-ui", on: true, detail: "a target that changed while the model was thinking is not acted on; the model is told" },
     { id: "turns", name: "Durations in turns", category: "human-ui", on: true, detail: "every time is converted from game seconds into decision turns" },
     // like human experience or the wiki
-    { id: "playbook", name: "Game facts and playbook in the prompt", category: "wiki", on: true, detail: "food values, cold, babies and nursing, camp priorities, naming phrases" },
+    { id: "playbook", name: "Game facts and playbook in the prompt", category: "wiki", on: cfg.promptBaseline === "playbook", detail: "food values, cold, babies and nursing, camp priorities, naming phrases (PROMPT_BASELINE=playbook; the default new-player prompt has only the controls and our naming and flower rules)" },
     { id: "recipe-hints", name: "Recipe hints", category: "wiki", on: cfg.recipeHints, detail: `what the held item or bare hands would do to nearby things (up to ${L.maxHints})` },
     // beyond a human player
     { id: "craft", name: "craft <item> macro (temporary)", category: "beyond-human", on: cfg.craftMacro, detail: "plans the recipe chain from what is in view and does the steps itself; may be removed before the main study" },

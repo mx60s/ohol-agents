@@ -19,3 +19,4 @@ viewer/.ohol-cache/
 viewer/public/ohol/
 agents/logs-dev/
 docs/private/
+deploy/gpu/pods.txt

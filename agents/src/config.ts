@@ -161,6 +161,12 @@ export const config = {
   /** a slot whose character died logs in again after a uniform random delay in [min, max] s */
   respawnDelayMinMs: num("RESPAWN_DELAY_MIN_S", 30) * 1000,
   respawnDelayMaxMs: num("RESPAWN_DELAY_MAX_S", 90) * 1000,
+  /**
+   * a join or respawn waits for family room (a login would be born to a mother)
+   * at most this long, then logs in anyway (and may become an Eve). 0 = no limit:
+   * a new Eve appears only when no woman alive can have a baby. FAMILY_ROOM_MAX_HOLD_S, default 600.
+   */
+  familyRoomMaxHoldMs: num("FAMILY_ROOM_MAX_HOLD_S", 600) * 1000,
   // --- LLM provider outage handling and request options
   /** provider failing (401/402/403, 5xx, timeouts) for longer than this many s -> run paused, lives flagged; 0 = never pause */
   llmOutagePauseMs: num("LLM_OUTAGE_PAUSE_S", 60) * 1000,
@@ -200,7 +206,14 @@ export const config = {
   traitMutationSd: num("TRAIT_MUTATION_SD", 0.15),
   // --- agent-side survival aids (see README "Interventions")
   /** 1 = the `craft <item>` macro (plans over the recipe graph and runs the steps). TEMPORARY intervention. */
-  craftMacro: env.CRAFT_MACRO !== "0",
+  craftMacro: env.CRAFT_MACRO ? env.CRAFT_MACRO !== "0" : env.PROMPT_BASELINE === "playbook",
+  /**
+   * PROMPT_BASELINE: "new" (default) = a first-time player's knowledge (controls,
+   * our naming/flower rules, no recipes or strategy); "playbook" = the earlier
+   * game-facts + ranked playbook prompt. See agent/prompt.ts. The craft macro
+   * defaults on only with "playbook".
+   */
+  promptBaseline: (env.PROMPT_BASELINE === "playbook" ? "playbook" : "new") as "new" | "playbook",
   /**
    * 1 = mild reasoning cap on agent decisions: keep some reasoning, but at most
    * LLM_REASONING_MAX_TOKENS of it (0 = ask for effort "low" instead), within

@@ -149,7 +149,7 @@ test("your own wound is a condition, not a held thing; others' wounds are shown 
   g.start();
   g.world.handle({ type: "DY", ids: [1] });
   const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
-  assert.match(obs, /You are WOUNDED: Hog Cut from a Wild Boar\. A wound fills your hands; it can't be dropped or eaten\. You are bleeding: you die within ~3 turns unless someone heals you\./);
+  assert.match(obs, /You are WOUNDED: Hog Cut from a Wild Boar\. A wound fills your hands; it can't be dropped or eaten\. You are bleeding: you die within ~3 turns unless someone heals you \(only a Sterile Wool Pad used on you treats a Hog Cut\)\./);
   assert.match(obs, /Holding: nothing \(hands taken by a wound: Hog Cut\)/);
   assert.doesNotMatch(obs, /eat the Hog Cut/);
   assert.match(obs, /#2 .*, SICK \(Yellow Fever\)/);
@@ -157,6 +157,21 @@ test("your own wound is a condition, not a held thing; others' wounds are shown 
   assert.match(await body.drop(), /can't drop: your hands are taken by your wound \(Hog Cut\); it can't be put down/);
   assert.match(await body.self(), /can't: your hands are taken by your wound/);
   assert.equal(body.heldName(), "Hog Cut (wound)");
+});
+
+test("a tree with its branch and without it have different names (the client draws the branch)", () => {
+  assert.equal(gd.name(63), "Maple Tree (with branch)");
+  assert.equal(gd.name(48), "Maple Tree");
+  assert.equal(gd.idByName("Maple Tree"), 48);
+});
+
+test("others' wounds name what treats them", () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: 0, female: true });
+  g.addPlayer({ id: 2, x: 2, y: 0, age: 30, held: id("Bite Wound"), female: false });
+  g.start();
+  const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
+  assert.match(obs, /#2 .*, WOUNDED \(Bite Wound; treated only by a Sterile Wool Pad\)/);
 });
 
 test("a plant and the food it gives never share a name in the observation", () => {
@@ -221,7 +236,7 @@ test("small observation fixes: notices, other families' language, baby hunger, b
   assert.match(withHook(null), /language differs/, "15+ people known and nothing better known: the server is scrambling other families");
   assert.match(obs, /Food: 2\/4, STARVING - say F so a woman picks you up/);
   assert.doesNotMatch(obs, /EAT NOW/, "babies can't eat");
-  assert.match(systemPromptFor({}), /speech between families arrives as scrambled words/);
+  assert.match(systemPromptFor({ promptBaseline: "playbook" }), /speech between families arrives as scrambled words/);
   // a full banana plant gives a banana and keeps 6 of 7 (not the last-use "Empty Banana Plant")
   assert.equal(gd.name(gd.transition(0, 2142)!.newTarget), "Banana Plant (6/7 left)");
   assert.equal(gd.name(gd.transition(0, 6953)!.newTarget), "Empty Banana Plant", "the last banana empties it");
@@ -262,12 +277,12 @@ test("direction text", () => {
 });
 
 test("system prompt: static per config, durations in turns, the corrected baby facts", () => {
-  const stock = systemPromptFor({ foodBonusS: 0 });
+  const stock = systemPromptFor({ promptBaseline: "playbook", foodBonusS: 0 });
   assert.match(stock, /unheld it dies within ~3 turns/); // 3 pips x 6.8 s = 20 s
   assert.match(stock, /1 pip per 1 turn when naked and cold/);
   assert.match(stock, /cold makes you starve ~3\.5x faster/);
-  const p = systemPromptFor({});
-  assert.equal(p, systemPromptFor({}), "identical on every call (cacheable)");
+  const p = systemPromptFor({ promptBaseline: "playbook" });
+  assert.equal(p, systemPromptFor({ promptBaseline: "playbook" }), "identical on every call (cacheable)");
   // default FOOD_BONUS_S=18 (server/settings): +18 game s on every pip
   assert.equal(newbornWindowSeconds(18), 3 * 24.8);
   assert.match(p, /unheld it dies within ~9 turns/); // 74.4 s / 8 s
@@ -277,12 +292,12 @@ test("system prompt: static per config, durations in turns, the corrected baby f
   assert.match(p, /Never stand idle holding a baby while you are hungry/);
   assert.doesNotMatch(p, /few minutes|\d+ ?s\b|seconds/);
   assert.match(p, /"type":"craft"/);
-  assert.doesNotMatch(systemPromptFor({ craftMacro: false }), /craft/);
+  assert.doesNotMatch(systemPromptFor({ promptBaseline: "playbook", craftMacro: false }), /craft/);
   // game constants scale with k: 74.4 game s x 4 / 8 s = 37 turns; a year (60 game s) = 30 turns
-  const k4 = buildSystemPrompt({ cycleMs: 8000, timeScale: 4 }, { craft: true });
+  const k4 = buildSystemPrompt({ cycleMs: 8000, timeScale: 4 }, { craft: true, baseline: "playbook" });
   assert.match(k4, /unheld it dies within ~35 turns/);
   assert.match(k4, /One year of life passes every 30 turns/);
-  assert.match(buildSystemPrompt({ cycleMs: 8000, timeScale: 4 }, { craft: true, foodBonusS: 0 }), /unheld it dies within ~10 turns/);
+  assert.match(buildSystemPrompt({ cycleMs: 8000, timeScale: 4 }, { craft: true, foodBonusS: 0, baseline: "playbook" }), /unheld it dies within ~10 turns/);
 });
 
 test("flowers: own flower after the identity line, each nearby person's inside their label; none without flowerOf", () => {
@@ -307,7 +322,7 @@ test("flowers: own flower after the identity line, each nearby person's inside t
   const plain = buildObservation(g.world, gd, base);
   assert.doesNotMatch(plain, /in your hair|daisy|rose/);
   assert.match(plain, /^- #2 unnamed \(man, 24\) /m);
-  assert.match(systemPromptFor({}), /Everyone wears a unique flower in their hair that others can see\./);
+  assert.match(systemPromptFor({ promptBaseline: "playbook" }), /Everyone wears a unique flower in their hair that others can see\./);
 });
 
 // --- decay timers (a human sees the fire shrink) and the danger line
@@ -375,7 +390,7 @@ test("danger line: dangerous animals in view with distance and direction; none, 
 });
 
 test("prompt facts checked against the game data: cooking, fire upkeep, regrowing bushes, food by generation", () => {
-  const p = systemPromptFor({ timeScale: 1, decisionCycleMs: 8000 } as object);
+  const p = systemPromptFor({ promptBaseline: "playbook", timeScale: 1, decisionCycleMs: 8000 } as object);
   assert.doesNotMatch(p, /never regrows/);
   // Watered Wild Gooseberry Bush -> Wild Gooseberry Bush after 600 s
   assert.equal(gd.transition(-1, id("Watered Wild Gooseberry Bush"))?.autoDecaySeconds, 600);
@@ -393,4 +408,82 @@ test("prompt facts checked against the game data: cooking, fire upkeep, regrowin
   assert.match(p, /Cook skewered meat on Hot Coals: on open Fire it burns\./);
   assert.match(p, /a picked domestic bush needs a Bowl of Soil, then water, to fruit again/);
   assert.match(p, /gooseberry \+4 from generation 3, \+3 from 7, \+2 from 9, \+1 from 14/);
+});
+
+test("new-player prompt (default): controls and our rules only; no game name, recipes, strategy or craft macro", () => {
+  const p = systemPromptFor({ timeScale: 3, decisionCycleMs: 8000 } as object);
+  assert.equal(p, systemPromptFor({ timeScale: 3, decisionCycleMs: 8000, promptBaseline: "new" } as object));
+  assert.match(p, /^You are a person in a world\./);
+  assert.match(p, /A year passes every 25 turns\./);
+  assert.match(p, /people within 16 tiles of you hear it\. Some phrases also have specific consequences/);
+  assert.match(p, /"I FOLLOW YOU": the nearest person becomes your leader/);
+  assert.match(p, /These are only the basics\. Everything else about this world is yours to discover\./);
+  assert.match(p, /Everyone wears a unique flower in their hair/);
+  assert.match(p, /"actions": a list of up to 4 actions/);
+  for (const banned of [/One Hour One Life/, /Fire Bow Drill/, /gooseberry/i, /PRIORITIES/, /Don't roam/, /objective/i, /language/i, /"type":"craft"/, /e\.g\./, /\(a turn is/])
+    assert.doesNotMatch(p, banned, String(banned));
+});
+
+// --- held-item hints (RECIPE_HINTS): what the client's hint pane shows a human
+
+test("hints: the client's hint list for an object, most basic other object first, one per object", () => {
+  const names = (n: string) => gd.hints(id(n)).map((t) => `${gd.name(t.actor)} + ${gd.name(t.target)}`);
+  assert.deepEqual(names("Ember Leaf"), ["Ember Leaf + Juniper Tinder"]);
+  assert.deepEqual(names("Ember Shaft"), ["Leaf + Ember Shaft"]);
+  assert.equal(names("Fire Bow Drill")[0], "Fire Bow Drill + Long Straight Shaft");
+  assert.ok(names("Kindling").slice(0, 4).includes("Kindling + Burning Tinder"), "on the first 4 pages");
+  assert.ok(!names("Kindling").some((n) => /\(\d+\/\d+ left\)/.test(n)), "use steps of other objects collapse into one");
+  assert.equal(gd.depth(id("Stone")), 0);
+  assert.equal(gd.depth(id("Sharp Stone")), 1);
+});
+
+test("hints: the ignition chain can be found one click at a time from the observation", async () => {
+  const k3 = { cycleMs: 8000, timeScale: 3 };
+  const obs = () => buildObservation(g.world, gd, { recipeHints: true, history: [], notebook: [], pastLifeNotes: [], goal: null, clock: k3 });
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: id("Fire Bow Drill"), female: true });
+  g.setTile(1, 0, id("Long Straight Shaft"));
+  g.setTile(0, 1, id("Leaf"));
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  const set = (x: number, y: number, n: string) => {
+    g.setTile(x, y, id(n));
+    g.world.handle({ type: "MX", changes: [{ x, y, floor: 0, obj: { id: id(n), contained: [] }, responsibleId: -1 }] });
+  };
+
+  assert.match(obs(), /^- use on Long Straight Shaft \(1, 0\): it becomes Ember Shaft$/m);
+  await body.use(1, 0);
+  // the Ember Shaft lasts 10 game s: the client points its hint at it, so we say what goes on it
+  let o = obs();
+  assert.match(o, /^- Ember Shaft: \(1, 0\) \(becomes Long Straight Shaft in about 4 turns\)$/m);
+  assert.match(o, /^- on the Ember Shaft you just made \(1, 0\): a Leaf -> get Ember Leaf, it becomes Long Straight Shaft$/m);
+
+  await body.drop(0, -1);
+  await body.use(0, 1); // pick up the Leaf
+  assert.match(obs(), /^- use on Ember Shaft \(1, 0\): get Ember Leaf, it becomes Long Straight Shaft$/m);
+  await body.use(1, 0);
+  assert.equal(g.world.self!.held.id, id("Ember Leaf"));
+  // no tinder in view: the held Ember Leaf's hint still names its one use
+  o = obs();
+  assert.match(o, /Holding: Ember Leaf \(becomes Leaf in about 4 turns\)/);
+  assert.match(o, /^- use it on a Juniper Tinder \(none in view\): get Leaf, it becomes Smoldering Tinder$/m);
+  assert.doesNotMatch(o, /you just made/, "this use changed what we hold: the hint follows the Ember Leaf, not the shaft");
+
+  set(-1, 0, "Juniper Tinder");
+  o = obs();
+  assert.match(o, /^- use on Juniper Tinder \(-1, 0\): get Leaf, it becomes Smoldering Tinder$/m);
+  assert.doesNotMatch(o, /none in view/, "shown once, with its place");
+  await body.use(-1, 0);
+  assert.equal(g.world.objAt(-1, 0).id, id("Smoldering Tinder"));
+
+  // holding Kindling while the tinder smoulders: its hint names the Burning Tinder it will need
+  await body.drop(1, 1);
+  g.setTile(0, 1, id("Kindling"));
+  set(0, 1, "Kindling");
+  await body.use(0, 1);
+  assert.match(obs(), /^- use it on a Burning Tinder \(none in view\): uses up Kindling, it becomes Fire$/m);
+  set(-1, 0, "Burning Tinder");
+  assert.match(obs(), /^- use on Burning Tinder \(-1, 0\): uses up Kindling, it becomes Fire$/m);
+  await body.use(-1, 0);
+  assert.equal(g.world.objAt(-1, 0).id, id("Fire"));
 });

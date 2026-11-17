@@ -217,3 +217,23 @@ test("starting setup holds across random cooldowns: 2 Eves and 8 babies for 25 s
   }
   assert.deepEqual(extra, Array(25).fill(0), "extra Eves per seed");
 });
+
+test("family-room hold: 10 min by default; FAMILY_ROOM_MAX_HOLD_S=0 waits until a mother has room (no forced Eve)", async () => {
+  for (const [hold, expectLoggedIn] of [[undefined, true], [0, false]] as const) {
+    const clock = new Clock();
+    let room = false;
+    const sched = new LoginScheduler(plan({ initialEves: 0, joinStaggerMs: 1000, joinJitter: 0, familyRoomMaxHoldMs: hold }), {
+      now: () => clock.now, sleep: clock.sleep, random: () => 0.5, familyRoom: () => room,
+    });
+    // the run's first login never waits (someone has to start the world); the next one does
+    await Promise.all([sched.beforeLogin("a01", true), clock.advance(0)]);
+    let in1 = false;
+    void sched.beforeLogin("a02", true).then(() => (in1 = true));
+    await clock.advance(15 * 60_000);
+    assert.equal(in1, expectLoggedIn, `hold ${hold}: logged in after 15 min without room = ${in1}`);
+    room = true;
+    await clock.advance(60_000);
+    assert.equal(in1, true, "logs in once there is room");
+    sched.close();
+  }
+});

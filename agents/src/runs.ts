@@ -19,6 +19,7 @@ import { InventionLog } from "./inventions.ts";
 import { LifeStore } from "./lifestore.ts";
 import { SpendLedger } from "./spend.ts";
 import { LlmHealth } from "./agent/llm.ts";
+import { ExtinctionWatch, parseWorldRegenerated, regenSettingsFromEnv, requestRegen, worldRegeneratedText, type RegenSettings } from "./regen.ts";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -43,6 +44,13 @@ export class RunController extends EventEmitter {
   /** CONTINUOUS only: LOG_DIR/research/current-run.json */
   private runState: RunStateFile | null = null;
   private record: RunRecord | null = null;
+  /** world regeneration on extinction (regen.ts); null watch = off */
+  readonly regen: RegenSettings;
+  private watch: ExtinctionWatch | null = null;
+  private watchTimer: NodeJS.Timeout | null = null;
+  private regenTimeout: NodeJS.Timeout | null = null;
+  /** how often the extinction watch samples (the login gate also samples on every login) */
+  static readonly WATCH_MS = 5000;
   /** gap left in the event seq on resume (events emitted after the last flushed line) */
   static readonly SEQ_GAP = 1000;
 
@@ -69,8 +77,9 @@ export class RunController extends EventEmitter {
     return this.cfg.maxTotalCostUsd;
   }
 
-  constructor(private cfg: Config, private gd: GameData) {
+  constructor(private cfg: Config, private gd: GameData, regen?: RegenSettings) {
     super();
+    this.regen = regen ?? regenSettingsFromEnv(process.env, cfg.continuous);
     const researchDir = path.join(cfg.logDir, "research");
     mkdirSync(researchDir, { recursive: true });
     this.spend = new SpendLedger({ file: path.join(researchDir, "spend.jsonl") });
@@ -78,10 +87,13 @@ export class RunController extends EventEmitter {
     this.lives = new LifeStore({ logDir: cfg.logDir, dims: cfg.traitDims, mutationSd: cfg.traitMutationSd, traitSource: cfg.traitSource, timeScale: cfg.timeScale });
     let decision: RunDecision | null = null;
     let prev: RunRecord | null = null;
+    let regenerated: ReturnType<typeof parseWorldRegenerated> = null;
     if (cfg.continuous) {
       this.runState = new RunStateFile(cfg.logDir);
       prev = this.runState.load();
-      const flag = this.runState.takeNewRunFlag();
+      const flagContent = this.runState.takeNewRunFlagContent();
+      const flag = flagContent != null;
+      regenerated = parseWorldRegenerated(flagContent);
       decision = decideRun({
         continuous: true, base: cfg.runId, prev, newRun: cfg.newRun || flag,
         gameServerEpoch: cfg.gameServerEpoch || null, resumeAcrossServerRestart: cfg.resumeAcrossServerRestart, now: Date.now(),
@@ -120,6 +132,12 @@ export class RunController extends EventEmitter {
     });
     this.story.start();
     this.create(decision, decision?.resumed ? prev : null);
+    if (regenerated) {
+      const text = worldRegeneratedText(regenerated);
+      console.log(text);
+      this.log.emitEvent("system", { text, data: { ...regenerated } });
+    }
+    if (this.regen.enabled) console.log(`world regeneration on extinction: on (grace ${this.regen.graceMs / 1000}s${this.regen.requestFile ? "" : "; no REGEN_REQUEST_FILE, so requests will fail"})`);
   }
 
   private saveRecord(patch: Partial<RunRecord>) {
@@ -158,7 +176,9 @@ export class RunController extends EventEmitter {
       },
       // lives alive during an LLM outage that paused the run are not valid for study
       onOutage: (from, to) => this.lives.markOutage(runId, from, to),
+      holdLogins: () => this.watch?.holdLogins(Date.now()) ?? false,
     });
+    this.watchExtinction(runId, this.pop);
     this.narrator = cfg.narratorIntervalMs > 0 ? new Narrator(this.pop, this.log, this.pop.overheadLlm, cfg.narratorIntervalMs, cfg.narratorModel) : null;
     this.narrator?.start();
     this.director?.stop();
@@ -172,6 +192,50 @@ export class RunController extends EventEmitter {
       };
       this.runState.save(this.record);
     }
+  }
+
+  /** A fresh extinction watch for this run (regen.ts); the old run's watch and timers stop. */
+  private watchExtinction(runId: string, pop: Population) {
+    this.stopWatch();
+    this.watch = null;
+    if (!this.regen.enabled) return;
+    const watch = new ExtinctionWatch(this.regen.graceMs, () => {
+      const p = this.lives.runPopulation(runId);
+      return { running: pop.playing, everLived: p.total > 0, living: p.living, inWorld: pop.inWorld() };
+    });
+    this.watch = watch;
+    this.watchTimer = setInterval(() => {
+      if (watch.due(Date.now())) this.requestWorldRegen(runId, watch);
+    }, RunController.WATCH_MS);
+    this.watchTimer.unref();
+  }
+
+  private stopWatch() {
+    if (this.watchTimer) clearInterval(this.watchTimer);
+    if (this.regenTimeout) clearTimeout(this.regenTimeout);
+    this.watchTimer = this.regenTimeout = null;
+  }
+
+  /** The run has been extinct for the grace period: ask the supervisor for a fresh world. */
+  private requestWorldRegen(runId: string, watch: ExtinctionWatch) {
+    const reason = `no living characters for ${Math.round(this.regen.graceMs / 1000)}s`;
+    this.log.emitEvent("system", { text: `world extinct: ${reason}; asking the supervisor to regenerate the world`, data: { worldRegen: "requested", reason } });
+    console.log(`world extinct: ${reason}; requesting world regeneration`);
+    const err = requestRegen(this.regen, { reason, runId, at: Date.now() });
+    if (err) {
+      watch.disable();
+      this.log.emitEvent("system", { text: `world regeneration unavailable: ${err}; logins resume in the old world`, data: { worldRegen: "failed", error: err } });
+      console.error(`world regeneration unavailable: ${err}`);
+      return;
+    }
+    // the supervisor stops this process within seconds; if it never does, let the run go on
+    if (this.regenTimeout) clearTimeout(this.regenTimeout);
+    this.regenTimeout = setTimeout(() => {
+      if (this.watch !== watch) return;
+      watch.disable();
+      this.log.emitEvent("system", { text: `world regeneration timed out after ${Math.round(this.regen.timeoutMs / 1000)}s; logins resume in the old world`, data: { worldRegen: "timeout" } });
+    }, this.regen.timeoutMs);
+    this.regenTimeout.unref();
   }
 
   private makeDirector(cfg: Config, pop: Population, log: EventLog): Director {
@@ -242,6 +306,7 @@ export class RunController extends EventEmitter {
     const resumable = this.runState != null && !this.pop.halted;
     this.log.emitEvent("system", { text: resumable ? "process stopping (characters stay in the world; a restart reconnects)" : "process stopping" });
     this.pop.stop();
+    this.stopWatch();
     this.narrator?.stop();
     this.director?.stop();
     this.story.stop();

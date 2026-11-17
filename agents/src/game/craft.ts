@@ -200,7 +200,7 @@ export class CraftPlanner {
     };
 
     const steps = extract(goal, false, new Map(have), 0, true);
-    if (!steps) return { ok: false, reason: this.explainMissing(goal, cost) };
+    if (!steps) return { ok: false, reason: this.explainMissing(goal, cost, have) };
     return { ok: true, plan: { goal, steps: this.gatherPerishablesLate(steps, have) } };
   }
 
@@ -245,7 +245,7 @@ export class CraftPlanner {
   }
 
   /** "missing: Long Straight Shaft (none in view)" style explanation. */
-  private explainMissing(goal: number, cost: Map<number, number>): string {
+  private explainMissing(goal: number, cost: Map<number, number>, have: Map<number, number> = new Map()): string {
     const gd = this.gd;
     // walk the usual recipe (from natural materials); name the raw materials not in view
     const missing = new Set<string>();
@@ -258,16 +258,40 @@ export class CraftPlanner {
       if (!best) {
         // "Maple Tree#Branch" and a bare "Maple Tree" share a name; say which one is needed
         const tag = (gd.get(id)?.name ?? "").match(/#\s*([A-Za-z]+)\s*$/)?.[1];
-        missing.add(tag ? `${gd.name(id)} (${tag.toLowerCase()})` : gd.name(id));
+        missing.add(tag && !/\(with /.test(gd.name(id)) ? `${gd.name(id)} (${tag.toLowerCase()})` : gd.name(id));
         return;
       }
       visit(best.target, depth + 1);
       visit(best.actor, depth + 1);
     };
     visit(goal, 0);
+    // everything is in view, but not enough of it: walk the usual recipe again counting what each step uses up
+    // (Rope = 2 Thread = 4 Milkweed Stalks; one stalk in view is not enough)
+    if (!missing.size) {
+      const avail = new Map(have);
+      const short = new Set<string>();
+      let budget = 400;
+      const need = (id: number, depth: number, consumed: boolean) => {
+        if (id <= 0 || --budget < 0 || depth > 8) return;
+        const n = avail.get(id) ?? 0;
+        if (n > 0) {
+          if (consumed) avail.set(id, n - 1);
+          return;
+        }
+        const best = this.natural.get(id) === 0 ? undefined : this.usualRecipe(id);
+        if (!best) {
+          short.add(gd.name(id));
+          return;
+        }
+        need(best.target, depth + 1, best.newTarget !== best.target);
+        need(best.actor, depth + 1, best.newActor !== best.actor);
+      };
+      need(goal, 0, true);
+      for (const n of short) missing.add(`more ${n}`);
+    }
     const recipe = this.recipeText(goal);
     const m = [...missing].slice(0, 4);
-    return `can't make ${gd.name(goal)} from what you can see${m.length ? `; missing (none in view): ${m.join(", ")}` : ""}${recipe ? `. Recipe: ${recipe}` : ""}`;
+    return `can't make ${gd.name(goal)} from what you can see${m.length ? `; missing${m.some((x) => !x.startsWith("more ")) ? " (none in view)" : ""}: ${m.join(", ")}` : ""}${recipe ? `. Recipe: ${recipe}` : ""}`;
   }
 
   /** One-line recipe for an item: "Stone on Big Hard Rock". */

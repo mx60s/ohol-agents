@@ -232,7 +232,7 @@ test("malformed request targets don't crash the process", async () => {
 test("GET /api/agent-spec is mounted (no run dir: no example)", async () => {
   const r = await get("/api/agent-spec");
   assert.equal(r.status, 200);
-  assert.ok(r.body.systemPrompt.includes("One Hour One Life"));
+  assert.ok(r.body.systemPrompt.includes("You are a person in a world"));
   assert.ok(Array.isArray(r.body.actions) && r.body.actions.length > 5);
   assert.equal(r.body.example, null);
 });

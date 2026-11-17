@@ -334,3 +334,43 @@ test("assignMissingFlowers: retired shapes map to their replacement (bellflower 
   assert.equal(b.get("run1:100")!.flower!.shape, "daisy");
   assert.equal(b.get("run1:101")!.flower!.shape, "tulip");
 });
+
+test("a ghost (age 60 past the usual end) reconnects as the same life; split records from before the fix are merged back", () => {
+  // the ghost reconnect itself
+  const b = book();
+  const f = new FakeEvents();
+  b.apply(R, f.eve("a01", 10));
+  b.apply(R, f.child("a02", 11, 10));
+  f.wait(50 * 60_000); // Eve (14 at birth) is past 60 by now: a ghost
+  b.apply(R, f.ev("birth", "a01", 10, { playerId: 10, motherId: null, eve: true, generation: 1, age: 60 }));
+  assert.equal(b.lives.size, 2, "no new life for the ghost");
+  b.apply(R, f.ev("birth", "a02", 11, { playerId: 11, motherId: 10, generation: 2, age: 50 }));
+  assert.equal(b.lives.size, 2, "later reconnects aren't mistaken for a server restart");
+
+  // records split the old way: copies "<run>.2:<pid>", originals lost at the copy's birth, a later child motherless
+  const s = book();
+  const g = new FakeEvents();
+  s.apply(R, g.eve("a01", 10));
+  s.apply(R, g.child("a02", 11, 10));
+  g.wait(50 * 60_000); // Eve 14 + 50 years: past 60, a ghost
+  const split = g.t;
+  const orig10 = s.get("run1:10")!, orig11 = s.get("run1:11")!;
+  orig10.lostAt = split;
+  orig11.lostAt = split;
+  const copy = (o: typeof orig10, age: number) => ({ ...o, lifeId: `run1.2:${o.playerId}`, lineageId: `run1.2:${o.playerId}`, motherLifeId: null, bornAt: split, ageAtBirth: age, lostAt: null, childLifeIds: [], activity: { ...o.activity, thoughts: 5 } });
+  s.load(copy(orig10, 60));
+  s.load(copy(orig11, 50));
+  s.load({ ...orig11, lifeId: "run1:12", playerId: 12, agentId: "a03", lineageId: "run1:12", motherLifeId: null, motherPlayerId: 11, generation: 3, bornAt: split + 60_000, ageAtBirth: 0, lostAt: null, childLifeIds: [] });
+  const thoughtsBefore = orig11.activity.thoughts;
+  const r = s.healSplitReconnects();
+  assert.deepEqual(r.removed.sort(), ["run1.2:10", "run1.2:11"]);
+  assert.equal(s.lives.size, 3);
+  assert.equal(s.get("run1:10")!.lostAt, null);
+  assert.equal(s.get("run1:11")!.lostAt, null);
+  assert.equal(s.get("run1:11")!.activity.thoughts, thoughtsBefore + 5, "the copy's activity is added");
+  const kid = s.get("run1:12")!;
+  assert.equal(kid.motherLifeId, "run1:11");
+  assert.equal(kid.lineageId, "run1:10");
+  assert.ok(s.get("run1:11")!.childLifeIds.includes("run1:12"));
+  assert.equal(s.healSplitReconnects().removed.length, 0, "idempotent");
+});

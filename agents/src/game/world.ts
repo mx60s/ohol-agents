@@ -19,6 +19,8 @@ export interface Cell {
   t: number; // ms when last updated
   /** player whose action last changed this cell (MX responsible id), if any */
   by?: number;
+  /** the object that was here before the last map change (MX), if we saw one */
+  prev?: number;
   /** wall ms since the object here has been this id (for decay timers) */
   since?: number;
   /** true if we saw it appear (MX); false if it was already there when first seen */
@@ -277,7 +279,7 @@ export class World {
           const same = prev && prev.obj.id === ch.obj.id && prev.since != null;
           if (!same && prev && prev.obj.id > 0 && prev.since != null) this.handoff.set(prev.obj.id, { t: prev.since, exact: !!prev.sinceExact, at: now });
           const since = same ? { t: prev.since!, exact: !!prev.sinceExact } : this.arrivalOf(ch.obj.id, now);
-          this.cells.set(k, { biome: prev?.biome ?? -1, floor: ch.floor, obj: ch.obj, t: now, by: by > 0 ? by : undefined, since: since.t, sinceExact: since.exact });
+          this.cells.set(k, { biome: prev?.biome ?? -1, floor: ch.floor, obj: ch.obj, t: now, by: by > 0 ? by : undefined, prev: prev?.obj.id, since: since.t, sinceExact: since.exact });
           if (ch.from) {
             // moving object (animal) left its old cell
             const fk = `${ch.from.x},${ch.from.y}`;

@@ -86,6 +86,9 @@ export class LifeStore {
         }
       }
     }
+    // lives split by a missed reconnect (a ghost's) are merged back; the snapshot below persists it
+    const healed = this.book.healSplitReconnects();
+    if (healed.removed.length) console.log(`lives: merged ${healed.removed.length} split reconnects back (${healed.removed.join(", ")})`);
     this.book.rebuildEpochs();
     // records from before per-person flowers get one (persisted by the snapshot below)
     this.book.assignMissingFlowers();
@@ -167,6 +170,17 @@ export class LifeStore {
     const lost = this.book.markLost((l) => l.runId === runId, this.now());
     for (const l of lost) this.dirty.add(l.lifeId);
     this.flush();
+  }
+
+  /** How many lives a run has had, and how many of them are alive or possibly alive now (world regeneration, regen.ts). */
+  runPopulation(runId: string, now = this.now()): { total: number; living: number } {
+    let total = 0, living = 0;
+    for (const l of this.book.lives.values()) {
+      if (l.runId !== runId) continue;
+      total++;
+      if (possiblyAlive(l, now)) living++;
+    }
+    return { total, living };
   }
 
   /**

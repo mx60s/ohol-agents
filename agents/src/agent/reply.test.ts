@@ -166,6 +166,13 @@ test("actions lists: an \"actions\" array (or an array under \"action\"), bare s
   assert.ok("steps" in capped && capped.steps.length === 3 && /only 3 steps/.test(capped.notes[0]));
   const one = checkActions({ actions: ["eat", "drop"] }, true, 1);
   assert.ok("steps" in one && one.steps.length === 1 && /only one action runs per turn/.test(one.notes[0]));
+  const wrapped = checkActions({ action: { type: "actions", actions: [{ type: "drop" }, { type: "pick_up_baby", person: 5 }] } }, true, 4);
+  assert.ok("steps" in wrapped);
+  assert.deepEqual(wrapped.steps.map((s) => s.type), ["drop", "pick_up_baby"]);
+  for (const k of ["steps", "items"]) {
+    const w = checkActions({ action: { type: "actions", [k]: [{ type: "drop" }, { type: "eat" }] } }, true, 4);
+    assert.ok("steps" in w && w.steps.length === 2, k);
+  }
   const empty = checkActions({ actions: [] }, true, 3);
   assert.ok("error" in empty && /empty/.test(empty.error));
   const bad1 = checkActions({ actions: [{ type: "go" }, "eat"] }, true, 3);
@@ -183,5 +190,5 @@ test("the prompt explains actions lists only when they are on", () => {
   const clock = { cycleMs: 8000, timeScale: 1 };
   assert.match(buildSystemPrompt(clock, { craft: true, actionListMax: 3 }), /"actions": a list of up to 3 actions done back to back/);
   assert.doesNotMatch(buildSystemPrompt(clock, { craft: true, actionListMax: 1 }), /"actions"/);
-  assert.match(systemPromptFor({}), /"actions": a list of up to 4 actions/, "default ACTION_LIST_MAX is 4 (the ember chain fits one list)");
+  assert.match(systemPromptFor({ promptBaseline: "playbook" }), /"actions": a list of up to 4 actions/, "default ACTION_LIST_MAX is 4 (the ember chain fits one list)");
 });

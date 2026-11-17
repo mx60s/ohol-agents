@@ -328,7 +328,10 @@ export function checkAction(reply: Record<string, unknown>, craft: boolean): { a
  * and everything from the first invalid step on are not run; notes say so.
  */
 export function checkActions(reply: Record<string, unknown>, craft: boolean, max: number): { steps: Action[]; notes: string[] } | { error: string } {
-  const listed = Array.isArray(reply.actions) ? reply.actions : Array.isArray(reply.action) ? reply.action : null;
+  // also {"action":{"type":"actions","actions":[...]}}: the list wrapped as one action (Qwen does this)
+  // (the list key also comes as "steps" or "items")
+  const wrapped = wrappedList(reply.action);
+  const listed = Array.isArray(reply.actions) ? reply.actions : Array.isArray(reply.action) ? reply.action : wrapped;
   if (!listed) {
     const c = checkAction(reply, craft);
     return "error" in c ? c : { steps: [c.action], notes: [] };
@@ -351,6 +354,15 @@ export function checkActions(reply: Record<string, unknown>, craft: boolean, max
     steps.push(c.action);
   }
   return { steps, notes };
+}
+
+/** {"type":"actions","actions"|"steps"|"items":[...]}: an actions list written as one action. */
+function wrappedList(a: unknown): unknown[] | null {
+  if (!a || typeof a !== "object" || Array.isArray(a)) return null;
+  const o = a as Record<string, unknown>;
+  if (!/^actions$/i.test(String(o.type ?? "actions"))) return null;
+  for (const k of ["actions", "steps", "items"]) if (Array.isArray(o[k])) return o[k] as unknown[];
+  return null;
 }
 
 function checkOne(raw: unknown, craft: boolean): { action: Action } | { error: string } {

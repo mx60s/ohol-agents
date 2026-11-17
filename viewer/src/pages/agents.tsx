@@ -113,7 +113,7 @@ function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
         ))}
       </dl>
       <p className="hw-p">
-        Before it, the same system prompt every turn: game facts (food, cold, babies, nursing), camp priorities, naming phrases, the shared objective and the reply format.
+        Before it, the same system prompt every turn: what a first-time player knows (how time, food and births work, how to pick up, put down and combine things), our naming and flower rules, and the reply format. No recipes and no strategy.
       </p>
       <details className="hw-details">
         <summary>The system prompt, exactly as sent ({spec.systemPrompt.length.toLocaleString("en-US")} characters)</summary>

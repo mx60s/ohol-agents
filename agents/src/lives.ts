@@ -474,6 +474,85 @@ export class LifeBook {
     return out;
   }
 
+  /**
+   * Merge lives split by a missed reconnect back into one. Before the ghost
+   * fix in sameBody(), a ghost's reconnect after an agents-service restart
+   * counted as a birth; its low player id then looked like a game-server
+   * restart, and every later reconnect became a new, motherless life
+   * "<run>.<n>:<pid>" while the real one was marked lost at that moment.
+   * A split copy: same run, player id and slot as a life marked lost within
+   * 2 min of the copy's birth, with the age that life had then (or a ghost's 60).
+   * The copy's death and activity move to the original, its children point to
+   * the original, and motherless lives born after the split get their mother
+   * (the run's life with that player id) and her lineage back. Returns the
+   * changed lives; removed copies are dropped from the book.
+   */
+  healSplitReconnects(): { changed: LifeCore[]; removed: string[] } {
+    const changed = new Set<LifeCore>();
+    const removed: string[] = [];
+    const ren = new Map<string, string>();
+    const all = [...this.lives.values()].sort((a, b) => a.bornAt - b.bornAt);
+    for (const dup of all) {
+      if (!/\.\d+:\d+$/.test(dup.lifeId)) continue;
+      const orig = all.find(
+        (o) =>
+          o !== dup && !ren.has(o.lifeId) && o.runId === dup.runId && o.playerId === dup.playerId && o.agentId === dup.agentId &&
+          o.bornAt < dup.bornAt && o.diedAt == null && o.lostAt != null && Math.abs(o.lostAt - dup.bornAt) <= 120_000 &&
+          (dup.ageAtBirth == null || o.ageAtBirth == null ||
+            Math.abs(dup.ageAtBirth - Math.min(LIFESPAN_YEARS, o.ageAtBirth + (dup.bornAt - o.bornAt) / yearMsOf(o))) <= 3),
+      );
+      if (!orig) continue;
+      ren.set(dup.lifeId, orig.lifeId);
+      orig.lostAt = dup.lostAt;
+      orig.diedAt = dup.diedAt;
+      orig.ageAtDeath = dup.ageAtDeath;
+      orig.deathReason = dup.deathReason;
+      for (const k of Object.keys(orig.activity) as (keyof LifeActivity)[])
+        orig.activity[k] = k === "maxDistFromBirth" ? Math.max(orig.activity[k], dup.activity[k]) : orig.activity[k] + dup.activity[k];
+      orig.outage = orig.outage || dup.outage;
+      orig.validForStudy = orig.validForStudy && dup.validForStudy;
+      orig.updatedAt = Math.max(orig.updatedAt, dup.updatedAt);
+      changed.add(orig);
+      this.lives.delete(dup.lifeId);
+      const ids = this.byPlayer.get(dup.playerId);
+      if (ids) this.byPlayer.set(dup.playerId, ids.filter((i) => i !== dup.lifeId));
+      const k = `${dup.runId}|${dup.playerId}`;
+      if (this.runPid.get(k) === dup.lifeId) this.runPid.set(k, orig.lifeId);
+      for (const [sk, id] of this.slotLife) if (id === dup.lifeId) this.slotLife.set(sk, orig.lifeId);
+      removed.push(dup.lifeId);
+    }
+    if (!ren.size) return { changed: [], removed };
+    const splitAt = Math.min(...[...ren.values()].map((id) => this.lives.get(id)!.lostAt ?? Infinity).filter(Number.isFinite), ...all.filter((l) => ren.has(l.lifeId)).map((l) => l.bornAt));
+    for (const l of [...this.lives.values()].sort((a, b) => a.bornAt - b.bornAt)) {
+      let mother = l.motherLifeId ? this.lives.get(ren.get(l.motherLifeId) ?? l.motherLifeId) ?? null : null;
+      if (!mother && l.motherPlayerId != null && l.bornAt >= splitAt - 120_000) {
+        const m = this.byRunPlayer(l.runId, l.motherPlayerId);
+        if (m && m.bornAt < l.bornAt) mother = m;
+      }
+      if (!mother) continue;
+      const lineageId = mother.lineageId;
+      if (l.motherLifeId !== mother.lifeId || l.lineageId !== lineageId) {
+        if (l.motherLifeId !== mother.lifeId) {
+          const old = l.motherLifeId ? this.lives.get(l.motherLifeId) : null;
+          if (old) old.childLifeIds = old.childLifeIds.filter((c) => c !== l.lifeId);
+          if (!mother.childLifeIds.includes(l.lifeId)) mother.childLifeIds.push(l.lifeId);
+          changed.add(mother);
+        }
+        l.motherLifeId = mother.lifeId;
+        l.lineageId = lineageId;
+        changed.add(l);
+      }
+    }
+    for (const l of this.lives.values()) {
+      const kids = l.childLifeIds.map((c) => ren.get(c) ?? c).filter((c, i, a) => this.lives.has(c) && a.indexOf(c) === i);
+      if (kids.length !== l.childLifeIds.length || kids.some((c, i) => c !== l.childLifeIds[i])) {
+        l.childLifeIds = kids;
+        changed.add(l);
+      }
+    }
+    return { changed: [...changed], removed };
+  }
+
   /** Mark open lives matching `pred` as lost at time t (or at their last update if t is null). */
   markLost(pred: (l: LifeCore) => boolean, t: number | null): LifeCore[] {
     const out: LifeCore[] = [];
@@ -495,7 +574,8 @@ export class LifeBook {
  */
 function sameBody(l: LifeCore, agentId: string, t: number, age: number | null): boolean {
   if (l.diedAt != null || l.agentId !== agentId) return false;
-  if (t > presumedEndAt(l) + 5 * 60_000) return false;
+  // with a reported age the age test below decides: a ghost (allowGhosts) stays at 60 past the usual end
+  if (age == null && t > presumedEndAt(l) + 5 * 60_000) return false;
   if (age != null && l.ageAtBirth != null) {
     const expected = Math.min(LIFESPAN_YEARS, l.ageAtBirth + (t - l.bornAt) / yearMsOf(l));
     if (Math.abs(age - expected) > 3) return false;

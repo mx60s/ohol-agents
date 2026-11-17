@@ -118,13 +118,28 @@ export class RunStateFile {
 
   /** true (and the flag is removed) if a fresh run was requested via the flag file */
   takeNewRunFlag(): boolean {
-    if (!existsSync(this.flagFile)) return false;
+    return this.takeNewRunFlagContent() != null;
+  }
+
+  /**
+   * The flag file's content ("" for a plain flag), and the flag is removed;
+   * null = no flag. After a world regeneration start.sh writes a JSON record
+   * into it (regen.ts, parseWorldRegenerated).
+   */
+  takeNewRunFlagContent(): string | null {
+    if (!existsSync(this.flagFile)) return null;
+    let content = "";
+    try {
+      content = readFileSync(this.flagFile, "utf8");
+    } catch {
+      // a flag we can't read is still a flag
+    }
     try {
       unlinkSync(this.flagFile);
     } catch {
       // ignore
     }
-    return true;
+    return content;
   }
 }
 

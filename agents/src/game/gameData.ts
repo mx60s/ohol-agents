@@ -81,7 +81,7 @@ export class GameData {
     const cached = this.nameCache.get(id);
     if (cached) return cached;
     const o = this.objects.get(id);
-    let n = o ? cleanName(o.name) + this.clashSuffix(id) : `object ${id}`;
+    let n = o ? cleanName(o.name) + this.clashSuffix(id) + (o.name.split("#")[1]?.trim() === "Branch" ? " (with branch)" : "") : `object ${id}`;
     if (o && o.parent && o.useIndex >= 0 && o.numUses <= 1) {
       // use dummy: name comes from parent; show uses left
       const p = this.objects.get(o.parent);
@@ -200,6 +200,64 @@ export class GameData {
   }
   private allCache: Transition[] | null = null;
 
+  /**
+   * Tech depth, as the client computes it (transitionBank regenerateDepthMap):
+   * natural objects (mapChance > 0) are 0; a breadth-first walk from them
+   * gives each newly reached product max(ingredient depths) + 1.
+   * Unreachable objects get Infinity.
+   */
+  depth(id: number): number {
+    if (!this.depthCache) {
+      const d = new Map<number, number>();
+      const horizon: number[] = [];
+      for (const o of this.objects.values()) if (o.mapChance > 0) (d.set(o.id, 0), horizon.push(o.id));
+      const get = (x: number) => d.get(x) ?? Infinity;
+      for (let i = 0; i < horizon.length; i++) {
+        const id = horizon[i];
+        for (const t of [...this.usesAsActor(id), ...this.usesAsTarget(id)]) {
+          let next = Infinity;
+          if ((t.actor === id && t.target <= 0) || (t.target === id && t.actor <= 0) || (t.actor === id && t.target === id)) next = get(id) + 1;
+          else if (t.actor > 0 && t.target > 0) next = Math.max(get(t.actor), get(t.target)) + 1;
+          if (!Number.isFinite(next)) continue;
+          for (const n of [t.newActor, t.newTarget]) if (n > 0 && !d.has(n)) (d.set(n, next), horizon.push(n));
+        }
+      }
+      this.depthCache = d;
+    }
+    return this.depthCache.get(id) ?? Infinity;
+  }
+  private depthCache: Map<number, number> | null = null;
+
+  /**
+   * The client's hint list for an object (LivingLifePage getNumHints): the
+   * transitions it takes part in, as actor or target, that the hint pane
+   * shows (getTransHintable: no last-use variants, no decay, no categories),
+   * one per other object, the most basic other object (lowest depth) first.
+   * A human sees these, one per page, whenever they pick the object up.
+   */
+  hints(id: number): Transition[] {
+    const hintable = (t: Transition) =>
+      !t.lastUseActor && !t.lastUseTarget && t.actor >= 0 && (t.target > 0 || t.target === -1) && (t.newActor > 0 || t.newTarget > 0) &&
+      !this.isPlaceholder(t.actor) && !this.isPlaceholder(t.target) && !(t.target === -1 && t.newTarget === 0 && !this.isFood(t.actor));
+    const other = (t: Transition) => (t.actor > 0 && t.actor !== id ? t.actor : t.target > 0 && t.target !== id ? t.target : 0);
+    const useStep = (x: number) => { const o = this.objects.get(x); return !!o && o.parent > 0 && o.useIndex >= 0; };
+    // the other object's use steps ("Kindling Pile (2/5 left)") repeat its full version's hint
+    const all = [...new Set([...this.usesAsActor(id), ...this.usesAsTarget(id)])].filter((t) => hintable(t) && !useStep(other(t)));
+    const keyed = all.map((t, i) => ({ t, i, d: other(t) ? this.depth(other(t)) : 0 }));
+    keyed.sort((a, b) => a.d - b.d || a.i - b.i);
+    const seen = new Set<string>();
+    const out: Transition[] = [];
+    for (const { t } of keyed) {
+      const o = other(t);
+      // one per other object (the client compares descriptions without "#notes", so use steps collapse)
+      const k = `${t.actor === id ? "a" : "t"}:${o ? cleanName(this.objects.get(o)?.name ?? "") : o}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(t);
+    }
+    return out;
+  }
+
   /** Category / pattern placeholders ("@ Kindling Source") never exist in the world. */
   isPlaceholder(id: number): boolean {
     return id > 0 && (this.objects.get(id)?.name ?? "").trimStart().startsWith("@");
@@ -227,6 +285,17 @@ export class GameData {
     return id > 0 && this.waterCache.has(this.base(id));
   }
   private waterCache: Set<number> | null = null;
+
+  /** Items that treat a wound when used on the wounded person (Sterile Wool Pad on Bite Wound), by name. */
+  healers(woundId: number): string[] {
+    const out: string[] = [];
+    for (const t of this.usesAsTarget(woundId)) {
+      if (!(t.actor > 0) || t.newTarget === woundId || this.isPlaceholder(t.actor)) continue;
+      const n = this.name(this.base(t.actor)).replace(/ \(\d+\/\d+ left\)$/, "");
+      if (!out.includes(n)) out.push(n);
+    }
+    return out;
+  }
 
   /**
    * Things that sit in a player's hands but are a body condition, not an

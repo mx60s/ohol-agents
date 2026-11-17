@@ -28,20 +28,27 @@ kill_timeout = "60s"
   AUTOSTART = "1"
   # start/stop from the dashboard needs CONTROL_TOKEN
   OPEN_CONTROL = "0"
-  AGENT_COUNT = "10"
+  # few starting camps that grow by births: 2 Eves, 28 slots (one H200's comfortable load); a free slot waits to be born to a
+  # mother (no forced Eves); a new Eve appears only when no woman alive can have a baby
+  AGENT_COUNT = "28"
   INITIAL_EVES = "2"
-  # agents: self-hosted Qwen3.8-27B-FP8 + MTP on one RunPod H200 (deploy/gpu/launch-qwen.sh,
+  FAMILY_ROOM_MAX_HOLD_S = "0"
+  # new-player prompt: controls and our rules only, no recipes or strategy (agents/src/agent/prompt.ts)
+  PROMPT_BASELINE = "new"
+  # agents: self-hosted Qwen3-32B-FP8 + EAGLE-3 on one RunPod H200 (MODEL=q3 deploy/gpu/launch-qwen.sh; GPUS=2 for more agents;
   # docs/research/selfhost-optimize.md). LLM_BASE_URL and LLM_API_KEY are secrets (pod URL changes per pod).
   # Narrator, story and director stay on OpenRouter (OPENROUTER_API_KEY): Gemini 3.1 Flash-Lite and Jev.
   LLM_MODEL = "m"
-  LLM_MODEL_NAME = "Qwen/Qwen3.8-27B"
-  # mild reasoning: thinking on, 300-token thinking budget inside 800 tokens (vLLM thinking_token_budget)
-  LLM_REASONING_MAX_TOKENS = "300"
+  LLM_MODEL_NAME = "Qwen/Qwen3-32B"
+  # mild reasoning: thinking on, 400-token thinking budget inside 800 tokens (vLLM thinking_token_budget;
+  # 400 removes Qwen3-32B's ~1% empty replies at 300, docs/research/selfhost-optimize.md)
+  LLM_REASONING_MAX_TOKENS = "400"
   LLM_DECISION_MAX_TOKENS = "800"
   # the whole game clock runs 3x slower (server and agents read the same value)
   TIME_SCALE = "3"
   DECISION_CYCLE_MS = "8000"
-  CRAFT_MACRO = "1"
+  # the craft macro (recipe planner) is off with the new-player prompt
+  CRAFT_MACRO = "0"
   MEMORY_MODE = "per-life"
   RECIPE_HINTS = "1"
   # actions per reply, back to back: 4 fits the ember chain (drill, swap, leaf, tinder) in one list
@@ -105,5 +112,6 @@ kill_timeout = "60s"
   policy = "always"
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "1gb"
+  # up to 40 agents + the game server: 2 dedicated CPUs
+  size = "performance-2x"
+  memory = "4gb"

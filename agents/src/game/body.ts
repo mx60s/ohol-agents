@@ -11,6 +11,10 @@ type Pos = [number, number];
 const DIRS8: Pos[] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const DIRS4: Pos[] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const CLOTHING_SLOTS = ["hat", "tunic", "front shoe", "back shoe", "bottom", "backpack"];
+/** server.cpp minPickupBabyAge */
+const MIN_PICKUP_BABY_AGE = 10;
+/** how far drop() looks for an empty tile when none is next to you */
+const DROP_SEARCH_RADIUS = 3;
 const MAX_STEP_RANGE = 15; // server rejects deltas beyond +/-16
 /** a detour around a dangerous animal is taken if it is at most this many tiles longer */
 const DANGER_DETOUR = 24;
@@ -274,6 +278,7 @@ export class Body {
     const a = await this.approach(x, y);
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
     const target = this.world.objAt(x, y).id;
+    const heldId = this.world.self?.held.id ?? 0;
     const r = await this.act(`USE ${x} ${y}${target > 0 ? " " + target : ""}`, x, y);
     const out = this.summarize("use", x, y, r);
     // the age rule for picking things up (objects' minPickupAge) is visible in the client as a failed grab
@@ -281,7 +286,28 @@ export class Body {
     const o = this.gd.get(target);
     if (/nothing happened$/.test(out) && me && me.held.id === 0 && o && !o.permanent && this.world.currentAge(me) < o.minPickupAge)
       return `${out} (you're too young to pick up the ${this.gd.name(target)}: it needs age ${o.minPickupAge})`;
+    // the game has no transition for this pair (a human sees the same: the click does nothing); say so plainly
+    // the client then shows its hint for the clicked thing (what works on it); we say the first few
+    const held = heldId;
+    if (/nothing happened$/.test(out) && held > 0 && o && !(o.numSlots > 0) && !this.gd.transition(held, target) && !this.gd.transition(this.gd.base(held), this.gd.base(target)))
+      return `${out} (a ${this.gd.name(held).replace(/ \(\d+\/\d+ left\)$/, "")} does nothing on a ${this.gd.name(target)}${this.worksOn(target, held)})`;
+    if (/nothing happened$/.test(out) && held === 0 && o && o.permanent && !(o.numSlots > 0) && !this.gd.transition(0, target))
+      return `${out} (bare hands do nothing on a ${this.gd.name(target)}${this.worksOn(target, 0)})`;
     return out;
+  }
+
+  /** "; what works on it: a Kindling (it becomes Fire)", from the client's hint list for the target */
+  private worksOn(target: number, held: number): string {
+    const name = (id: number) => this.gd.name(id);
+    const uses = this.gd.hints(target).filter((t) => t.target === target && t.actor !== held).slice(0, 3);
+    if (!uses.length) return "";
+    const one = (t: { actor: number; newActor: number; newTarget: number }) => {
+      const r: string[] = [];
+      if (t.newActor !== t.actor) r.push(t.newActor ? `you get ${name(t.newActor)}` : `uses up the ${name(t.actor)}`);
+      if (t.newTarget !== target && name(t.newTarget) !== name(target)) r.push(t.newTarget ? `it becomes ${name(t.newTarget)}` : "it's gone");
+      return `${t.actor ? `a ${name(t.actor)}` : "bare hands"}${r.length ? ` (${r.join(", ")})` : ""}`;
+    };
+    return `; what works on it: ${uses.map(one).join("; ")}`;
   }
 
   /**
@@ -304,16 +330,42 @@ export class Body {
     if (this.world.self?.held.id === 0) return "not holding anything";
     const blocked = this.conditionBlock();
     if (blocked) return `can't drop: ${blocked}`;
+    if ((x == null || y == null) && (this.world.self?.held.id ?? 0) < 0) {
+      // server.cpp DROP: a baby can be set down on any tile that doesn't block walking, so on your own tile
+      [x, y] = p;
+    }
     if (x == null || y == null) {
       // nearest empty walkable neighbor, else own tile
-      const spot = [p, ...DIRS4.map(([dx, dy]) => [p[0] + dx, p[1] + dy] as Pos)].find(([sx, sy]) => this.world.objAt(sx, sy).id === 0);
-      if (!spot) return "no empty spot nearby to drop on";
+      let spot = [p, ...DIRS4.map(([dx, dy]) => [p[0] + dx, p[1] + dy] as Pos)].find(([sx, sy]) => this.world.objAt(sx, sy).id === 0);
+      // none right here: the nearest empty, walkable tile a few steps away (a player steps aside to put a thing down)
+      if (!spot) spot = this.nearestEmpty(p, DROP_SEARCH_RADIUS) ?? undefined;
+      if (!spot) return `no empty spot within ${DROP_SEARCH_RADIUS} tiles to drop on`;
       [x, y] = spot;
     }
     const a = await this.approach(x, y);
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
+    const heldId = this.world.self?.held.id ?? 0;
+    const there = this.world.objAt(x, y).id;
     const r = await this.act(`DROP ${x} ${y} -1`, x, y);
-    return this.summarize("drop", x, y, r);
+    const out = this.summarize("drop", x, y, r);
+    // server.cpp DROP: an item goes only onto an empty tile or into a container with room
+    const o = this.gd.get(there);
+    if (/nothing happened$/.test(out) && heldId > 0 && o && !(o.numSlots > 0)) return `${out} (the tile has a ${this.gd.name(there)}; an item can only be put on an empty tile)`;
+    return out;
+  }
+
+  /** Nearest empty tile that doesn't block walking, within r (by steps), or null. */
+  private nearestEmpty(p: Pos, r: number): Pos | null {
+    let best: Pos | null = null, bd = Infinity;
+    for (let dy = -r; dy <= r; dy++)
+      for (let dx = -r; dx <= r; dx++) {
+        const x = p[0] + dx, y = p[1] + dy, d = Math.abs(dx) + Math.abs(dy);
+        if (d < bd && this.world.objAt(x, y).id === 0 && this.world.walkable(x, y)) {
+          bd = d;
+          best = [x, y];
+        }
+      }
+    return best;
   }
 
   /** Swap held item with the object on a tile. */
@@ -486,6 +538,9 @@ export class Body {
     if (held === -id) return `you're already carrying #${id}`;
     if (held < 0) return `tried to pick up #${id}: your arms are full (carrying ${this.heldName()}); put them down first`;
     if (held > 0) return `tried to pick up #${id}: your hands are full (holding ${this.heldName()}); drop it first`;
+    // server.cpp minPickupBabyAge: the BABY message is ignored below age 10
+    const me = this.world.self;
+    if (me && this.world.currentAge(me) < MIN_PICKUP_BABY_AGE) return `tried to pick up #${id}: you can't carry a baby until you are ${MIN_PICKUP_BABY_AGE}`;
     const n = await this.nearPlayer(id);
     if (typeof n === "string") return n;
     const r = await this.act(`BABY ${n.p[0]} ${n.p[1]} ${id}`, n.p[0], n.p[1]);
@@ -505,7 +560,9 @@ export class Body {
     const o = this.world.players.get(id);
     if (o && heldId > 0 && this.gd.isFood(heldId) && this.world.currentAge(o) < 3) return `#${id} refused the ${this.gd.name(heldId)}: a baby under 3 only takes food when starving (2 food or less)`;
     if (heldId === 0) return `used bare hands on #${id}: nothing happened (you're holding nothing)`;
-    return `used held item on #${id}: nothing happened`;
+    // server.cpp UBABY: on another person a held item can heal a wound, feed or clothe; nothing else
+    const kind = heldId > 0 && !this.gd.isFood(heldId) && this.gd.objects.get(heldId)?.clothing === "n" ? ` (a ${this.gd.name(heldId)} is not food or clothing, so it can't be fed to or put on #${id})` : "";
+    return `used held item on #${id}: nothing happened${kind}`;
   }
 
   say(text: string): string {

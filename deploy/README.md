@@ -5,7 +5,7 @@ which talk over `127.0.0.1`. `deploy/start.sh` supervises them:
 
 | process | port | data |
 | --- | --- | --- |
-| OHOL game server (`OneLifeServer`, compiled in `deploy/Dockerfile`) | 8005, internal only | `/data/world` (map/player DBs, server logs) |
+| OHOL game server (`OneLifeServer`, compiled in `deploy/Dockerfile`) | 8005, internal only | `/data/world` (map/player DBs, server logs); `/data/worlds` (archived worlds) |
 | agents service + built viewer (`/` = site, `/api/*`) | 8787, public via `http_service` | `/data/logs` (`LOG_DIR`: run logs, `research/`, spend, story) |
 | (hot updates) | | `/data/app` (`versions/<v>`, `current`, `previous`) |
 
@@ -59,8 +59,12 @@ or set the repository variable `SITE_API_URL`.
    `[[restart]] policy = "always"` brings the machine back (a new world
    epoch: the agents start a fresh run).
 
+8. On **SIGUSR2** with a request file, it regenerates the world without
+   exiting. See [World regeneration](#world-regeneration).
+
 start.sh writes its pid to `/tmp/as-supervisor.pid` and its state (pids,
-which code the agents run, crash count) to `/tmp/as-supervisor.state`.
+which code the agents run, crash count, `world_regens`) to
+`/tmp/as-supervisor.state`.
 
 Note: Fly's HTTP checks only gate routing and deploys. They do not restart a
 machine. The restart comes from start.sh exiting when the game server dies.
@@ -79,8 +83,88 @@ characters, the old ones become `lost`) starts on:
   player ids (`RESUME_ACROSS_SERVER_RESTART=1` turns this off);
 - a halt (`/api/halt`, spend cap);
 - `NEW_RUN=1`, or the one-shot flag `/data/logs/research/new-run.flag`
-  (`deploy/hot-update.sh --new-run` sets it);
+  (`deploy/hot-update.sh --new-run` sets it; a world regeneration sets it
+  too);
 - a changed `RUN_ID`.
+
+### World regeneration
+
+With `CONTINUOUS=1`, `REGEN_ON_EXTINCTION` is on by default (`=0` turns it
+off; it is always off outside continuous mode). When everyone has died, the
+world is wiped and a fresh run starts.
+
+**Trigger (agents service, `agents/src/regen.ts`).** The run counts as
+extinct when all of these hold:
+- it has had at least one life (a fresh run's first logins don't count);
+- none of its lives is alive or possibly alive (a `lost` life may still be
+  alive until its presumed end);
+- no slot is connecting or in the world;
+- it is started, not halted, and not paused by an LLM outage or the daily cap.
+
+A halted run is never extinct. From the first moment the run is extinct, the
+login scheduler's pause gate holds every login. The gate checks extinction
+itself, without waiting for the 5 s tick, so no fresh Eve is born into the
+old world while the decision is pending. If a slot that was already past the
+gate is born, the run is not extinct any more and the grace period starts
+over. After `EXTINCT_GRACE_S` (180 s) of extinction, the agents emit a
+`system` event `world extinct: …`, write the reason to `REGEN_REQUEST_FILE`
+(`/data/worlds/regen-request.json`, set by start.sh), and send SIGUSR2 to the
+pid in `SUPERVISOR_PIDFILE`. If that fails (no start.sh, an older image) or
+nothing happens within `REGEN_TIMEOUT_S` (600 s), logins resume in the old
+world.
+
+**Action (start.sh).** On SIGUSR2 with the request file, start.sh:
+1. stops the agents (SIGTERM, which writes the research snapshot);
+2. stops the game server (SIGTSTP, which does the final player save);
+3. commits: moves the request into `/data/worlds/regen-pending/` with an
+   atomic rename;
+4. moves the world files out of `/data/world` (list below);
+5. archives them as `/data/worlds/archive/<UTC stamp>/world.tar.gz`, with
+   the request;
+6. writes the new-run flag (a JSON record with the reason and the archive);
+7. removes `regen-pending`;
+8. starts the game server, then the agents.
+
+It does not exit. The new run's first event is
+`world regenerated: <reason>; previous run <id>; old world archived to <dir>`.
+The old run's lives, events and research data are left as they are.
+
+**What is wiped.** These files are verified against the OHOL source:
+`map.cpp` `wipeMapFiles()` is the stock apocalypse wipe, and start.sh adds
+what that wipe keeps on purpose.
+- `map.db`, `mapTime.db`, `biome.db`, `floor.db`, `floorTime.db`,
+  `grave.db`, `eve.db`, `meta.db`, `lookTime.db`, `playerStats.db`;
+- `statue.db` and `statueTime.db`;
+- `biomeRandSeed.txt` (without it the terrain is new, see `reseedMap`);
+- `lastEveLocation.txt`, `recentPlacements.txt`, `eveRadius.txt`,
+  `landingLocations.txt`, `shutdownLongLineagePos.txt`,
+  `mapDummyRecall.txt`;
+- `playerSaves.txt` (+ `.tmp`, `.bad`) from `player-saves.patch`;
+- any `<name>.temp` and `lookTime_temp.db`.
+
+These are kept:
+- `settings/` and the build links;
+- the server logs;
+- `curses.db`, `curseCount.db` and `trust.db` (keyed by email, and the new
+  run has new emails);
+- `mtsFamilyNames.txt` (surnames stay unique across worlds);
+- `timeScaleEpoch.txt` (the game clock just continues).
+
+**Archive limits.** start.sh keeps the newest `WORLD_ARCHIVE_KEEP` (10)
+archives that fit in `WORLD_ARCHIVE_MAX_MB` (1024) together. It skips the
+archive (and still wipes) when packing it would leave less than
+`WORLD_ARCHIVE_MIN_FREE_MB` (1024) free on the volume.
+
+**Crash safety.** The commit point is `regen-pending/`. If start.sh finds it
+at boot, it finishes the wipe before any game server starts. Every step is
+idempotent, and `regen-pending` is removed last. A request that was never
+committed (a crash while stopping) is dropped at boot, and the old world
+starts as it was. The agents resume its run, and if it is still extinct they
+ask again after the grace period. A half-wiped world never starts.
+
+**By hand:**
+`echo '{"reason":"manual"}' > /data/worlds/regen-request.json && kill -USR2 $(cat /tmp/as-supervisor.pid)`.
+SIGUSR2 without the file is ignored.
 
 ## Updating: hot update vs full deploy
 
@@ -91,6 +175,7 @@ characters, the old ones become `lost`) starts on:
 | `deploy/start.sh`, `deploy/Dockerfile`, `deploy/app-switch.sh` | `fly deploy` | restarts |
 | agents dependencies (`agents/package-lock.json`) | `fly deploy` (hot-update refuses) | restarts |
 | `fly.toml` `[env]`, `fly secrets set` | `fly deploy` / secrets apply | restarts |
+| (nobody alive for `EXTINCT_GRACE_S`, `REGEN_ON_EXTINCTION=1`) | automatic, SIGUSR2 to start.sh | regenerated: archived, wiped, fresh run; the machine stays up |
 | viewer art (`npm run assets`, the OneLifeData7 pin) | `fly deploy` | restarts |
 
 ### Hot update
@@ -183,6 +268,10 @@ for the viewer's art. Expect several minutes.
 Non-secret settings live in `[env]` in `fly.toml`. Edit them and run
 `fly deploy`, or use `fly secrets set` for one-off overrides:
 - `CONTINUOUS=1`, `AUTOSTART=1`, `OPEN_CONTROL=0`, `AGENT_COUNT=4`
+- `REGEN_ON_EXTINCTION` (default 1 with `CONTINUOUS=1`), `EXTINCT_GRACE_S`
+  (180), `REGEN_TIMEOUT_S` (600); start.sh: `WORLD_ARCHIVE_KEEP` (10),
+  `WORLD_ARCHIVE_MAX_MB` (1024), `WORLD_ARCHIVE_MIN_FREE_MB` (1024) (see
+  [World regeneration](#world-regeneration))
 - the model
 - the narrator, director and story intervals
 - `DAILY_COST_USD` and `MAX_TOTAL_COST_USD`, both 0 (off)
@@ -369,9 +458,16 @@ fake LLM, so no paid calls are made. It takes about a minute. The scenarios:
 - a crash-looping override;
 - a stale override.
 
-After each one it checks four things:
+After each scenario, `supervisor-restart.sh` checks four things:
 - the run id is the same;
 - every character that was alive is alive again with the same player id and
   an older age;
 - its life record is open and valid, with no new life, birth or death;
 - the event seq continued and the game-server pid is unchanged.
+
+`deploy/test/world-regen.sh` tests world regeneration in about 6 s, with a
+fake game server and fake agents (no OHOL build, no LLM). It covers:
+- a regeneration;
+- a stray SIGUSR2;
+- a crash after the commit;
+- a crash before the commit.

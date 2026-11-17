@@ -127,6 +127,94 @@ test("pick_up_baby with full hands says why instead of a silent 'nothing happene
   assert.equal(g.sent.filter((c) => c.startsWith("BABY")).length, 0, "nothing sent");
 });
 
+test("a use the game has no transition for says so; a real one doesn't", async () => {
+  const KINDLING = gd.idByName("Kindling")!, LFF = gd.idByName("Large Fast Fire")!, FIRE = gd.idByName("Fire")!;
+  const g = setup(KINDLING, [9, 9]);
+  g.setTile(1, 0, LFF);
+  g.setTile(0, 1, FIRE);
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.equal(await body.use(1, 0), "use at (1,0): nothing happened (a Kindling does nothing on a Large Fast Fire; what works on it: a Long Straight Shaft (you get Firebrand); a Skewered Goose (you get Burnt Goose); a Skewered Rabbit (you get Burnt Rabbit))");
+  assert.doesNotMatch(await body.use(0, 1), /does nothing/);
+});
+
+test("a click that does nothing names what works on the clicked thing, as the client's hint does", async () => {
+  const id = (n: string) => gd.idByName(n)!;
+  const g = setup(id("Leaf"), [9, 9]);
+  g.setTile(1, 0, id("Burning Tinder"));
+  g.setTile(0, 1, id("Smoldering Tinder"));
+  g.setTile(-1, 0, id("Big Hard Rock"));
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.equal(await body.use(1, 0), "use at (1,0): nothing happened (a Leaf does nothing on a Burning Tinder; what works on it: a Kindling (uses up the Kindling, it becomes Fire))");
+  assert.equal(await body.use(0, 1), "use at (0,1): nothing happened (a Leaf does nothing on a Smoldering Tinder)", "nothing works on it: it changes on its own");
+  await body.drop(0, -1);
+  assert.equal(await body.use(-1, 0), "use at (-1,0): nothing happened (bare hands do nothing on a Big Hard Rock; what works on it: a Stone (you get Sharp Stone); a Shovel (you get Shovel (4/5 left), it becomes Dug Big Rock))");
+});
+
+test("drop with a baby in arms sets it down on your own tile even when every tile around is taken", async () => {
+  const g = setup(SHARP_STONE, [9, 9]);
+  g.addPlayer({ id: 2, x: 0, y: 0, age: 0.5, held: 0, female: false, motherId: 1 });
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.match(await body.pickUpBaby(2), /drop it first/);
+  g.world.self!.held = { id: -2, contained: [] } as never;
+  const STONE = gd.idByName("Stone")!;
+  for (const [x, y] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) g.setTile(x, y, STONE);
+  const r = await body.drop();
+  assert.doesNotMatch(r, /no empty spot/);
+  assert.ok(g.sent.some((c) => c.startsWith("DROP 0 0")), g.sent.join("|"));
+});
+
+test("drop onto an occupied tile says the tile is taken", async () => {
+  const g = setup(SHARP_STONE, [1, 0]);
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.match(await body.drop(1, 0), /nothing happened \(the tile has a Wild Gooseberry Bush.*; an item can only be put on an empty tile\)$/);
+});
+
+test("drop with every tile around taken steps to the nearest empty tile within 3", async () => {
+  const g = setup(SHARP_STONE, [9, 9]);
+  const STONE = gd.idByName("Stone")!;
+  for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) g.setTile(x, y, STONE);
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  const r = await body.drop();
+  assert.doesNotMatch(r, /no empty spot/);
+  assert.equal(g.world.self!.held.id, 0, r);
+  assert.ok([[2, 0], [-2, 0], [0, 2], [0, -2]].some(([x, y]) => g.world.objAt(x, y).id === SHARP_STONE), r);
+});
+
+test("forage with a tool and no free tile beside the food still frees the hands", async () => {
+  const g = setup(SHARP_STONE, [4, 0]);
+  const STONE = gd.idByName("Stone")!;
+  for (let x = 2; x <= 6; x++) for (let y = -1; y <= 1; y++) if (!(x === 4 && y === 0)) g.setTile(x, y, STONE);
+  g.food = 8;
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  const r = await body.forage();
+  assert.match(r, /ate Gooseberry/);
+  assert.match(r, /picked Sharp Stone back up/);
+});
+
+test("pick_up_baby under age 10 says why and sends nothing (server minPickupBabyAge)", async () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 7, held: 0, female: true });
+  g.addPlayer({ id: 2, x: 1, y: 0, age: 0.5, held: 0, female: false, motherId: 3 });
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.equal(await body.pickUpBaby(2), "tried to pick up #2: you can't carry a baby until you are 10");
+  assert.equal(g.sent.filter((c) => c.startsWith("BABY")).length, 0, "nothing sent");
+});
+
+test("using a non-food, non-clothing item on a person says it is neither", async () => {
+  const g = setup(SHARP_STONE, [9, 9]);
+  g.addPlayer({ id: 2, x: 1, y: 0, age: 20, held: 0, female: true });
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.match(await body.useOnPerson(2), /nothing happened \(a Sharp Stone is not food or clothing, so it can't be fed to or put on #2\)$/);
+});
+
 test("forage carrying a baby: a peel left in hand after eating is dropped so the baby can be picked back up", async () => {
   const g = setup(-2, [4, 0]);
   g.addPlayer({ id: 2, x: 0, y: 0, age: 0.5, held: 0, female: false, motherId: 1 });

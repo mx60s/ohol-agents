@@ -40,6 +40,8 @@ export interface LoginPlanConfig {
   joinJitter: number;
   respawnDelayMinMs: number;
   respawnDelayMaxMs: number;
+  /** longest a join or respawn waits for family room (ms); 0 = no limit (a new Eve only when no woman can have a baby). Default FAMILY_ROOM_MAX_HOLD_MS */
+  familyRoomMaxHoldMs?: number;
 }
 
 export interface LoginDeps {
@@ -204,9 +206,10 @@ export class LoginScheduler {
     });
   }
 
-  /** hold until a login would be born into a family (see top), at most FAMILY_ROOM_MAX_HOLD_MS */
+  /** hold until a login would be born into a family (see top), at most familyRoomMaxHoldMs (0 = until then) */
   private async waitFamilyRoom() {
-    const until = this.deps.now() + FAMILY_ROOM_MAX_HOLD_MS;
+    const hold = this.plan.familyRoomMaxHoldMs ?? FAMILY_ROOM_MAX_HOLD_MS;
+    const until = hold > 0 ? this.deps.now() + hold : Infinity;
     while (!this.closed && !this.deps.familyRoom() && this.deps.now() < until) await this.sleep(ROOM_POLL_MS);
   }
 

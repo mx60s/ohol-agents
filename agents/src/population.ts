@@ -33,6 +33,8 @@ export interface PopulationExtras {
    * away to reconnect to their bodies instead of going through the starting setup.
    */
   resume?: { startedAt: number | null; slots: string[] };
+  /** true = hold every login (the run is extinct and the world may be regenerated, regen.ts) */
+  holdLogins?: () => boolean;
 }
 
 /** An LLM outage that paused the run (see checkOutage). */
@@ -99,7 +101,7 @@ export class Population implements SpeechSink {
         : new Llm({ ...cfg, llmBaseUrl: cfg.overheadBaseUrl, llmApiKey: cfg.overheadApiKey }, extras.spend);
     this.logins = new LoginScheduler(
       cfg,
-      { paused: () => this.outage != null, familyRoom: () => this.familyRoom(), ...extras.loginDeps },
+      { paused: () => this.outage != null || (extras.holdLogins?.() ?? false), familyRoom: () => this.familyRoom(), ...extras.loginDeps },
       extras.resume?.slots ?? [],
     );
     log.on("event", (e) => {
@@ -163,6 +165,16 @@ export class Population implements SpeechSink {
       this.agents.push(a);
       void a.run();
     }
+  }
+
+  /** started, not halted, not paused (LLM outage or daily cap): our characters are being played */
+  get playing(): boolean {
+    return this.started && !this.halted && !this.outage && !this.llm.pausedReason;
+  }
+
+  /** slots with a character in the world or on their way in (a login past the gate) */
+  inWorld(): number {
+    return this.agents.filter((a) => a.status === "alive" || a.status === "connecting").length;
   }
 
   stop() {

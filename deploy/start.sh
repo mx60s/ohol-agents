@@ -16,6 +16,15 @@
 #   6. SIGUSR1: restart only the agents service, re-reading the override (hot update)
 #   7. the game server exits: stop the agents and exit 1, so the platform restarts
 #      the machine
+#   8. SIGUSR2 with $REGEN_REQUEST_FILE (the agents found the world extinct):
+#      regenerate the world without exiting. Stop the agents, then the game
+#      server; commit (the request moves into $WORLDS_DIR/regen-pending); move
+#      the world files out of the run dir, archive them to
+#      $WORLDS_DIR/archive/<UTC stamp>/world.tar.gz (rotated by count and size),
+#      set the new-run flag; start the game server, then the agents.
+#      Crash-safe: a boot that finds regen-pending finishes the wipe before the
+#      game server starts; a request that was never committed is dropped and
+#      the old world starts as it was.
 #
 # Everything is overridable via env, so the same script runs locally against an
 # existing .ohol-build (see deploy/README.md, "Local test"). Plain bash 3.2+.
@@ -40,8 +49,32 @@ AGENTS_BACKOFF_MAX="${AGENTS_BACKOFF_MAX:-60}"       # s, backoff ceiling
 AGENTS_STABLE_S="${AGENTS_STABLE_S:-120}"            # a run this long resets the crash count
 AGENTS_MAX_CRASHES="${AGENTS_MAX_CRASHES:-5}"        # quick crashes in a row = crash loop
 AGENTS_GIVEUP_RETRY_S="${AGENTS_GIVEUP_RETRY_S:-300}" # crash loop on the image's code: retry this often
-SUPERVISOR_PIDFILE="${SUPERVISOR_PIDFILE:-/tmp/as-supervisor.pid}"
+export SUPERVISOR_PIDFILE="${SUPERVISOR_PIDFILE:-/tmp/as-supervisor.pid}"
 SUPERVISOR_STATE="${SUPERVISOR_STATE:-/tmp/as-supervisor.state}"
+# world regeneration (8.): the agents write the request, then SIGUSR2 us
+WORLDS_DIR="${WORLDS_DIR:-$DATA_DIR/worlds}"
+WORLD_ARCHIVE_DIR="${WORLD_ARCHIVE_DIR:-$WORLDS_DIR/archive}"
+WORLD_ARCHIVE_KEEP="${WORLD_ARCHIVE_KEEP:-10}"          # newest archives kept
+WORLD_ARCHIVE_MAX_MB="${WORLD_ARCHIVE_MAX_MB:-1024}"    # all archives together
+WORLD_ARCHIVE_MIN_FREE_MB="${WORLD_ARCHIVE_MIN_FREE_MB:-1024}" # skip the archive if the volume would have less free
+export REGEN_REQUEST_FILE="${REGEN_REQUEST_FILE:-$WORLDS_DIR/regen-request.json}"
+REGEN_PENDING="$WORLDS_DIR/regen-pending"
+NEW_RUN_FLAG="$LOG_DIR/research/new-run.flag"
+# The world, in the run dir (OHOL server source, verified against map.cpp
+# wipeMapFiles() = the stock apocalypse wipe, plus what it keeps on purpose):
+# - map DBs: map/mapTime/biome/floor/floorTime/grave/eve/meta/lookTime/playerStats .db
+# - statue.db, statueTime.db (stock keeps statues across apocalypses; a fresh world doesn't)
+# - map state: biomeRandSeed.txt (no seed = new terrain, map.cpp reseedMap),
+#   lastEveLocation.txt, recentPlacements.txt, eveRadius.txt, landingLocations.txt,
+#   shutdownLongLineagePos.txt, mapDummyRecall.txt
+# - playerSaves.txt (+ .tmp, .bad) from server/patches/player-saves.patch
+# Each name also as <name>.temp (DB_open_timeShrunk) and lookTime_temp.db.
+# Kept: settings/, the build links, logs, curses.db / curseCount.db / trust.db
+# (keyed by email; a new run has new emails), mtsFamilyNames.txt (surnames stay
+# unique across worlds), timeScaleEpoch.txt (the game clock just goes on).
+WORLD_FILES="map.db mapTime.db biome.db floor.db floorTime.db grave.db eve.db meta.db lookTime.db lookTime_temp.db
+  playerStats.db statue.db statueTime.db biomeRandSeed.txt lastEveLocation.txt recentPlacements.txt eveRadius.txt
+  landingLocations.txt shutdownLongLineagePos.txt mapDummyRecall.txt playerSaves.txt playerSaves.txt.tmp playerSaves.txt.bad"
 
 export OHOL_HOST=127.0.0.1
 export OHOL_PORT="$GAME_PORT"
@@ -59,6 +92,8 @@ agents_crashes=0
 agents_app=""          # dir the running agents service came from
 agents_version=""
 restart_requested=0
+regen_requested=0
+world_regens=0
 stopping=0
 
 alive() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
@@ -99,6 +134,7 @@ on_signal() {
 trap 'on_signal TERM' TERM
 trap 'on_signal INT' INT
 trap 'restart_requested=1' USR1
+trap 'regen_requested=1' USR2
 
 port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
@@ -153,6 +189,8 @@ write_state() {
     echo "agents_version=$agents_version"
     echo "agents_crashes=$agents_crashes"
     echo "game_server_epoch=${GAME_SERVER_EPOCH:-}"
+    echo "regen_supported=1"
+    echo "world_regens=$world_regens"
   } > "$SUPERVISOR_STATE.tmp" 2>/dev/null && mv -f "$SUPERVISOR_STATE.tmp" "$SUPERVISOR_STATE" || true
 }
 
@@ -197,8 +235,165 @@ agents_exited() {
   write_state
 }
 
+# ---------- game server ----------
+# run.sh links the build into the run dir, writes settings, then execs
+# OneLifeServer, so $server_pid is the server itself. Returns 1 if it doesn't
+# come up (it is stopped then).
+start_server() {
+  local waited=0 code
+  "$SERVER_DIR/run.sh" "$OHOL_BUILD" "$WORLD_DIR" &
+  server_pid=$!
+  # the agents keep their run id (and characters) across their own restarts, but
+  # not across a game-server restart, which ends every living character
+  export GAME_SERVER_EPOCH="$(now_s)"
+  log "game server pid $server_pid, waiting for :$GAME_PORT"
+  until port_open "$GAME_PORT"; do
+    if ! alive "$server_pid"; then
+      wait "$server_pid" 2>/dev/null && code=0 || code=$?
+      log "game server exited during startup (code $code)"
+      server_pid=""
+      return 1
+    fi
+    if [ "$waited" -ge $((SERVER_START_TIMEOUT * 2)) ]; then
+      log "game server not listening after ${SERVER_START_TIMEOUT}s"
+      stop_proc "$server_pid" TSTP "$SERVER_STOP_TIMEOUT" OneLifeServer
+      server_pid=""
+      return 1
+    fi
+    sleep 0.5 & wait $! || true
+    waited=$((waited + 1))
+  done
+  log "game server listening on :$GAME_PORT"
+}
+
+# ---------- world regeneration ----------
+# Every step is idempotent, and $REGEN_PENDING (a directory, created by an
+# atomic rename) is the commit point: once it exists, the wipe is finished,
+# at the latest by the next boot, before any game server starts.
+
+# archive_world <stage dir> <dest dir>: world.tar.gz + request.json into dest
+archive_world() {
+  local stage="$1" dest="$2" partial="$2.partial" need free
+  [ -d "$dest" ] && return 0   # done before a crash
+  rm -rf "$partial"
+  [ -n "$(ls -A "$stage" 2>/dev/null)" ] || { log "nothing to archive"; return 1; }
+  need="$(du -sk "$stage" 2>/dev/null | awk '{print $1}')"
+  free="$(df -Pk "$WORLDS_DIR" 2>/dev/null | awk 'NR == 2 {print $4}')"
+  if [ -z "$need" ] || [ -z "$free" ] || [ $((free - need)) -lt $((WORLD_ARCHIVE_MIN_FREE_MB * 1024)) ]; then
+    log "not archiving the old world: ${need:-?} KB to pack, ${free:-?} KB free (keeping ${WORLD_ARCHIVE_MIN_FREE_MB} MB free)"
+    return 1
+  fi
+  if mkdir -p "$partial" && tar -czf "$partial/world.tar.gz" -C "$stage" . &&
+    { cp "$REGEN_PENDING/request.json" "$partial/request.json" 2>/dev/null || true; } && mv "$partial" "$dest"; then
+    log "old world archived to $dest ($(du -sk "$dest" | awk '{print $1}') KB from $need KB)"
+    return 0
+  fi
+  log "archiving the old world failed; it is deleted unarchived"
+  rm -rf "$partial"
+  return 1
+}
+
+# keep the newest WORLD_ARCHIVE_KEEP archives within WORLD_ARCHIVE_MAX_MB in total
+rotate_archives() {
+  local d kb total=0 kept=0
+  [ -d "$WORLD_ARCHIVE_DIR" ] || return 0
+  rm -rf "$WORLD_ARCHIVE_DIR"/*.partial
+  for d in $(ls -1 "$WORLD_ARCHIVE_DIR" | sort -r); do
+    [ -d "$WORLD_ARCHIVE_DIR/$d" ] || continue
+    kb="$(du -sk "$WORLD_ARCHIVE_DIR/$d" | awk '{print $1}')"
+    if [ "$kept" -lt "$WORLD_ARCHIVE_KEEP" ] && [ $((total + kb)) -le $((WORLD_ARCHIVE_MAX_MB * 1024)) ]; then
+      kept=$((kept + 1))
+      total=$((total + kb))
+    else
+      rm -rf "${WORLD_ARCHIVE_DIR:?}/$d"
+      log "archive rotation: removed $d (${kb} KB)"
+    fi
+  done
+}
+
+# the request was committed: wipe the run dir, archive, flag a new run, clean up
+finish_regen() {
+  local p="$REGEN_PENDING" stamp f g moved=0 dest archive="null" request="null"
+  stamp="$(cat "$p/stamp" 2>/dev/null || true)"
+  [ -n "$stamp" ] || stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$p/stage"
+  for f in $WORLD_FILES; do
+    for g in "$f" "$f.temp"; do
+      if [ -e "$WORLD_DIR/$g" ] || [ -L "$WORLD_DIR/$g" ]; then
+        mv -f "$WORLD_DIR/$g" "$p/stage/$g" 2>/dev/null || rm -rf "${WORLD_DIR:?}/$g"
+        moved=$((moved + 1))
+      fi
+    done
+  done
+  log "world regeneration: moved $moved world files out of $WORLD_DIR"
+  # from here on the run dir holds no world; the rest is bookkeeping
+  dest="$WORLD_ARCHIVE_DIR/$stamp"
+  mkdir -p "$WORLD_ARCHIVE_DIR"
+  archive_world "$p/stage" "$dest" && archive="\"$dest\""
+  rotate_archives
+  [ -d "$dest" ] || archive="null"   # rotated away at once (over the size cap)
+  [ -s "$p/request.json" ] && request="$(tr -d '\n' < "$p/request.json")"
+  mkdir -p "$(dirname "$NEW_RUN_FLAG")"
+  printf '{"worldRegenerated":true,"at":"%s","archive":%s,"request":%s}\n' "$stamp" "$archive" "$request" > "$NEW_RUN_FLAG.tmp" &&
+    mv -f "$NEW_RUN_FLAG.tmp" "$NEW_RUN_FLAG"
+  rm -f "$REGEN_REQUEST_FILE"
+  mv "$p" "$p.done" 2>/dev/null && rm -rf "$p.done"
+  log "world regeneration done: fresh world, new run on the agents' next start"
+}
+
+# commit point: the request moves into $REGEN_PENDING (atomic rename)
+commit_regen() {
+  local stamp t="$REGEN_PENDING.tmp"
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  [ -e "$WORLD_ARCHIVE_DIR/$stamp" ] && stamp="$stamp-$$-$(now_s)"
+  rm -rf "$t"
+  mkdir -p "$t" && echo "$stamp" > "$t/stamp" && cp "$REGEN_REQUEST_FILE" "$t/request.json" && mv "$t" "$REGEN_PENDING"
+}
+
+# boot: finish a committed regeneration; drop one that was never committed
+recover_regen() {
+  rm -rf "$REGEN_PENDING.tmp" "$REGEN_PENDING.done"
+  if [ -d "$REGEN_PENDING" ]; then
+    log "an interrupted world regeneration was committed: finishing it before the game server starts"
+    finish_regen
+  elif [ -e "$REGEN_REQUEST_FILE" ]; then
+    log "a world regeneration was requested but never started; starting the old world (the agents ask again if it is still extinct)"
+    rm -f "$REGEN_REQUEST_FILE"
+  fi
+}
+
+# SIGUSR2: regenerate the world, without exiting
+regen_world() {
+  if [ ! -f "$REGEN_REQUEST_FILE" ]; then
+    log "SIGUSR2 without $REGEN_REQUEST_FILE: ignored"
+    return 0
+  fi
+  log "SIGUSR2: world regeneration requested: $(head -c 300 "$REGEN_REQUEST_FILE")"
+  stop_proc "$agents_pid" TERM "$AGENTS_STOP_TIMEOUT" agents
+  agents_pid=""
+  stop_proc "$server_pid" TSTP "$SERVER_STOP_TIMEOUT" OneLifeServer
+  server_pid=""
+  write_state
+  if commit_regen; then
+    finish_regen
+    world_regens=$((world_regens + 1))
+  else
+    log "world regeneration: could not commit the request; restarting the old world"
+    rm -rf "$REGEN_PENDING.tmp"
+    rm -f "$REGEN_REQUEST_FILE"
+  fi
+  if ! start_server; then
+    log "game server failed to start after the world regeneration; exit 1 (machine restart)"
+    stopping=1
+    shutdown_all
+    exit 1
+  fi
+  agents_crashes=0
+  start_agents
+}
+
 # ---------- 1. volume layout ----------
-mkdir -p "$WORLD_DIR" "$LOG_DIR"
+mkdir -p "$WORLD_DIR" "$LOG_DIR" "$WORLDS_DIR"
 if [ ! -e "$WORLD_DIR/map.db" ]; then
   log "no map.db in $WORLD_DIR: first boot, the game server will create a new world"
 fi
@@ -211,39 +406,19 @@ if port_open "$GAME_PORT"; then
   log "port $GAME_PORT is already in use; refusing to start a second game server"
   exit 1
 fi
+recover_regen
 echo $$ > "$SUPERVISOR_PIDFILE"
 
 # ---------- 2. game server ----------
-# run.sh links the build into the run dir, writes settings, then execs
-# OneLifeServer, so $server_pid is the server itself.
-"$SERVER_DIR/run.sh" "$OHOL_BUILD" "$WORLD_DIR" &
-server_pid=$!
-# the agents keep their run id (and characters) across their own restarts, but
-# not across a game-server restart, which ends every living character
-export GAME_SERVER_EPOCH="$(now_s)"
-log "game server pid $server_pid, waiting for :$GAME_PORT"
-waited=0
-until port_open "$GAME_PORT"; do
-  if ! alive "$server_pid"; then
-    wait "$server_pid" 2>/dev/null && code=0 || code=$?
-    log "game server exited during startup (code $code)"
-    rm -f "$SUPERVISOR_PIDFILE"
-    exit 1
-  fi
-  if [ "$waited" -ge $((SERVER_START_TIMEOUT * 2)) ]; then
-    log "game server not listening after ${SERVER_START_TIMEOUT}s"
-    shutdown_all
-    exit 1
-  fi
-  sleep 0.5 & wait $! || true
-  waited=$((waited + 1))
-done
-log "game server listening on :$GAME_PORT"
+if ! start_server; then
+  shutdown_all
+  exit 1
+fi
 
 # ---------- 3. agents service ----------
 start_agents
 
-# ---------- 4-7. supervise ----------
+# ---------- 4-8. supervise ----------
 # poll instead of `wait -n` (bash 3.2 has none); `sleep & wait` keeps traps prompt
 while :; do
   [ "$stopping" = 1 ] && exit 0
@@ -254,7 +429,11 @@ while :; do
     shutdown_all
     exit 1
   fi
-  if [ "$restart_requested" = 1 ]; then
+  if [ "$regen_requested" = 1 ]; then
+    regen_requested=0
+    regen_world
+    restart_requested=0
+  elif [ "$restart_requested" = 1 ]; then
     restart_requested=0
     log "SIGUSR1: restarting the agents service (game server untouched)"
     stop_proc "$agents_pid" TERM "$AGENTS_STOP_TIMEOUT" agents

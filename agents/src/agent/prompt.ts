@@ -1,6 +1,9 @@
-// System prompt for every agent turn: game facts a practised player knows
-// (numbers checked against our server build, see docs/research/ohol-success.md),
-// a short early-game playbook, and the action/output format.
+// System prompt for every agent turn. Two baselines (PROMPT_BASELINE):
+// "new" (default): what a first-time human player has, the controls and our
+// world's rules, no recipes or strategy; "playbook": game facts a practised
+// player knows (numbers checked against our server build, see
+// docs/research/ohol-success.md) and a ranked early-game playbook.
+// Both end with the action/output format.
 //
 // It is sent on every call, so keep it tight. It is fully static for a given
 // config (no per-turn content), so a provider prompt cache can reuse it; all
@@ -16,7 +19,17 @@ export interface PromptOptions {
   actionListMax?: number;
   /** game seconds the server adds to every food pip (FOOD_BONUS_S, see config.ts); default DEFAULT_FOOD_BONUS_S */
   foodBonusS?: number;
+  /**
+   * PROMPT_BASELINE: "new" (default) = what a first-time human player has: the
+   * controls, how time and births work, and our own rules (names, flowers); no
+   * recipes, food values, strategy or objective. "playbook" = the earlier
+   * prompt: game facts a practised player knows plus a ranked early-game playbook.
+   */
+  baseline?: "new" | "playbook";
 }
+
+/** OHOL server.cpp maxSpeechRadius */
+export const SPEECH_RADIUS_TILES = 16;
 
 /**
  * The server's per-pip food bonus in game seconds: with mtsNewPlayerFoodBonus=1
@@ -63,12 +76,60 @@ export function actionList(o: PromptOptions): string {
   ].map((l) => `- ${l}`).join("\n");
 }
 
+/** The reply format and the action list, shared by every baseline. */
+function replyFormat(o: PromptOptions, example: boolean): string {
+  const listMax = o.actionListMax ?? 1;
+  const list = listMax > 1
+    ? example
+      ? `Instead of "action" you may give "actions": a list of up to ${listMax} actions done back to back at once, like quick clicks, e.g. "actions":[{"type":"swap","x":3,"y":4},{"type":"use","x":5,"y":4}]. The list stops at the first step that fails or when something happens; each step's result is reported. Use it when timing matters (things that burn out or decay fast).\n`
+      : `Instead of "action" you may give "actions": a list of up to ${listMax} actions done back to back at once. The list stops at the first step that fails or when something happens; each step's result is reported.\n`
+    : "";
+  return `Reply with ONE JSON object, nothing else:
+{"thought":"one short sentence","goal":"optional, only when it changes","note":"optional: a line for your notebook (this life)","say":"optional: words to say now","action":{"type":"...",...}}
+${list}
+Actions (x,y are world coordinates from ${example ? "your observation" : "what you see"}; y grows north):
+${actionList(o)}`;
+}
+
+/**
+ * The "new player" baseline: what a first-time human has (the screen, the
+ * controls, how time and births work) plus our own world's rules. No recipes,
+ * food values, strategy or objective; the held-item hints in the observation
+ * stand in for the game's own hover hints.
+ */
+function newPlayerPrompt(clock: TurnClock, o: PromptOptions): string {
+  const T = (s: number) => turnsText(s, clock).replace(/^about /, "");
+  return `You are a person in a world. Everyone else is an independent mind like you. The environment is harsh and ever changing. To survive, you may need to explore, cooperate, experiment, build things, and communicate. You will only live for at most 60 years, but your progeny will bear your name and continue after you, if you are successful.
+
+A year passes every ${T(60)}. The first woman of a family, an Eve, appears aged 14; everyone else is born a baby to a woman. Women aged 14 to 40 give birth from time to time. A baby can't feed itself: it is fed while a woman holds it.
+
+Heat and cold make your food run out faster. If your food runs out, you starve.
+
+Each turn you see your food, warmth and age, what you hold and wear, the people and things near you, and what you hear. You hold one thing at a time. With empty hands you can pick up small things, and you can put down what you hold. Using what you hold on something can change one or both: this is how things are combined and made. Food you hold can be eaten; clothing you hold can be worn. Trees and bushes can't be carried. You walk next to a target automatically.
+
+You can say whatever you want; people within ${SPEECH_RADIUS_TILES} tiles of you hear it. Some phrases also have specific consequences, whenever they are said:
+- "I AM <FIRST> <FAMILY>": an Eve names herself and her family, once, with a family name no family has used before.
+- "YOU ARE <FIRST>": a mother names the baby she holds; a first name already used in the family gets a number (AURORA II).
+- "I FOLLOW YOU": the nearest person becomes your leader. "ORDER, <words>": your followers nearby get it as an order.
+- "I EXILE YOU": casts the nearest person out of your group. "I REDEEM YOU": takes them back.
+- "THIS IS YOURS": gives the nearest person ownership of property you own.
+- Holding a weapon, "YOU'RE DEAD": attacks the nearest person. "I JOIN YOU": joins the nearest person in chasing an attacker.
+- "I TRUST YOU", "I DISTRUST YOU", "I FORGIVE YOU", "CURSE YOU": recorded against the nearest person.
+Phrases with YOU act on the nearest person; a name instead acts on that person (I FOLLOW LUNA EMBER).
+
+Everyone wears a unique flower in their hair that others can see.
+
+These are only the basics. Everything else about this world is yours to discover.
+
+${replyFormat(o, false)}`;
+}
+
 export function buildSystemPrompt(clock: TurnClock, o: PromptOptions): string {
+  if ((o.baseline ?? "new") === "new") return newPlayerPrompt(clock, o);
   // "8 turns", "1 turn", "<1 turn"
   const T = (s: number) => turnsText(s, clock).replace(/^about /, "").replace(/^less than 1 turn$/, "<1 turn");
   const bonus = o.foodBonusS ?? DEFAULT_FOOD_BONUS_S;
   const cold = drainSecondsPerPip(0.07, bonus), warm = drainSecondsPerPip(0.5, bonus);
-  const listMax = o.actionListMax ?? 1;
   return `You are a person in One Hour One Life, a survival and civilization game. You control one character; each turn (one of your decisions) you act. Everyone else is an independent mind like you.
 
 One year of life passes every ${T(60)}; you live at most 60 years. Eves appear aged 14; everyone else is born a baby to a woman.
@@ -89,7 +150,7 @@ BABIES
 CAMP PRIORITIES (in order)
 1. Stay near water (pond, spring) and berry bushes, with milkweed, reeds and trees in reach. Don't roam: babies are born where you stand.
 2. Sharp Stone (Stone on Big Hard Rock): unlocks carrots, burdock, reeds, shafts.
-3. Fire, the best warmth: Kindling (Stone Hatchet on branches) on tinder lit with a Fire Bow Drill. A Fire burns down to Hot Coals in ~${T(60)} and the coals to Ashes in ~${T(120)}. Kindling on Fire or Hot Coals keeps it going; Ashes can't be relit. Cook skewered meat on Hot Coals: on open Fire it burns.
+3. Fire, the best warmth: a Fire Bow Drill on a Long Straight Shaft makes an Ember Shaft; a Leaf on the Ember Shaft gives an Ember Leaf; the Ember Leaf on Juniper Tinder makes it smolder, then burn; Kindling (Stone Hatchet on branches) on Burning Tinder makes Fire. Ember Shaft, Ember Leaf and Burning Tinder each go out in ~${T(10)}. A Fire burns down to Hot Coals in ~${T(60)} and the coals to Ashes in ~${T(120)}. Kindling on Fire or Hot Coals keeps it going; Ashes can't be relit. Cook skewered meat on Hot Coals: on open Fire it burns.
 4. Clothing: Reed Skirt (Rope on Reed Bundle), later furs.
 5. Basket (2 reed bundles); Home Marker (Stone on Skewer) at camp, so children born there know home.
 6. Clay bowls (Stone on Clay, fired) for water; then a berry farm (a picked domestic bush needs a Bowl of Soil, then water, to fruit again).
@@ -99,17 +160,13 @@ OTHER FACTS
 - Each family (an Eve's line) has its own language once 15 or more people are alive: speech between families arrives as scrambled words.
 - Naming: an Eve says "I AM <FIRST> <FAMILY>" once, with a family name no family has used before. A mother holding her baby says "YOU ARE <FIRST>"; a first name already used in the family gets a number (AURORA II).
 - Everyone wears a unique flower in their hair that others can see.
-- "I FOLLOW YOU" makes someone your leader; "I GIVE YOU THIS" gives what you hold.
+- "I FOLLOW YOU" makes someone your leader; "I GIVE YOU THIS" gives the nearest person ownership of property you own; it does not hand over what you hold.
 - A held item used on a thing transforms one or both. You hold one thing at a time; trees and bushes can't be carried. Walking next to a target is automatic.
 - Knowledge dies with you unless you teach, leave tools and buildings, or write.
 
 Shared objective: help build a thriving civilization and advance it over generations, your way. Staying alive and keeping babies alive matters, and so does building things that last.
 
-Reply with ONE JSON object, nothing else:
-{"thought":"one short sentence","goal":"optional, only when it changes","note":"optional: a line for your notebook (this life)","say":"optional: words to say now","action":{"type":"...",...}}
-${listMax > 1 ? `Instead of "action" you may give "actions": a list of up to ${listMax} actions done back to back at once, like quick clicks, e.g. "actions":[{"type":"swap","x":3,"y":4},{"type":"use","x":5,"y":4}]. The list stops at the first step that fails or when something happens; each step's result is reported. Use it when timing matters (things that burn out or decay fast).\n` : ""}
-Actions (x,y are world coordinates from your observation; y grows north):
-${actionList(o)}
+${replyFormat(o, true)}
 
 If an action fails, read why and try something different.`;
 }
@@ -117,10 +174,12 @@ If an action fails, read why and try something different.`;
 const cache = new Map<string, string>();
 
 /** The system prompt for this config (cached: identical on every call). */
-export function systemPromptFor(cfg: object & { craftMacro?: boolean; actionListMax?: number; foodBonusS?: number }): string {
+export function systemPromptFor(cfg: object & { craftMacro?: boolean; actionListMax?: number; foodBonusS?: number; promptBaseline?: "new" | "playbook" }): string {
   const clock = turnClock(cfg);
-  const o: PromptOptions = { craft: cfg.craftMacro !== false, actionListMax: cfg.actionListMax ?? 4, foodBonusS: foodBonusOf(cfg) };
-  const key = `${clock.cycleMs}|${clock.timeScale}|${o.craft}|${o.actionListMax}|${o.foodBonusS}`;
+  const baseline = cfg.promptBaseline ?? "new";
+  // the craft macro is on by default only with the playbook (config.ts does the same)
+  const o: PromptOptions = { craft: cfg.craftMacro ?? baseline === "playbook", actionListMax: cfg.actionListMax ?? 4, foodBonusS: foodBonusOf(cfg), baseline };
+  const key = `${clock.cycleMs}|${clock.timeScale}|${o.craft}|${o.actionListMax}|${o.foodBonusS}|${o.baseline}`;
   let p = cache.get(key);
   if (!p) cache.set(key, (p = buildSystemPrompt(clock, o)));
   return p;
