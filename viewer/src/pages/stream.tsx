@@ -429,6 +429,12 @@ function Following(p: FollowingProps) {
                 </div>
               </div>
             </div>
+            {!dead && (player?.condition || player?.dying) && (
+              <div className="condition ugc">
+                ⚠ {player?.condition ? `${player.condition.kind === "sickness" ? "Sick" : "Wounded"}: ${player.condition.name}` : "Wounded"}
+                {player?.dying ? " · bleeding" : ""}
+              </div>
+            )}
           </div>
         </div>
         {(tags.length > 0 || !TRAITS_SHOWN) && (

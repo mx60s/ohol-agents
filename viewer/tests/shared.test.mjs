@@ -206,3 +206,14 @@ test("normInventions: drops malformed rows, newest first; the live1 fixture has 
   assert.deepEqual(fx.inventions.map((x) => x.item), ["Basket", "Reed Skirt", "Fire Bow Drill", "Kindling", "Sharp Stone"]);
   assert.ok(fx.inventions.every((x) => x.objectId && x.lifeId && x.name));
 });
+
+test("players carry a wound or sickness; junk conditions are dropped", () => {
+  const s = normState({ players: [
+    { id: 1, condition: { kind: "wound", name: " Bite Wound " } },
+    { id: 2, condition: { kind: "sickness", name: "Sick Person" } },
+    { id: 3, condition: { kind: "mark", name: "x" } },
+    { id: 4, condition: "wound" },
+    { id: 5 },
+  ] });
+  assert.deepEqual(s.players.map((p) => p.condition), [{ kind: "wound", name: "Bite Wound" }, { kind: "sickness", name: "Sick Person" }, null, null, null]);
+});

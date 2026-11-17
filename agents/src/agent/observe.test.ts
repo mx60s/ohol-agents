@@ -417,6 +417,10 @@ test("new-player prompt (default): controls and our rules only; no game name, re
   assert.match(p, /A year passes every 25 turns\./);
   assert.match(p, /people within 16 tiles of you hear it\. Some phrases also have specific consequences/);
   assert.match(p, /"I FOLLOW YOU": the nearest person becomes your leader/);
+  assert.match(p, /Name yourself as soon as you appear as an Eve, and name each baby you have while you hold it\./);
+  assert.match(p, /What you can do depends on your age:/);
+  assert.match(p, /From 10: you can carry a baby\./);
+  assert.match(p, /While you carry a baby your arms are full/);
   assert.match(p, /These are only the basics\. Everything else about this world is yours to discover\./);
   assert.match(p, /Everyone wears a unique flower in their hair/);
   assert.match(p, /"actions": a list of up to 4 actions/);

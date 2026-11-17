@@ -188,3 +188,15 @@ body.stream { background: var(--grain), var(--parchment); }
   .crawl .tk-seg { overflow: hidden; }
   .cam-fade, .cam-fade.on { transition: none; }
 }
+
+/* a wound or sickness on the followed person (the game shows it on the body) */
+.side .condition {
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: var(--grad-berry, #c2367a);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9em;
+  display: inline-block;
+}

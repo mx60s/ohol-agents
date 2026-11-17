@@ -319,7 +319,12 @@ export function checkAction(reply: Record<string, unknown>, craft: boolean): { a
   let raw: unknown = reply.action;
   if (raw == null && typeof reply.type === "string") raw = reply;
   if (raw == null) return { error: `your reply had no "action", so you did nothing. ${FORMAT}` };
-  return checkOne(raw, craft);
+  return checkOne(raw, craft, hasSay(reply));
+}
+
+/** the reply also has top-level "say" words (then {"type":"say"} without text just means "speaking is my turn") */
+function hasSay(reply: Record<string, unknown>): boolean {
+  return typeof reply.say === "string" && reply.say.trim().length > 0;
 }
 
 /**
@@ -345,7 +350,7 @@ export function checkActions(reply: Record<string, unknown>, craft: boolean, max
   }
   const steps: Action[] = [];
   for (let i = 0; i < list.length; i++) {
-    const c = checkOne(list[i], craft);
+    const c = checkOne(list[i], craft, hasSay(reply));
     if ("error" in c) {
       if (i === 0) return { error: list.length > 1 ? `step 1: ${c.error}` : c.error };
       notes.push(`step ${i + 1} and later not done: ${c.error.replace(/; you did nothing$|\. You did nothing$/, "")}`);
@@ -365,7 +370,7 @@ function wrappedList(a: unknown): unknown[] | null {
   return null;
 }
 
-function checkOne(raw: unknown, craft: boolean): { action: Action } | { error: string } {
+function checkOne(raw: unknown, craft: boolean, topSay = false): { action: Action } | { error: string } {
   const types = validActionTypes(craft);
   if (Array.isArray(raw)) return { error: `"action" must be one object like {"type":"go",...}, not a list; you did nothing` };
   const a = sanitizeAction(raw);
@@ -375,7 +380,7 @@ function checkOne(raw: unknown, craft: boolean): { action: Action } | { error: s
     const shown = cleanText(given, 24).replace(/[^A-Za-z0-9_ ]/g, "");
     return { error: `unknown action type "${shown}"; valid types: ${types.join(", ")}. You did nothing` };
   }
-  if (a.type === "say" && !a.text) return { error: `to speak, put the words in "say" (e.g. "say":"HELLO"); you did nothing` };
+  if (a.type === "say" && !a.text && !topSay) return { error: `to speak, put the words in "say" (e.g. "say":"HELLO"); you did nothing` };
   for (const need of SPECS[a.type]?.need ?? []) {
     if (need === "xy" && !(Number.isFinite(a.x) && Number.isFinite(a.y))) return { error: `"${a.type}" needs numeric "x" and "y" (copy them from your observation); you did nothing` };
     if (need === "person" && !(Number.isFinite(a.person) && a.person! > 0)) return { error: `"${a.type}" needs "person": the number after # in the people list; you did nothing` };

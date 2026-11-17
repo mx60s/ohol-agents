@@ -642,8 +642,10 @@ export class Agent {
         case "jump":
           return b.jump();
         case "say":
-          // accepted as an action too ({"type":"say","text":...}); speech is the whole turn
-          return this.speak(a.text ?? "");
+          // accepted as an action too ({"type":"say","text":...}); speech is the whole turn.
+          // Without text, the reply's top-level "say" carried the words (already spoken)
+          if (!a.text) return "spoke (your \"say\")";
+          return this.speak(a.text);
         case "wait": {
           // no model calls while waiting; a salient event (noteSalient) ends the wait early
           const turns = Math.min(Math.max(Math.round(Number(a.turns ?? 1)), 1), 4);

@@ -404,9 +404,12 @@ export class Population implements SpeechSink {
         let held: string | null = null;
         if (p.held.id < 0) held = `baby #${-p.held.id}`;
         else if (p.held.id > 0) held = this.gd.describeStack(p.held);
+        // a wound or sickness is held like an item (it takes the hands)
+        const c = p.held.id > 0 ? this.gd.condition(p.held.id) : null;
+        const condition = c && c.kind !== "mark" ? { kind: c.kind, name: this.gd.name(p.held.id) } : null;
         players.set(p.id, {
           id: p.id, x: w.posOf(p)[0], y: w.posOf(p)[1], age: Math.round(w.currentAge(p) * 10) / 10, female: p.female,
-          name: p.name ?? w.names.get(p.id) ?? null, held, agentId: agentsByPlayer.get(p.id) ?? null, dying: p.dying, seen: p.lastSeen,
+          name: p.name ?? w.names.get(p.id) ?? null, held, agentId: agentsByPlayer.get(p.id) ?? null, dying: p.dying, condition, seen: p.lastSeen,
           moving: p.moving && Date.now() < p.moveEndsAt, displayId: p.displayId,
           ...(this.extras.lives?.playerFields(p.id) ?? { lifeId: null, lineageId: null, flower: null }),
         });

@@ -321,7 +321,18 @@ export class World {
       case "PS":
         for (const s of m.says) {
           const p = this.players.get(s.id);
-          const h: Heard = { t: now, speakerId: s.id, x: p?.x ?? 0, y: p?.y ?? 0, text: cleanText(s.text, SPEECH_MAX) };
+          const r = readSpeechTags(s.text);
+          // a private line about someone else (your leader, a new baby, an expert...), sent as if we said it:
+          // the client shows it as a pointer, not speech
+          if (r.notice) {
+            // where that person is, as the client's arrow shows it
+            const who = r.pointerId != null ? this.players.get(r.pointerId) : undefined;
+            const where = who ? ` They are at (${this.posOf(who)[0]}, ${this.posOf(who)[1]}).` : "";
+            this.pushHeard({ t: now, speakerId: null, x: 0, y: 0, text: cleanText(r.notice + where, SPEECH_MAX), notice: true });
+            continue;
+          }
+          const text = cleanText(r.text + (r.followerId != null && r.followerId === this.selfId && s.id !== this.selfId ? " [an order to you: you are their nearest follower]" : ""), SPEECH_MAX);
+          const h: Heard = { t: now, speakerId: s.id, x: p?.x ?? 0, y: p?.y ?? 0, text };
           this.pushHeard(h);
         }
         break;
@@ -377,7 +388,8 @@ export class World {
         break;
       case "MS":
         // shown to the player as an on-screen notice by the client
-        this.pushHeard({ t: now, speakerId: null, x: 0, y: 0, text: cleanText(m.text, SPEECH_MAX), notice: true });
+        // "**" is the client's line break ("ORDER FROM YOUR LADY:**PICK UP BABY")
+        this.pushHeard({ t: now, speakerId: null, x: 0, y: 0, text: cleanText(m.text.replace(/:?\s*\*\*\s*/g, ": "), SPEECH_MAX), notice: true });
         break;
     }
   }
@@ -483,4 +495,39 @@ export class World {
     }
     if (isNew && u.id !== this.selfId) this.ev.onPlayerAppeared?.(p);
   }
+}
+
+
+/** private-line tags (server.cpp PS "... *leader <id> *map x y"): what the line points at */
+const NOTICE_TAGS: Record<string, string> = {
+  leader: "your leader", baby: "a new baby in your family", mother: "your mother", expert: "an expert", owner: "the owner", visitor: "a visitor", prop: "property",
+};
+
+/**
+ * Speech lines can carry client metadata the real client turns into arrows:
+ * "ORDER, DIG *follower 3 *map 82 15" (public: the leader's order, marking the
+ * nearest follower) or "MY LADY *leader 2 *map 82 15" (private: who your leader
+ * is). Returns the spoken words without tags; for a private pointer line, a
+ * plain notice instead ("Your leader is #2 (your lady)").
+ */
+export function readSpeechTags(raw: string): { text: string; notice: string | null; followerId: number | null; pointerId?: number | null } {
+  const tags: { k: string; n: number | null }[] = [];
+  const text = raw
+    .replace(/\s*\*([a-z]+)((?:\s+-?\d+(?:\.\d+)?)*)/gi, (_m, k: string, nums: string) => {
+      const first = nums.trim().split(/\s+/)[0];
+      tags.push({ k: k.toLowerCase(), n: first ? Number(first) : null });
+      return "";
+    })
+    .replace(/#\s*$/, "")
+    .trim();
+  const follower = tags.find((t) => t.k === "follower");
+  const pointer = tags.find((t) => t.k in NOTICE_TAGS);
+  if (!pointer) return { text, notice: null, followerId: follower?.n ?? null };
+  const id = pointer.n != null && Number.isFinite(pointer.n) ? ` #${pointer.n}` : "";
+  const pointerId = pointer.n != null && Number.isFinite(pointer.n) ? pointer.n : null;
+  if (pointer.k === "leader") {
+    const title = /^MY\s+(.+)$/i.exec(text)?.[1]?.toLowerCase();
+    return { text, notice: `Your leader is${id || " someone"}${title ? ` (your ${title})` : ""}.`, followerId: null, pointerId };
+  }
+  return { text, notice: `${text || NOTICE_TAGS[pointer.k]}${id ? ` (${NOTICE_TAGS[pointer.k]}:${id})` : ""}`, followerId: null, pointerId };
 }

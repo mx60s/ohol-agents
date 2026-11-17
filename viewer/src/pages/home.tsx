@@ -107,6 +107,7 @@ function PersonCard({ l, site }: { l: LifeRecord; site: SiteData }) {
   const age = site.ageOf(l);
   const starving = l.status === "alive" && a?.food != null && a.food <= 3;
   const dying = l.status === "alive" && p?.dying;
+  const cond = l.status === "alive" ? p?.condition ?? null : null;
   const doing =
     l.status === "dead"
       ? `Died at ${formatAge(l.ageAtDeath)}, ${deathReasonText(l.deathReason)}`
@@ -126,9 +127,9 @@ function PersonCard({ l, site }: { l: LifeRecord; site: SiteData }) {
           <Sex female={l.female} /> {formatAge(age)} · gen {l.generation}
         </div>
         {doing && <div className="doing ugc">{doing}</div>}
-        {(starving || dying) && (
+        {(starving || dying || cond) && (
           <span className="flag">
-            <Pill tone="danger">⚠ {dying ? "dying" : "starving"}</Pill>
+            <Pill tone="danger">⚠ {dying ? "dying" : cond ? (cond.kind === "sickness" ? "sick" : "wounded") : "starving"}</Pill>
           </span>
         )}
       </div>

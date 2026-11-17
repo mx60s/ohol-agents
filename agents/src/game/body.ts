@@ -279,6 +279,8 @@ export class Body {
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
     const target = this.world.objAt(x, y).id;
     const heldId = this.world.self?.held.id ?? 0;
+    // arms full with a baby: the server ignores the click; a human sees the baby in their arms
+    if (heldId < 0) return `use at (${x},${y}): nothing happened (your arms are full: you're carrying baby #${-heldId}; put the baby down first)`;
     const r = await this.act(`USE ${x} ${y}${target > 0 ? " " + target : ""}`, x, y);
     const out = this.summarize("use", x, y, r);
     // the age rule for picking things up (objects' minPickupAge) is visible in the client as a failed grab
@@ -537,6 +539,8 @@ export class Body {
     const held = this.world.self?.held.id ?? 0;
     if (held === -id) return `you're already carrying #${id}`;
     if (held < 0) return `tried to pick up #${id}: your arms are full (carrying ${this.heldName()}); put them down first`;
+    const blocked = this.conditionBlock();
+    if (blocked) return `tried to pick up #${id}: ${blocked}`;
     if (held > 0) return `tried to pick up #${id}: your hands are full (holding ${this.heldName()}); drop it first`;
     // server.cpp minPickupBabyAge: the BABY message is ignored below age 10
     const me = this.world.self;

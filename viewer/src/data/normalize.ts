@@ -129,6 +129,11 @@ function normAgent(v: unknown): AgentView | null {
   };
 }
 
+function normCondition(v: unknown): PlayerView["condition"] {
+  if (!isObj(v) || (v.kind !== "wound" && v.kind !== "sickness") || typeof v.name !== "string" || !v.name.trim()) return null;
+  return { kind: v.kind, name: v.name.trim().slice(0, 60) };
+}
+
 function normPlayer(v: unknown): PlayerView | null {
   if (!isObj(v) || typeof v.id !== "number") return null;
   return {
@@ -141,6 +146,7 @@ function normPlayer(v: unknown): PlayerView | null {
     held: strOrNull(v.held),
     agentId: strOrNull(v.agentId),
     dying: v.dying === true,
+    condition: normCondition(v.condition),
     moving: v.moving === true,
     displayId: num(v.displayId, 19),
     lifeId: strOrNull(v.lifeId),

@@ -192,3 +192,11 @@ test("the prompt explains actions lists only when they are on", () => {
   assert.doesNotMatch(buildSystemPrompt(clock, { craft: true, actionListMax: 1 }), /"actions"/);
   assert.match(systemPromptFor({ promptBaseline: "playbook" }), /"actions": a list of up to 4 actions/, "default ACTION_LIST_MAX is 4 (the ember chain fits one list)");
 });
+
+test('{"type":"say"} without text is fine when the reply has top-level "say" words; alone it is still an error', () => {
+  const ok = checkActions({ say: "ORDER, DIG", action: { type: "say" } }, false, 4);
+  assert.ok(!("error" in ok), JSON.stringify(ok));
+  if (!("error" in ok)) assert.equal(ok.steps[0].type, "say");
+  const bad = checkActions({ action: { type: "say" } }, false, 4);
+  assert.ok("error" in bad);
+});

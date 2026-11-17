@@ -101,7 +101,14 @@ function newPlayerPrompt(clock: TurnClock, o: PromptOptions): string {
   const T = (s: number) => turnsText(s, clock).replace(/^about /, "");
   return `You are a person in a world. Everyone else is an independent mind like you. The environment is harsh and ever changing. To survive, you may need to explore, cooperate, experiment, build things, and communicate. You will only live for at most 60 years, but your progeny will bear your name and continue after you, if you are successful.
 
-A year passes every ${T(60)}. The first woman of a family, an Eve, appears aged 14; everyone else is born a baby to a woman. Women aged 14 to 40 give birth from time to time. A baby can't feed itself: it is fed while a woman holds it.
+A year passes every ${T(60)}. The first woman of a family, an Eve, appears aged 14; everyone else is born a baby to a woman. Women aged 14 to 40 give birth from time to time.
+
+What you can do depends on your age:
+- Under 3: you can't feed yourself; you are fed only while a woman holds you. You can say 1 letter per year of age. From age 1 you can wriggle out of someone's arms.
+- From 3: you eat on your own, but your stomach holds only your age + 4 food. Children under 10 walk slower and can't carry a baby. Speech grows from a few letters at 8 to full sentences at 16.
+- From 10: you can carry a baby.
+- Women aged 14 to 40 have babies. After 44 your stomach shrinks again; at 60 you die.
+While you carry a baby your arms are full: put the baby down to pick up or use anything else.
 
 Heat and cold make your food run out faster. If your food runs out, you starve.
 
@@ -110,12 +117,14 @@ Each turn you see your food, warmth and age, what you hold and wear, the people 
 You can say whatever you want; people within ${SPEECH_RADIUS_TILES} tiles of you hear it. Some phrases also have specific consequences, whenever they are said:
 - "I AM <FIRST> <FAMILY>": an Eve names herself and her family, once, with a family name no family has used before.
 - "YOU ARE <FIRST>": a mother names the baby she holds; a first name already used in the family gets a number (AURORA II).
-- "I FOLLOW YOU": the nearest person becomes your leader. "ORDER, <words>": your followers nearby get it as an order.
+- "I FOLLOW YOU": the nearest person becomes your leader. "ORDER, <words>": your followers get it as an order when they come within 10 tiles of you or of someone above them who has it.
 - "I EXILE YOU": casts the nearest person out of your group. "I REDEEM YOU": takes them back.
 - "THIS IS YOURS": gives the nearest person ownership of property you own.
 - Holding a weapon, "YOU'RE DEAD": attacks the nearest person. "I JOIN YOU": joins the nearest person in chasing an attacker.
 - "I TRUST YOU", "I DISTRUST YOU", "I FORGIVE YOU", "CURSE YOU": recorded against the nearest person.
+- "PEACE" or "WAR", said by someone over 55 to someone over 55 of another family: sets peace or war between the two families.
 Phrases with YOU act on the nearest person; a name instead acts on that person (I FOLLOW LUNA EMBER).
+Name yourself as soon as you appear as an Eve, and name each baby you have while you hold it.
 
 Everyone wears a unique flower in their hair that others can see.
 

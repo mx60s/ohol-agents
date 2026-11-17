@@ -135,6 +135,8 @@ export interface PlayerView {
   held: string | null;
   agentId: string | null; // null if not one of ours (e.g. a human)
   dying: boolean;
+  /** a wound or sickness this person carries (shown on their body in the game), e.g. { kind: "wound", name: "Bite Wound" }; null if none */
+  condition?: { kind: "wound" | "sickness"; name: string } | null;
   moving: boolean; // walking right now
   displayId: number; // game "person" object id (encodes skin tone / gender in the real game)
   /** set when this character is one of our agents' lives (this run or an earlier one), else null */
