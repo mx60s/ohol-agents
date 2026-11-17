@@ -25,6 +25,8 @@ export interface MiniMapProps {
   focusPlayerId: number | null;
   /** the whole explored world, coarse (/api/minimap); null: draw from `cells` */
   overview?: { block: number; cells: MapCellTuple[] } | null;
+  /** player id -> the colour drawn on the camera for that person's hair; dots use it (else ink) */
+  hairOf?: (playerId: number) => string | null;
   /** the current world (run id): the inset's bounds only grow within one world */
   worldKey?: string | null;
   /** camera target tile (null: no camera) */
@@ -124,13 +126,14 @@ function MiniMapImpl(p: MiniMapProps) {
       }
       g.beginPath();
       g.arc(q.px, q.py, 3.2, 0, Math.PI * 2);
-      g.fillStyle = d.agent || d.focus ? INK : "rgba(31,26,20,.6)";
+      const pid = d.key.startsWith("p") ? Number(d.key.slice(1)) : null;
+      g.fillStyle = (pid != null && p.hairOf?.(pid)) || (d.agent || d.focus ? INK : "rgba(31,26,20,.6)");
       g.fill();
       g.lineWidth = 1.2;
       g.strokeStyle = PAPER;
       g.stroke();
     }
-  }, [base, dots, camX, camY, view, p.cellPx, p.focusDrop]);
+  }, [base, dots, camX, camY, view, p.cellPx, p.focusDrop, p.hairOf]);
 
   if (!base) return null;
   return (

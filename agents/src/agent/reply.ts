@@ -318,10 +318,13 @@ function keyedType(v: Record<string, unknown>): Record<string, unknown> | null {
   const keys = Object.keys(v);
   if (keys.length !== 1) return null;
   const k = keys[0], n = normType(k);
-  if (!(SPECS[n] || ALIASES[n] || n === "pick_up" || n === "pickup")) return null;
+  if (!(SPECS[n] || ALIASES[n] || n === "pick_up" || n === "pickup" || n === "say")) return null;
   const val = v[k];
   if (val == null) return { type: k };
   if (isObj(val)) return { ...val, type: k };
+  // {"wait":1}, {"say":"F"}: the one argument as a plain value
+  if (n === "wait" && typeof val === "number") return { type: k, turns: val };
+  if (n === "say" && typeof val === "string") return { type: "say", text: val };
   return null;
 }
 

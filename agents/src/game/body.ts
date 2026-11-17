@@ -353,6 +353,7 @@ export class Body {
     // server.cpp DROP: an item goes only onto an empty tile or into a container with room
     const o = this.gd.get(there);
     if (/nothing happened$/.test(out) && heldId > 0 && o && !(o.numSlots > 0)) return `${out} (the tile has a ${this.gd.name(there)}; an item can only be put on an empty tile)`;
+    if (/nothing happened$/.test(out) && heldId < 0 && o) return `${out} (the baby wasn't set down on the ${this.gd.name(there)}; drop without x,y sets it down where you stand)`;
     return out;
   }
 

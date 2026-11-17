@@ -211,3 +211,13 @@ test('the type written as the only key is accepted: {"wait":{"turns":1}}, lists 
   assert.ok("error" in checkActions({ action: { banana: { x: 1, y: 2 } } }, false, 4), "unknown key is still an error");
   assert.ok("error" in checkActions({ action: { go: { x: 1, y: 2 }, use: { x: 1, y: 2 } } }, false, 4), "two keys: ambiguous");
 });
+
+test('plain-value type-as-key replies: {"wait":1} and {"say":"F"}', () => {
+  const w = checkAction({ action: { wait: 2 } }, false);
+  assert.ok(!("error" in w), JSON.stringify(w));
+  if (!("error" in w)) assert.deepEqual([w.action.type, w.action.turns], ["wait", 2]);
+  const s = checkAction({ action: { say: "F" } }, false);
+  assert.ok(!("error" in s), JSON.stringify(s));
+  if (!("error" in s)) assert.deepEqual([s.action.type, s.action.text], ["say", "F"]);
+  assert.ok("error" in checkAction({ action: { go: 3 } }, false), "other types still need an object");
+});

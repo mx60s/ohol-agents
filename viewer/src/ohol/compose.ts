@@ -400,13 +400,15 @@ export function flowerOp(
 
 /** Ops for a person, with clothing, held object and appearance, following drawObjectAnim. */
 export function composePerson(m: OholManifest, spec: PersonSpec): DrawOp[] {
-  const base = m.objects[spec.displayId];
+  const ap = spec.appearance ?? null;
+  // the family's body (skin) when it has one in the art, else the server's sprite
+  const bodyId = ap?.bodyId != null && m.objects[ap.bodyId] ? ap.bodyId : spec.displayId;
+  const base = m.objects[bodyId];
   if (!base) return [];
   const age = spec.age;
   const flipH = !!spec.facingLeft;
   const fx = (x: number) => (flipH ? -x : x);
-  const ap = spec.appearance ?? null;
-  const layers = personLayers(m, spec.displayId, ap?.hairDonorId, ap?.faceDonorId);
+  const layers = personLayers(m, bodyId, ap?.hairDonorId, ap?.faceDonorId);
   const hairTint = ap ? hairTintAtAge(ap.hairColor, age) : null;
 
   const head = topFlagged(layers, HEAD, age);

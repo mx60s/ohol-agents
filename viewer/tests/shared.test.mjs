@@ -217,3 +217,17 @@ test("players carry a wound or sickness; junk conditions are dropped", () => {
   ] });
   assert.deepEqual(s.players.map((p) => p.condition), [{ kind: "wound", name: "Bite Wound" }, { kind: "sickness", name: "Sick Person" }, null, null, null]);
 });
+
+test("family body: every member of a family (per sex) gets the same body of the server's race", async () => {
+  const { familyBodyId, FEMALE_POOL, MALE_POOL } = await import("../src/ohol/appearance.ts");
+  const raceOf = (id) => [...FEMALE_POOL, ...MALE_POOL].find((p) => p.id === id)?.race;
+  for (const lin of ["run:1", "run:27", "pilot1-r4-mwl7lobm:2"]) {
+    const sisters = [19, 350, 1007].map((d) => familyBodyId(d, true, lin)); // three race-D sprites
+    assert.equal(new Set(sisters).size, 1, `${lin}: ${sisters}`);
+    assert.equal(raceOf(sisters[0]), "D");
+    const brothers = [347, 352, 1008].map((d) => familyBodyId(d, false, lin));
+    assert.equal(new Set(brothers).size, 1);
+    assert.equal(raceOf(brothers[0]), "D");
+  }
+  assert.equal(familyBodyId(99999, true, "x"), 99999, "an unknown sprite is kept");
+});

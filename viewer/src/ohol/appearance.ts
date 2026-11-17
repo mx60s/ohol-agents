@@ -300,6 +300,11 @@ export interface Appearance {
   hairDonorId: number;
   /** person object whose eyes + mouth layers replace the base's */
   faceDonorId: number;
+  /**
+   * person object drawn as the body (skin): one per family and sex, of the family's race, so
+   * siblings share a skin tone (the server only keeps the race: Female001/003/009 D differ in tone)
+   */
+  bodyId?: number;
   /** hair tint at age 20-35 ("#rrggbb"); greyed with age at draw time */
   hairColor: string;
   /** look-table slot (for debugging / legends) */
@@ -326,9 +331,19 @@ export interface AppearanceInput {
   livingFamilyLifeIds?: readonly string[];
 }
 
+/** The family's body for this sex: same race as the server's sprite, picked stably from the lineage id. */
+export function familyBodyId(displayId: number, female: boolean, lineageId: string | number): number {
+  const race = SPAWNABLE_PEOPLE.find((p) => p.id === displayId)?.race;
+  if (!race) return displayId;
+  const pool = (female ? FEMALE_POOL : MALE_POOL).filter((p) => p.race === race).sort((a, b) => a.id - b.id);
+  if (!pool.length) return displayId;
+  return pool[hashId(`${lineageId}|body`) % pool.length].id;
+}
+
 export function appearanceFor(input: AppearanceInput): Appearance {
   const look = lineageLook(input.lineageId, input.livingLineageIds);
   return {
+    bodyId: familyBodyId(input.displayId, input.female, input.lineageId),
     hairDonorId: input.female ? look.femaleHairDonor : look.maleHairDonor,
     faceDonorId: look.faceDonor,
     hairColor: hairColorForTraits(input.traits, input.traitDims),

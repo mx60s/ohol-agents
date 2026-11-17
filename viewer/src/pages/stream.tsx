@@ -1,3 +1,4 @@
+import { hairColorForTraits } from "../ohol/appearance.ts";
 // 1920x1080 stream overlay (stream.html; <body class="stream">). Follows the director's focus.
 // Every piece of user/model text renders as React text (escaped), clamped by CSS.
 import { TRAITS_SHOWN } from "../shared/personality.ts";
@@ -64,6 +65,16 @@ function Stream() {
   const lifeId = focus?.lifeId ?? agent?.lifeId ?? null;
   const life: LifeRecord | undefined = lifeId ? lives.byId[lifeId] : undefined;
   const players = state?.players ?? EMPTY_PLAYERS;
+  // each person's hair colour, as the camera draws it, for their minimap dot
+  const dimsForHair = lives.traitDims.length ? lives.traitDims : (state?.traitDims ?? []);
+  const hairOf = useMemo(() => {
+    const byPlayer = new Map<number, string>();
+    for (const q of players) {
+      const l = q.lifeId ? lives.byId[q.lifeId] : undefined;
+      if (l?.traits) byPlayer.set(q.id, hairColorForTraits(l.traits, dimsForHair));
+    }
+    return (pid: number) => byPlayer.get(pid) ?? null;
+  }, [players, lives.byId, dimsForHair]);
   const player = players.find((p) => lifeId && p.lifeId === lifeId) ?? (agent?.playerId != null ? players.find((p) => p.id === agent.playerId) : undefined);
   const focusPlayerId = player?.id ?? life?.playerId ?? agent?.playerId ?? null;
 
@@ -195,6 +206,7 @@ function Stream() {
               </div>
             )}
             <MiniMap
+              hairOf={hairOf}
               overview={minimap.data ?? null}
               worldKey={state?.run.id ?? null}
               cells={map.data?.cells ?? EMPTY_CELLS}
