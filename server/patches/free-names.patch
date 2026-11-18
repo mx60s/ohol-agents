@@ -22,13 +22,18 @@ so Eves can say "I AM <FIRST> <FAMILY>". Naming rules:
   with a reused id clears her entry). Forced naming at 8 minutes
   (getLineageLastName) and nameBaby fall back to it, so a child whose
   named relatives all died still gets the family surname, not a random one.
+- mtsNameNearbyBabyTiles (default 0 = stock): with empty arms, "YOU ARE X"
+  first names the nearest nameless non-Eve of any age within that many
+  tiles (the speaker's own child first), e.g. a baby set down next to its
+  mother; only if there is none, the stock rule (nearest nameless person
+  aged 5+ within 20 tiles).
 - mtsForceNameSeconds (any mtsFreeNames; default 480 = stock): game seconds
   alive before an unnamed person is force-named (random first name, family
   surname).
 With mtsFreeNames=0 (and no mtsForceNameSeconds) everything is stock.
 
 diff --git a/server/server.cpp b/server/server.cpp
-index 24c9bd5..0b5a5f7 100644
+index 24c9bd5..7e13ee3 100644
 --- a/server/server.cpp
 +++ b/server/server.cpp
 @@ -4180,6 +4180,23 @@ static void leaderDied( LiveObject *inLeader );
@@ -538,7 +543,60 @@ index 24c9bd5..0b5a5f7 100644
                                  nameEve( nextPlayer, name );
                                  playerIndicesToSendNamesAbout.push_back( i );
                                  replaceNameInSaidPhrase( 
-@@ -25891,8 +26275,13 @@ int main( int inNumArgs, const char **inArgs ) {
+@@ -25876,9 +26260,49 @@ int main( int inNumArgs, const char **inArgs ) {
+                                 // still, check if we're naming a nearby,
+                                 // nameless non-baby
+ 
+-                                LiveObject *closestOther = 
+-                                    getClosestOtherPlayer( nextPlayer,
+-                                                           babyAge, true );
++                                LiveObject *closestOther = NULL;
++
++                                // MTS patch: a nameless non-Eve of any
++                                // age (a baby set down) within
++                                // mtsNameNearbyBabyTiles, own child first
++                                int nearTiles =
++                                    SettingsManager::getIntSetting(
++                                        "mtsNameNearbyBabyTiles", 0 );
++                                if( nearTiles > 0 ) {
++                                    GridPos sp = getPlayerPos( nextPlayer );
++                                    double bestD = nearTiles + 0.5;
++                                    char bestOwn = false;
++                                    for( int j=0; j<players.size(); j++ ) {
++                                        LiveObject *o =
++                                            players.getElement( j );
++                                        if( o == nextPlayer || o->error ||
++                                            o->name != NULL || o->isEve ||
++                                            o->isTutorial ) {
++                                            continue;
++                                            }
++                                        double d = distance(
++                                            sp, getPlayerPos( o ) );
++                                        if( d > nearTiles + 0.5 ) {
++                                            continue;
++                                            }
++                                        char own =
++                                            ( o->parentID == nextPlayer->id );
++                                        if( ( own && ! bestOwn ) ||
++                                            ( own == bestOwn &&
++                                              d < bestD ) ) {
++                                            closestOther = o;
++                                            bestD = d;
++                                            bestOwn = own;
++                                            }
++                                        }
++                                    }
++
++                                if( closestOther == NULL ) {
++                                    closestOther =
++                                        getClosestOtherPlayer( nextPlayer,
++                                                               babyAge,
++                                                               true );
++                                    }
+ 
+                                 if( closestOther != NULL ) {
+                                     
+@@ -25891,8 +26315,13 @@ int main( int inNumArgs, const char **inArgs ) {
                                              strcmp( name, "" ) != 0
                                              &&
                                              ! isEveNamingBlocked(

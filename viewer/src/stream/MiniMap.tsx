@@ -43,7 +43,22 @@ function MiniMapImpl(p: MiniMapProps) {
   // The whole explored world (overview) when the service has it, else the nearby map. The bounds
   // only grow within one world: the inset never zooms in or jumps when someone travels or dies;
   // it zooms out a little when someone reaches new land, and starts over in a regenerated world.
-  const source = p.overview && p.overview.cells.length ? p.overview.cells : p.cells;
+  // everything this page has seen in this world stays drawn: overview polls are added up, never replaced
+  const seenCells = useRef<{ key: string | null; m: Map<string, MapCellTuple> }>({ key: null, m: new Map() });
+  if (seenCells.current.key !== (p.worldKey ?? null)) seenCells.current = { key: p.worldKey ?? null, m: new Map() };
+  const fresh = p.overview && p.overview.cells.length ? p.overview.cells : p.cells;
+  let added = false;
+  for (const c of fresh) {
+    if (!(c[2] >= 0)) continue;
+    const k = `${c[0]},${c[1]}`;
+    if (!seenCells.current.m.has(k)) {
+      seenCells.current.m.set(k, c);
+      added = true;
+    }
+  }
+  const sourceRef = useRef<MapCellTuple[]>([]);
+  if (added || sourceRef.current.length !== seenCells.current.m.size) sourceRef.current = [...seenCells.current.m.values()];
+  const source = sourceRef.current;
   const minBlock = p.overview && p.overview.cells.length ? p.overview.block : 1;
   const sig = mapSignature(source);
   const grown = useRef<{ key: string | null; b: Bounds | null }>({ key: null, b: null });

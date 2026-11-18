@@ -538,7 +538,13 @@ export class Body {
     let best: { x: number; y: number; gives: number } | null = null;
     if (tx != null && ty != null) {
       best = sources.find((f) => f.x === tx && f.y === ty) ?? null;
-      if (!best) return `nothing at (${tx},${ty}) gives food by hand`;
+      if (!best) {
+        // name the thing: "nothing gives food" at a coordinate was missed (an agent kept trying to eat wild cabbage)
+        const there = this.world.objAt(tx, ty).id;
+        const nearest = sources[0];
+        const other = nearest ? ` The nearest food by hand: ${this.gd.name(nearest.id)} at (${nearest.x},${nearest.y}).` : ` No food you can pick by hand within ${maxDist} tiles.`;
+        return there > 0 ? `the ${this.gd.name(there)} at (${tx},${ty}) is not food: nothing there can be eaten by hand.${other}` : `nothing at (${tx},${ty}) gives food by hand.${other}`;
+      }
     } else best = sources[0] ?? null;
     if (!best) return `no food you can pick by hand within ${maxDist} tiles`;
     const babyId = s.held.id < 0 ? -s.held.id : null;

@@ -44,7 +44,7 @@ test("turns: one helper converts game seconds using the decision cycle and the t
 test("food line uses the server's drain time and speaks in turns", () => {
   const g = camp();
   const line = foodLine(g.world, clock);
-  assert.match(line, /^Food: 9\/20\. Drains 1 pip per turn because you are cold \(warm it would be 1 per ~3 turns\); it runs out in about 8 turns\.$/);
+  assert.match(line, /^Food: 9\/20\. Drains 1 pip per turn \(faster because you are cold\); it runs out in about 8 turns\.$/);
   assert.doesNotMatch(line, /\d+ ?s\b|second/, "no seconds");
 });
 
@@ -71,7 +71,7 @@ test("food line: the server's wall-second drain is not scaled again, at k = 1, 2
     const clock = { cycleMs: c.cycleMs, timeScale: c.k };
     const { w, foodTime } = hxWorld(c.k, 0.07);
     const line = foodLine(w, clock);
-    assert.equal(line, `Food: 9/20. Drains 1 pip every ${c.rate} because you are cold (warm it would be 1 per ${c.warm}); it runs out in ${c.left}.`, `k=${c.k}`);
+    assert.equal(line, `Food: 9/20. Drains 1 pip every ${c.rate} (faster because you are cold); it runs out in ${c.left}.`, `k=${c.k}`);
     // the turn count is wall time / cycle, nothing else
     assert.ok(Math.abs(turnsForWall(foodTime, clock) - (foodTime * 1000) / c.cycleMs) < 1e-9);
   }
@@ -80,21 +80,14 @@ test("food line: the server's wall-second drain is not scaled again, at k = 1, 2
   assert.doesNotMatch(foodLine(w, { cycleMs: 4700, timeScale: 2 }), /every ~20 turns because|about 190 turns/);
 });
 
-test("food line: warm is slower than cold with the food bonus; too hot also points to heat 0.5", () => {
+test("food line: names cold or heat as the cause without a comparison number", () => {
   for (const k of [1, 2, 3]) {
     const clock = { cycleMs: 5000, timeScale: k };
-    const cold = hxWorld(k, 0.07);
-    const turnsOf = (re: RegExp, s: string) => Number(re.exec(s)![1]);
-    const line = foodLine(cold.w, clock);
-    const now = turnsOf(/every ~(\d+) turns/, line);
-    const warm = turnsOf(/warm it would be 1 per ~(\d+) turns/, line);
-    assert.ok(warm > now, `k=${k}: warm (${warm}) drains slower than cold (${now}): ${line}`);
-    // ideal = the server's figure with only the heat term swapped: k x (4 + 20 + 18)
-    const hot = hxWorld(k, 0.9);
-    const hotLine = foodLine(hot.w, clock);
-    assert.match(hotLine, /because you are too hot \(1 per ~?\d+ turns? at heat 0\.5\)/);
-    const t = (k * 42 * 1000) / 5000;
-    assert.equal(turnsOf(/1 per ~(\d+) turns at heat/, hotLine), t < 10 ? Math.round(t) : Math.round(t / 5) * 5, `k=${k}`);
+    const line = foodLine(hxWorld(k, 0.07).w, clock);
+    assert.match(line, /\(faster because you are cold\)/);
+    assert.doesNotMatch(line, /warm it would be/);
+    assert.match(foodLine(hxWorld(k, 0.9).w, clock), /\(faster because you are too hot\)/);
+    assert.doesNotMatch(foodLine(hxWorld(k, 0.5).w, clock), /faster because/);
   }
 });
 
@@ -412,10 +405,10 @@ test("new-player prompt (default): controls and our rules only; no game name, re
   assert.match(p, /A year passes every 25 turns\./);
   assert.match(p, /people within 16 tiles of you hear it\. Numbers can't be spoken: they are removed\. Some phrases also have specific consequences/);
   assert.match(p, /"I FOLLOW YOU": the nearest person becomes your leader/);
-  assert.match(p, /Name yourself as soon as you appear as an Eve, and name each baby you have while you hold it\./);
+  assert.match(p, /Name yourself as soon as you appear as an Eve, and name each baby you have while you hold it or stand next to it\./);
   assert.match(p, /What you can do depends on your age:/);
   assert.match(p, /"type":"give","person":ID\}  put what you hold down next to another person for them to pick up/);
-  assert.match(p, /"YOU ARE <FIRST>": names the nameless baby you hold, or, with your arms empty, the nearest nameless person aged 5 or older within 20 tiles/);
+  assert.match(p, /"YOU ARE <FIRST>": names the nameless baby you hold, or a nameless baby within 3 tiles of you, or else the nearest nameless person aged 5 or older within 20 tiles/);
   assert.match(p, /From 10: you can carry a baby\./);
   assert.match(p, /While you carry a baby your arms are full/);
   assert.match(p, /These are only the basics\. Everything else about this world is yours to discover\./);

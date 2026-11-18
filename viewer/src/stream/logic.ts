@@ -61,10 +61,14 @@ export interface Motion {
 
 /** tiles per second used to replay a step between two polls */
 export const WALK_TILES_PER_S = 3.2;
-/** jumps longer than this (respawn, teleport, first sighting) snap instead of walking */
-export const SNAP_TILES = 14;
-/** a walk never takes longer than this, so the figure keeps up with the 2 s polls */
-export const MAX_WALK_MS = 2600;
+/**
+ * jumps longer than this (respawn, a new life, first sighting) snap instead of walking. With the turn
+ * clock a figure can cover 15-40 tiles between two polls (a long walk over several act windows), which
+ * used to snap and look like a warp; those now walk, faster (see MAX_WALK_MS).
+ */
+export const SNAP_TILES = 60;
+/** a walk never takes longer than this, so the figure keeps up with the 2 s polls (long ones walk faster) */
+export const MAX_WALK_MS = 3500;
 
 export function sampleMotion(m: Motion, now: number): { x: number; y: number } {
   if (m.dur <= 0 || now >= m.t0 + m.dur) return { x: m.toX, y: m.toY };

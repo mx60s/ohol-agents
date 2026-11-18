@@ -201,3 +201,27 @@ test("family room respects the early birth cap; an Eve outside the burst holds j
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("minimap: explored land is never forgotten, and survives a restart of the service", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pop-"));
+  try {
+    const cfg: Config = { ...config, logDir: dir, runId: "t", narratorIntervalMs: 0 };
+    const pop = new Population(cfg, { name: () => "Stone" } as unknown as GameData, new EventLog(dir, "t"));
+    const cells = new Map<string, { biome: number; floor: number; obj: { id: number; contained: [] }; t: number }>();
+    for (let x = 0; x < 20; x++) cells.set(`${x},0`, { biome: 2, floor: 0, obj: { id: 0, contained: [] }, t: 1 });
+    const agent = { status: "alive", world: { self: { x: 0, y: 0 }, cells } };
+    pop.agents.push(agent as never);
+    const a = pop.minimap(1_000);
+    assert.ok(a.cells.length >= 10);
+    // the agent forgets (moved on, or the service restarted with fresh views): the minimap keeps it
+    cells.clear();
+    (pop as unknown as { merged: Map<string, unknown> }).merged.clear();
+    const b = pop.minimap(100_000);
+    assert.equal(b.cells.length, a.cells.length, "nothing erased");
+    // a new process on the same run reads it back from disk
+    const pop2 = new Population(cfg, { name: () => "Stone" } as unknown as GameData, new EventLog(dir, "t"));
+    assert.equal(pop2.minimap(200_000).cells.length, a.cells.length);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -117,7 +117,7 @@ Each turn you see your food, warmth and age, what you hold and wear, the people 
 
 You can say whatever you want; people within ${SPEECH_RADIUS_TILES} tiles of you hear it. Numbers can't be spoken: they are removed. Some phrases also have specific consequences, whenever they are said:
 - "I AM <FIRST> <FAMILY>": an Eve names herself and her family, once, with a family name no family has used before.
-- "YOU ARE <FIRST>": names the nameless baby you hold, or, with your arms empty, the nearest nameless person aged 5 or older within 20 tiles; a first name already used in the family gets a number (AURORA II).
+- "YOU ARE <FIRST>": names the nameless baby you hold, or a nameless baby within 3 tiles of you, or else the nearest nameless person aged 5 or older within 20 tiles; a first name already used in the family gets a number (AURORA II).
 - "I FOLLOW YOU": the nearest person becomes your leader. "ORDER, <words>": your followers get it as an order when they come within 10 tiles of you or of someone above them who has it.
 - "I EXILE YOU": casts the nearest person out of your group. "I REDEEM YOU": takes them back.
 - "THIS IS YOURS": gives the nearest person ownership of property you own.
@@ -125,7 +125,7 @@ You can say whatever you want; people within ${SPEECH_RADIUS_TILES} tiles of you
 - "I TRUST YOU", "I DISTRUST YOU", "I FORGIVE YOU", "CURSE YOU": recorded against the nearest person.
 - "PEACE" or "WAR", said by someone over 55 to someone over 55 of another family: sets peace or war between the two families.
 Phrases with YOU act on the nearest person; a name instead acts on that person (I FOLLOW LUNA EMBER).
-Name yourself as soon as you appear as an Eve, and name each baby you have while you hold it.
+Name yourself as soon as you appear as an Eve, and name each baby you have while you hold it or stand next to it.
 
 Everyone wears a unique flower in their hair that others can see.
 

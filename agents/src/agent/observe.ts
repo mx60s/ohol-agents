@@ -163,7 +163,9 @@ export function foodLine(w: World, clock: TurnClock): string {
   const perTurns = turnsForWall(per, clock);
   const rate = perTurns >= 1.5 ? `1 pip every ${turnsTextWall(per, clock).replace("about ", "~")}` : `${Math.max(1, Math.round(1 / perTurns))} pip${Math.round(1 / perTurns) > 1 ? "s" : ""} per turn`;
   const ideal = turnsTextWall(idealDrainWallSeconds(w, clock), clock).replace("about ", "~");
-  const why = w.heat < 0.35 ? ` because you are cold (warm it would be 1 per ${ideal})` : w.heat > 0.65 ? ` because you are too hot (1 per ${ideal} at heat 0.5)` : "";
+  // the cause, without a comparison number: the heat line already gives the temperature (the number kept pulling thoughts to warmth over food)
+  void ideal;
+  const why = w.heat < 0.35 ? ` (faster because you are cold)` : w.heat > 0.65 ? ` (faster because you are too hot)` : "";
   return `Food: ${w.food}/${w.foodCapacity}${label}. Drains ${rate}${why}; it runs out in ${turnsTextWall(per * w.food, clock)}.`;
 }
 
@@ -210,9 +212,9 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   const heldTimer = me.held.id > 0 && w.heldSince && !gd.condition(me.held.id) ? decayTimer(gd, me.held.id, w.heldSince, now, clock) : null;
   L.push(`Holding: ${heldText(w, gd, me)}${heldTimer ? ` (${heldTimer})` : ""}. Wearing: ${worn.length ? worn.join(", ") : "nothing"}.`);
   // your own baby in your arms without a name: ask for it (the user's rule: mothers name their babies)
-  const heldBaby = me.held.id < 0 ? w.players.get(-me.held.id) : undefined;
-  if (heldBaby && !heldBaby.name && !w.names.get(heldBaby.id) && heldBaby.ancestors[0] === me.id)
-    L.push(`Your baby #${heldBaby.id} has no name yet: name her or him now by saying "YOU ARE <FIRST NAME>".`);
+  // your own nameless baby in your arms or within 3 tiles: ask for the name (naming works held or nearby)
+  const unnamedOwn = [...w.players.values()].find((b) => b.id !== me.id && !b.name && !w.names.get(b.id) && b.ancestors[0] === me.id && (me.held.id === -b.id || dist(w.posOf(me, now), w.posOf(b, now)) <= 3));
+  if (unnamedOwn) L.push(`Your baby #${unnamedOwn.id} has no name yet: name her or him now by saying "YOU ARE <FIRST NAME>".`);
   // the official client's speech box stops accepting letters at this length (getSayLimit)
   if (age < 20) L.push(`Speech: at your age you can say at most ${sayLimit(age)} letters.`);
   if (w.craving) L.push(`Craving: ${gd.name(w.craving)} (bonus food if eaten).`);
@@ -355,7 +357,8 @@ function resourceLines(w: World, gd: GameData, pos: [number, number], food: Food
   const out: string[] = [];
   const at = (r: { id: number; p: [number, number] }) => `${gd.name(r.id)} at (${r.p[0]}, ${r.p[1]}), ${direction(pos, r.p)}`;
   const heatTimer = heat ? cellTimer(w, gd, heat.p, now, clock) : null;
-  out.push(`Water: ${water ? at(water) : `none within ${RESOURCE_RADIUS} tiles`}. Fire/heat: ${heat ? `${at(heat)}${heatTimer ? ` (${heatTimer})` : ""}` : `none within ${RESOURCE_RADIUS} tiles`}.`);
+  // a fire is shown when there is one (a human sees it); "no fire" every turn read like a to-do item
+  out.push(`Water: ${water ? at(water) : `none within ${RESOURCE_RADIUS} tiles`}.${heat ? ` Fire/heat: ${at(heat)}${heatTimer ? ` (${heatTimer})` : ""}.` : ""}`);
   if (!food.length) out.push(`Food by hand: none within ${RESOURCE_RADIUS} tiles.`);
   else {
     const totals = new Map<number, { n: number; src: number }>();

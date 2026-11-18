@@ -262,3 +262,13 @@ test("describeAction: plain sentences for hands-on actions, null for walking/spe
   for (const [inp, want] of cases) assert.equal(describeAction(inp), want, inp);
   for (const inp of ["go (3, 4) -> arrived", "pick_up_baby #3 -> picked up baby #3", 'say "F" -> said "F"', "wait -> waited 2 turns", "jump -> wiggled"]) assert.equal(describeAction(inp), null, inp);
 });
+
+test("motion: a 30-tile move between polls walks (fast) instead of warping; a 80-tile jump snaps", async () => {
+  const { retarget, sampleMotion, MAX_WALK_MS } = await import("../src/stream/logic.ts");
+  const start = retarget(undefined, 0, 0, 0);
+  const walk = retarget(start, 30, 0, 1000);
+  assert.ok(walk.dur > 0 && walk.dur <= MAX_WALK_MS, `walks (${walk.dur} ms)`);
+  const mid = sampleMotion(walk, 1000 + walk.dur / 2);
+  assert.ok(mid.x > 5 && mid.x < 25, `in between halfway (${mid.x})`);
+  assert.equal(retarget(start, 80, 0, 1000).dur, 0, "a respawn-sized jump snaps");
+});

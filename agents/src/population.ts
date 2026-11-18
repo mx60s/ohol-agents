@@ -1,5 +1,7 @@
 // Keeps N agent slots running, and assembles the run-wide view for the API.
 
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { Agent, type SpeechSink } from "./agent/agent.ts";
 import { Llm, type LlmHealth, type SpendGate } from "./agent/llm.ts";
 import type { GameData } from "./game/gameData.ts";
@@ -72,6 +74,8 @@ const MAP_CACHE_MS = 2000;
 /** the minimap overview: samples sent at most, and how long one is reused */
 const MINIMAP_MAX_BLOCKS = 15_000;
 const MINIMAP_CACHE_MS = 10_000;
+/** how often the never-forgotten explored map is written to disk */
+const EXPLORED_SAVE_MS = 60_000;
 
 interface PendingSay {
   speaker: Agent | null;
@@ -442,9 +446,52 @@ export class Population implements SpeechSink {
   minimap(now = Date.now()): MinimapResponse {
     if (this.minimapCache && now - this.minimapCache.at < MINIMAP_CACHE_MS) return this.minimapCache.body;
     this.mergeMaps();
-    const body = coarseMap(this.merged, MINIMAP_MAX_BLOCKS);
+    // everything ever seen in this world, never evicted (the merged map keeps only recent cells and
+    // starts over when the agents service restarts): biomes at 2-tile resolution, saved per run
+    this.loadExplored();
+    for (const [k, c] of this.merged) {
+      if (!(c.biome >= 0)) continue;
+      const [x, y] = k.split(",").map(Number);
+      const key = `${Math.floor(x / 2) * 2},${Math.floor(y / 2) * 2}`;
+      if (!this.explored.has(key)) {
+        this.explored.set(key, { biome: c.biome });
+        this.exploredDirty = true;
+      }
+    }
+    if (this.exploredDirty && now - this.exploredSavedAt > EXPLORED_SAVE_MS) this.saveExplored(now);
+    const body = coarseMap(this.explored, MINIMAP_MAX_BLOCKS);
+    if (body.block < 2) body.block = 2;
     this.minimapCache = { at: now, body };
     return body;
+  }
+  private explored = new Map<string, { biome: number }>();
+  private exploredLoaded = false;
+  private exploredDirty = false;
+  private exploredSavedAt = 0;
+  private get exploredFile() {
+    return path.join(this.cfg.logDir, "research", `explored-${this.cfg.runId}.json`);
+  }
+  private loadExplored() {
+    if (this.exploredLoaded) return;
+    this.exploredLoaded = true;
+    try {
+      const arr = JSON.parse(readFileSync(this.exploredFile, "utf8")) as [string, number][];
+      for (const [k, b] of arr) if (typeof k === "string" && Number.isFinite(b)) this.explored.set(k, { biome: b });
+    } catch {
+      // first time for this run (or unreadable): start empty
+    }
+  }
+  private saveExplored(now: number) {
+    try {
+      mkdirSync(path.dirname(this.exploredFile), { recursive: true });
+      const tmp = `${this.exploredFile}.tmp`;
+      writeFileSync(tmp, JSON.stringify([...this.explored].map(([k, v]) => [k, v.biome])));
+      renameSync(tmp, this.exploredFile);
+      this.exploredDirty = false;
+      this.exploredSavedAt = now;
+    } catch (e) {
+      console.error("explored map save failed", e);
+    }
   }
   private minimapCache: { at: number; body: MinimapResponse } | null = null;
 

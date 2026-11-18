@@ -331,3 +331,14 @@ test("give puts the held item on an empty tile next to the person and says where
   assert.match(r.text, /put the Sharp Stone down next to #2 at/);
   assert.equal((await body.give(2)).text, "not holding anything to give");
 });
+
+test("forage aimed at something that isn't food names it and points to real food", async () => {
+  const g = setup(0, [6, 0]);
+  const CABBAGE = gd.idByName("Dug Wild Cabbage")!;
+  g.setTile(2, 0, CABBAGE);
+  g.food = 5;
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  const r = await body.forage(2, 0);
+  assert.match(r, /^the Dug Wild Cabbage at \(2,0\) is not food: nothing there can be eaten by hand\. The nearest food by hand: Wild Gooseberry Bush.* at \(6,0\)\.$/);
+});
