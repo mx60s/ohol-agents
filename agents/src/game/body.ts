@@ -595,6 +595,8 @@ export class Body {
 
   /** Use held item on another person: feed them food, clothe a baby, heal a wound. */
   async useOnPerson(id: number): Promise<string> {
+    // server.cpp UBABY/SELF: holding a baby, the action isn't let through (targetPlayer stays NULL)
+    if ((this.world.self?.held.id ?? 0) < 0) return `used held item on #${id}: nothing happened (your arms are full: you're carrying ${this.heldName()}; put the baby down first)`;
     const n = await this.nearPlayer(id);
     if (typeof n === "string") return n;
     const heldId = this.world.self?.held.id ?? 0;

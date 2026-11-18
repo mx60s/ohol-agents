@@ -144,14 +144,12 @@ test("config: CONTINUOUS=1 turns spend caps off by default; explicit values stil
   assert.deepEqual([explicit.max, explicit.daily, explicit.dims], [25, 40, ["x", "y"]]);
 });
 
-test("speechScrambled: never below 15 alive (server minActivePlayersForLanguages); at 15+ the hearer's words differ from the speaker's echo", () => {
+test("speechScrambled: the hearer's words differ from the speaker's echo (languages on from 1 player, server minActivePlayersForLanguages)", () => {
   withPop({}, { paused: null }, (pop) => {
     const agent = (playerId: number) => ({ id: `a${playerId}`, status: "alive", world: { selfId: playerId }, emit: () => {} }) as never;
     const P = pop as unknown as { agents: unknown[] };
-    for (let i = 1; i <= 8; i++) P.agents.push(agent(i));
+    for (let i = 1; i <= 2; i++) P.agents.push(agent(i));
     pop.spoke(agent(1), "HELLO SISTER", 0, 0);
-    assert.equal(pop.speechScrambled(1, "HOBA KESTEL"), false, "8 players: nothing is scrambled");
-    for (let i = 9; i <= 15; i++) P.agents.push(agent(i));
     assert.equal(pop.speechScrambled(1, "HELLO SISTER"), false, "same words as said");
     assert.equal(pop.speechScrambled(1, "HOBA KESTEL"), true);
     assert.equal(pop.speechScrambled(2, "HOBA"), null, "never heard #2 speak");

@@ -1,0 +1,521 @@
+MTS patch: adults learn other families' languages by living together in
+peace (setting mtsLangFullSeconds, 0 or absent = off = stock).
+
+Every mtsLangTickSeconds game seconds (default 6), each pair of living
+players of different lineages within mtsLangRadius tiles (default 16, the
+speech radius) both learn a fraction of the unlearned weight of the
+language between their lineages, at any age. It reuses the stock
+first-hearing step (factored out of mapLanguagePhrase as
+learnWeightFraction), so the scrambling shrinks word cluster by word
+cluster, as it does for children. That step learns at least one whole
+cluster per set, so the pace is set by how often it runs: about 50 steps of
+1.2% in mtsLangFullSeconds (per tick: chance min(1, r), fraction
+1.2% * max(1, r)^2, r = 50 * tick / mtsLangFullSeconds) leave about 5% of
+the (frequency-weighted) language unlearned. No learning for a pair
+while either is in a kill state (killer or target), either has exiled the
+other, or their lineages are at war. The learning maps (stock ones too) are
+written to mtsLanguageLearning.txt in the run dir after every tick and
+loaded at the first tick, for players alive then (so player saves keep
+them; deploy/start.sh deletes the file with the world). mtsLangLog=1 logs
+each pair's learned fractions every tick.
+
+diff --git a/server/language.cpp b/server/language.cpp
+index a3d7361..1fab979 100644
+--- a/server/language.cpp
++++ b/server/language.cpp
+@@ -973,6 +973,87 @@ void stepLanguage() {
+     }
+ 
+ 
++// learn this fraction of the unlearned (frequency-weighted) clusters of
++// each set (stock: the base fraction a young listener gets on first hearing;
++// MTS language-learning.patch reuses it for learning by living together)
++static void learnWeightFraction( LanguageLearningMap *inMap,
++                                 double inFraction ) {
++    for( int i=0; i<NUM_CLUSTER_SETS; i++ ) {
++
++        // how much unlearned weight is left in this set?
++        int freqTotalLeftToLearn = 0;
++
++        for( int c=0; c<allClusterSizes[i]; c++ ) {
++            if( ! inMap->allMappings[i][c] ) {
++                freqTotalLeftToLearn += allClustersFreq[i][c];
++                }
++            }
++        
++        if( freqTotalLeftToLearn == 0 ) {
++            // done learning this set entirely
++            continue;
++            }
++
++        // fraction of remaining weight
++        // for example, 10% of what's left, over and over
++        // Thus, the total weight learned is asymptotic to 100% over time
++        // but never actually gets there.
++        // We learn something like 10%, 19%, 27%, 34%, etc.
++        // it will get there at very end, once the fraction of 
++        // remaining weight left to learn is < 1, because we round up
++        // to 1.
++        int freqTotalToLearnThisRun = 
++            ceil( freqTotalLeftToLearn * inFraction );
++
++        int freqTotalLearnedThisRun = 0;
++        
++        int c = 0;
++        
++        while( freqTotalLearnedThisRun < freqTotalToLearnThisRun ) {
++            // jump into remaining clusters randomly, with
++            // our chance of landing on a given cluster based on its
++            // fraction of the remaining weight
++            int freqToSkip = 
++                randSource.getRandomBoundedInt( 0,
++                                                freqTotalLeftToLearn );
++            // jump into the remaining clusters by freqToSkip amount
++            
++            int clusterHit = -1;
++            
++            int freqSkipped = 0;
++            for( int s=0; s<allClusterSizes[i]; s++ ) {
++                // skip already-learned clusters during this
++                // weighted picking process
++                if( ! inMap->allMappings[i][s] ) {
++                    freqSkipped += allClustersFreq[i][s];
++                
++                    if( freqSkipped >= freqToSkip ) {
++                        // landed in this cluster
++                        clusterHit = s;
++                        break;
++                        }
++                    }
++                }
++            
++            if( clusterHit != -1 ) {
++                int s = clusterHit;
++                
++                inMap->allMappings[i][s] = true;
++                freqTotalLearnedThisRun += allClustersFreq[i][s];
++                
++                freqTotalLeftToLearn -= allClustersFreq[i][s];
++                }
++            else {
++                // no clusters left to learn
++                break;
++                }
++            c++;
++            }
++        }
++    
++    }
++
++
+ // handles punctuation, etc.
+ char *mapLanguagePhrase( char *inPhrase, int inEveIDA, int inEveIDB,
+                          int inPlayerIDA, int inPlayerIDB,
+@@ -1024,79 +1105,8 @@ char *mapLanguagePhrase( char *inPhrase, int inEveIDA, int inEveIDB,
+         
+         // apply base learning fraction now
+                 
+-        for( int i=0; i<NUM_CLUSTER_SETS; i++ ) {
+-
+-            // how much unlearned weight is left in this set?
+-            int freqTotalLeftToLearn = 0;
+-
+-            for( int c=0; c<allClusterSizes[i]; c++ ) {
+-                if( ! learnB->allMappings[i][c] ) {
+-                    freqTotalLeftToLearn += allClustersFreq[i][c];
+-                    }
+-                }
+-            
+-            if( freqTotalLeftToLearn == 0 ) {
+-                // done learning this set entirely
+-                continue;
+-                }
++        learnWeightFraction( learnB, languageLearningBaseFraction );
+ 
+-            // fraction of remaining weight
+-            // for example, 10% of what's left, over and over
+-            // Thus, the total weight learned is asymptotic to 100% over time
+-            // but never actually gets there.
+-            // We learn something like 10%, 19%, 27%, 34%, etc.
+-            // it will get there at very end, once the fraction of 
+-            // remaining weight left to learn is < 1, because we round up
+-            // to 1.
+-            int freqTotalToLearnThisRun = 
+-                ceil( freqTotalLeftToLearn * languageLearningBaseFraction );
+-
+-            int freqTotalLearnedThisRun = 0;
+-            
+-            int c = 0;
+-            
+-            while( freqTotalLearnedThisRun < freqTotalToLearnThisRun ) {
+-                // jump into remaining clusters randomly, with
+-                // our chance of landing on a given cluster based on its
+-                // fraction of the remaining weight
+-                int freqToSkip = 
+-                    randSource.getRandomBoundedInt( 0,
+-                                                    freqTotalLeftToLearn );
+-                // jump into the remaining clusters by freqToSkip amount
+-                
+-                int clusterHit = -1;
+-                
+-                int freqSkipped = 0;
+-                for( int s=0; s<allClusterSizes[i]; s++ ) {
+-                    // skip already-learned clusters during this
+-                    // weighted picking process
+-                    if( ! learnB->allMappings[i][s] ) {
+-                        freqSkipped += allClustersFreq[i][s];
+-                    
+-                        if( freqSkipped >= freqToSkip ) {
+-                            // landed in this cluster
+-                            clusterHit = s;
+-                            break;
+-                            }
+-                        }
+-                    }
+-                
+-                if( clusterHit != -1 ) {
+-                    int s = clusterHit;
+-                    
+-                    learnB->allMappings[i][s] = true;
+-                    freqTotalLearnedThisRun += allClustersFreq[i][s];
+-                    
+-                    freqTotalLeftToLearn -= allClustersFreq[i][s];
+-                    }
+-                else {
+-                    // no clusters left to learn
+-                    break;
+-                    }
+-                c++;
+-                }
+-            }
+-        
+         learnB->firstPhraseHeard = true;
+         }
+ 
+@@ -1247,3 +1257,147 @@ char *mapLanguagePhrase( char *inPhrase, int inEveIDA, int inEveIDB,
+ 
+     return returnString;
+     }
++
++
++
++// MTS patch (language-learning.patch): learning by living together.
++
++static LanguageLearningMap *mtsLearningMapFor( int inEveIDA, int inEveIDB,
++                                               int inPlayerID,
++                                               char inCreate ) {
++    int lookupEveID = inEveIDA;
++    int otherEveID = inEveIDB;
++    if( inEveIDB > lookupEveID ) {
++        lookupEveID = inEveIDB;
++        otherEveID = inEveIDA;
++        }
++    // age 0: may create the map at any age (stock only below
++    // maxLanguageLearningAge); a too-old age never creates one
++    return getPlayerLearningMap( lookupEveID, otherEveID, inPlayerID,
++                                 inCreate ? 0 : maxLanguageLearningAge + 1 );
++    }
++
++
++void mtsLearnLanguage( int inEveIDA, int inEveIDB, int inPlayerID,
++                       double inFraction ) {
++    if( inEveIDA == inEveIDB || inFraction <= 0 ) {
++        return;
++        }
++    LanguageLearningMap *map =
++        mtsLearningMapFor( inEveIDA, inEveIDB, inPlayerID, true );
++    if( map != NULL ) {
++        learnWeightFraction( map, inFraction );
++        }
++    }
++
++
++double mtsLanguageKnownFraction( int inEveIDA, int inEveIDB,
++                                 int inPlayerID ) {
++    if( inEveIDA == inEveIDB ) {
++        return 1;
++        }
++    LanguageLearningMap *map =
++        mtsLearningMapFor( inEveIDA, inEveIDB, inPlayerID, false );
++    if( map == NULL ) {
++        return 0;
++        }
++    double known = 0, total = 0;
++    for( int s=0; s<NUM_CLUSTER_SETS; s++ ) {
++        for( int c=0; c<allClusterSizes[s]; c++ ) {
++            total += allClustersFreq[s][c];
++            if( map->allMappings[s][c] ) {
++                known += allClustersFreq[s][c];
++                }
++            }
++        }
++    return total > 0 ? known / total : 0;
++    }
++
++
++// one line per learning map:
++// "M <playerID> <eveIDA> <eveIDB> <firstPhraseHeard> <set0> .. <set4>",
++// each set a string of 0/1 per cluster
++char mtsSaveLanguageLearning( const char *inFileName ) {
++    char *tmpName = autoSprintf( "%s.tmp", inFileName );
++    FILE *f = fopen( tmpName, "w" );
++    if( f == NULL ) {
++        delete [] tmpName;
++        return false;
++        }
++    for( int p=0; p<learningRecords.size(); p++ ) {
++        PlayerLearningRecord *r = learningRecords.getElementDirect( p );
++        for( int m=0; m<r->learningMaps.size(); m++ ) {
++            LanguageLearningMap *map = r->learningMaps.getElementDirect( m );
++            fprintf( f, "M %d %d %d %d", r->playerID, map->eveIDA,
++                     map->eveIDB, map->firstPhraseHeard ? 1 : 0 );
++            for( int s=0; s<NUM_CLUSTER_SETS; s++ ) {
++                fputc( ' ', f );
++                for( int c=0; c<allClusterSizes[s]; c++ ) {
++                    fputc( map->allMappings[s][c] ? '1' : '0', f );
++                    }
++                }
++            fputc( '\n', f );
++            }
++        }
++    char ok = ( fclose( f ) == 0 );
++    if( ok ) {
++        ok = ( rename( tmpName, inFileName ) == 0 );
++        }
++    delete [] tmpName;
++    return ok;
++    }
++
++
++// only maps of players in inLivePlayerIDs (ids restart with a new world);
++// returns the number of maps loaded
++int mtsLoadLanguageLearning( const char *inFileName,
++                             SimpleVector<int> *inLivePlayerIDs ) {
++    FILE *f = fopen( inFileName, "r" );
++    if( f == NULL ) {
++        return 0;
++        }
++    int maxLen = NUM_MIDDLE_CONSONANT_CLUSTERS;
++    for( int s=0; s<NUM_CLUSTER_SETS; s++ ) {
++        if( allClusterSizes[s] > maxLen ) {
++            maxLen = allClusterSizes[s];
++            }
++        }
++    char *bits = new char[ maxLen + 2 ];
++    char *fmt = autoSprintf( "%%%ds", maxLen + 1 );
++    int count = 0;
++    int playerID, eveA, eveB, heard;
++    while( fscanf( f, " M %d %d %d %d", &playerID, &eveA, &eveB,
++                   &heard ) == 4 ) {
++        char keep = inLivePlayerIDs->getElementIndex( playerID ) != -1;
++        LanguageLearningMap *map = keep ?
++            mtsLearningMapFor( eveA, eveB, playerID, true ) : NULL;
++        char ok = true;
++        for( int s=0; s<NUM_CLUSTER_SETS; s++ ) {
++            if( fscanf( f, fmt, bits ) != 1 ||
++                (int)strlen( bits ) != allClusterSizes[s] ) {
++                ok = false;
++                break;
++                }
++            if( map != NULL ) {
++                for( int c=0; c<allClusterSizes[s]; c++ ) {
++                    if( bits[c] == '1' ) {
++                        map->allMappings[s][c] = true;
++                        }
++                    }
++                }
++            }
++        if( ! ok ) {
++            break;
++            }
++        if( map != NULL ) {
++            if( heard ) {
++                map->firstPhraseHeard = true;
++                }
++            count++;
++            }
++        }
++    delete [] fmt;
++    delete [] bits;
++    fclose( f );
++    return count;
++    }
+diff --git a/server/language.h b/server/language.h
+index 38dd186..9238e95 100644
+--- a/server/language.h
++++ b/server/language.h
+@@ -32,3 +32,21 @@ char *mapLanguagePhrase( char *inPhrase, int inEveIDA, int inEveIDB,
+                          double inFractionToPassThrough );
+ 
+ 
++
++
++// MTS patch (language-learning.patch): learning by living together.
++// inPlayerID learns inFraction of the unlearned weight of the language
++// between these two lineages, at any age (the stock first-hearing step).
++void mtsLearnLanguage( int inEveIDA, int inEveIDB, int inPlayerID,
++                       double inFraction );
++
++// frequency-weighted fraction of that language inPlayerID knows (0..1)
++double mtsLanguageKnownFraction( int inEveIDA, int inEveIDB,
++                                 int inPlayerID );
++
++// all learning maps to/from a file in the run dir
++char mtsSaveLanguageLearning( const char *inFileName );
++
++#include "minorGems/util/SimpleVector.h"
++int mtsLoadLanguageLearning( const char *inFileName,
++                             SimpleVector<int> *inLivePlayerIDs );
+diff --git a/server/server.cpp b/server/server.cpp
+index da95ae8..9437c13 100644
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -14350,6 +14350,140 @@ SimpleVector<KillState> activeKillStates;
+ 
+ 
+ 
++// MTS patch (language-learning.patch): adults learn each other's family
++// language by living together in peace. Every mtsLangTickSeconds game
++// seconds (default 6), each pair of living players of different lineages
++// within mtsLangRadius tiles (default 16, the speech radius) both learn a
++// fraction of what they don't know yet of the language between their two
++// lineages, at any age, with the stock first-hearing step
++// (language.cpp learnWeightFraction), so the scrambling shrinks cluster by
++// cluster. The step always learns at least one whole cluster per cluster
++// set, frequency-weighted, so the pace is set mostly by how often it runs:
++// about 50 steps of 1.2% leave 5% of the weight unlearned (simulated with
++// the stock cluster tables: 12% after one step, 70% after 10, 84% after
++// 20, 90% after 30, 95% after 50). So each tick a pair learns with
++// probability min( 1, r ) and fraction 1.2% * max( 1, r )^2, where
++// r = 50 * tick / mtsLangFullSeconds (setting; 0 or absent = off, stock):
++// mtsLangFullSeconds game seconds of being together leave about 5%. Not while either is in a kill state (a weapon raised,
++// or the target of one), either has exiled the other, or their lineages
++// are at war. The maps are kept in mtsLanguageLearning.txt (run dir) after
++// each tick and loaded at the first tick (players restored by player saves
++// keep what they learned; a world reset deletes the file).
++
++static const char *mtsLangFile = "mtsLanguageLearning.txt";
++
++static char mtsInKillState( LiveObject *inP ) {
++    for( int i=0; i<activeKillStates.size(); i++ ) {
++        KillState *k = activeKillStates.getElement( i );
++        if( k->killerID == inP->id || k->targetID == inP->id ) {
++            return true;
++            }
++        }
++    return false;
++    }
++
++
++static void mtsStepLanguageLearning() {
++    static double lastTick = -1;
++    static char loaded = false;
++
++    double fullSeconds =
++        SettingsManager::getFloatSetting( "mtsLangFullSeconds", 0.0f );
++    if( ! ( fullSeconds > 0 ) ) {
++        return;
++        }
++    double tick = SettingsManager::getFloatSetting( "mtsLangTickSeconds", 6.0f );
++    if( ! ( tick > 0 ) ) {
++        tick = 6;
++        }
++    double now = Time::getCurrentTime();
++
++    if( ! loaded ) {
++        loaded = true;
++        lastTick = now;
++        SimpleVector<int> liveIDs;
++        for( int i=0; i<players.size(); i++ ) {
++            LiveObject *o = players.getElement( i );
++            if( ! o->error ) {
++                liveIDs.push_back( o->id );
++                }
++            }
++        int n = mtsLoadLanguageLearning( mtsLangFile, &liveIDs );
++        AppLog::infoF( "MTS language learning: loaded %d maps from %s "
++                       "(full in %.0f game s, tick %.1f s)",
++                       n, mtsLangFile, fullSeconds, tick );
++        return;
++        }
++    if( now - lastTick < tick ) {
++        return;
++        }
++    // ticks due since the last pass (the main loop can sleep longer than a
++    // tick when the game clock runs fast), at most 10
++    int steps = (int)( ( now - lastTick ) / tick );
++    if( steps > 10 ) {
++        steps = 10;
++        lastTick = now;
++        }
++    else {
++        lastTick += steps * tick;
++        }
++
++    double radius = SettingsManager::getFloatSetting( "mtsLangRadius", 16.0f );
++    // see the top: ~50 learning steps of 1.2% in fullSeconds
++    double r = 50 * tick / fullSeconds;
++    double chance = r < 1 ? r : 1;
++    double fraction = 0.012 * ( r > 1 ? r * r : 1 );
++    if( fraction > 0.5 ) {
++        fraction = 0.5;
++        }
++
++    for( int i=0; i<players.size(); i++ ) {
++        LiveObject *a = players.getElement( i );
++        if( a->error || a->isTutorial || a->isGhost ) {
++            continue;
++            }
++        for( int j=i+1; j<players.size(); j++ ) {
++            LiveObject *b = players.getElement( j );
++            if( b->error || b->isTutorial || b->isGhost ||
++                a->lineageEveID == b->lineageEveID ) {
++                continue;
++                }
++            if( distance( getPlayerPos( a ), getPlayerPos( b ) ) > radius ) {
++                continue;
++                }
++            if( mtsInKillState( a ) || mtsInKillState( b ) ||
++                isExiled( a, b ) || isExiled( b, a ) ||
++                isWarState( a->lineageEveID, b->lineageEveID ) ) {
++                continue;
++                }
++            for( int k=0; k<steps; k++ ) {
++                if( chance < 1 && randSource.getRandomDouble() > chance ) {
++                    continue;
++                    }
++                mtsLearnLanguage( a->lineageEveID, b->lineageEveID, a->id,
++                                  fraction );
++                mtsLearnLanguage( a->lineageEveID, b->lineageEveID, b->id,
++                                  fraction );
++                }
++            if( SettingsManager::getIntSetting( "mtsLangLog", 0 ) ) {
++                AppLog::infoF(
++                    "MTS language learning: %d knows %.3f, %d knows %.3f",
++                    a->id, mtsLanguageKnownFraction( a->lineageEveID,
++                                                     b->lineageEveID, a->id ),
++                    b->id, mtsLanguageKnownFraction( a->lineageEveID,
++                                                     b->lineageEveID, b->id ) );
++                }
++            }
++        }
++
++    if( ! mtsSaveLanguageLearning( mtsLangFile ) ) {
++        AppLog::errorF( "MTS language learning: can't write %s",
++                        mtsLangFile );
++        }
++    }
++
++
++
+ 
+ void apocalypseStep() {
+     
+@@ -21118,6 +21252,7 @@ int main( int inNumArgs, const char **inArgs ) {
+         stepObjectSurvey();
+         
+         stepLanguage();
++        mtsStepLanguageLearning(); // MTS patch
+ 
+         
+         double secPerYear = 1.0 / getAgeRate();

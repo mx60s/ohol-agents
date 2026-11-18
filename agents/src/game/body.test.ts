@@ -298,3 +298,13 @@ test("drop aimed at a loose item puts it on the nearest empty tile instead of sw
   assert.equal(g.world.objAt(1, 0).id, BANANA, "the banana is still there");
   assert.match(r, /has a Banana, so you put it on the empty tile at/);
 });
+
+test("feeding someone while carrying a baby says the arms are full and sends nothing (server.cpp UBABY with a held baby)", async () => {
+  const g = setup(-2, [9, 9]);
+  g.addPlayer({ id: 2, x: 0, y: 0, age: 0.5, held: 0, female: false, motherId: 1 });
+  g.addPlayer({ id: 3, x: 1, y: 0, age: 6, held: 0, female: true });
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.match(await body.useOnPerson(3), /nothing happened \(your arms are full: you're carrying baby .*; put the baby down first\)$/);
+  assert.equal(g.sent.filter((c) => c.startsWith("UBABY")).length, 0, "nothing sent");
+});

@@ -395,3 +395,49 @@ export function occluderAlpha(obj: ScreenBox | null, focus: ScreenBox | null, dr
   if (!drawnAfterFocus || !obj || !focus) return 1;
   return coverShare(obj, focus) >= OCCLUDE_MIN_SHARE ? OCCLUDER_ALPHA : 1;
 }
+
+// ================================================================== what they did (stream "Doing" line)
+
+const ACTION_SKIP = /^(go|walk|pick_up_baby|jump|wait|say|undress)\b/;
+const an = (s: string) => (/^[AEIOU]/i.test(s) ? `an ${s}` : `a ${s}`);
+const clean = (s: string) => s.replace(/\s*\(\d+\/\d+ left\)/g, "").replace(/#\S+/g, "").trim();
+
+/**
+ * One plain sentence for a hands-on action event ("use (3, 4) -> use: tile (3,4) Big Hard Rock ->
+ * Big Hard Rock; holding Stone -> Sharp Stone" -> "made a Sharp Stone on the Big Hard Rock"), or null
+ * for walking, speaking, babies, waiting. Failures read "tried to …: nothing happened".
+ */
+export function describeAction(text: string): string | null {
+  const t = text.replace(/^reflex /, "");
+  if (ACTION_SKIP.test(t)) return null;
+  const verb = t.split(/[\s(]/)[0];
+  const res = (t.split(" -> ").slice(1).join(" -> ") || "").replace(/\s*\(your path[^)]*\)\s*$/, "").trim();
+  if (!res) return null;
+  const m = /tile \(-?\d+,\s*-?\d+\) (.+?) -> (.+?); holding (.+?) -> (.+?)$/.exec(res);
+  if (m) {
+    const [a, b, c, d] = [m[1], m[2], m[3], m[4]].map(clean);
+    if (verb === "drop") {
+      if (a === "nothing") return `put down ${an(c)}`;
+      if (d === a) return `swapped ${an(c)} for the ${a}`;
+      return `put ${an(c)} into the ${a}`;
+    }
+    if (c === "nothing" && d !== "nothing") return a !== b ? `picked ${an(d)} from the ${a}` : `picked up ${an(d)}`;
+    if (a !== b && b !== "nothing") return `used ${an(c === "nothing" ? "bare hand" : c)} on the ${a}: it became ${an(b)}${d !== c && d !== "nothing" ? `, now holding ${an(d)}` : ""}`;
+    if (d !== c && d !== "nothing") return `made ${an(d)} on the ${a}`;
+    if (a !== "nothing" && b === "nothing" && d !== "nothing") return `picked up ${an(d)}`;
+    return `used ${an(c)} on the ${a}`;
+  }
+  const ate = /ate (?:an? )?([A-Z][A-Za-z' -]+?);/.exec(res);
+  if (ate) return `ate ${an(clean(ate[1]))}`;
+  const put = /you put on the (.+?) \(/.exec(res);
+  if (put) return `put on the ${clean(put[1])}`;
+  const picked = /you picked an? (.+?) and are holding it/.exec(res);
+  if (picked) return `picked ${an(clean(picked[1]))} to carry`;
+  const sw = /^swapped at .*?: you put down the (.+?) and picked up the (.+?) that/.exec(res);
+  if (sw) return `swapped ${an(sw[1])} for the ${sw[2]}`;
+  if (/nothing happened|can't|couldn't|not holding|you're full|no food|too young|blocks/.test(res)) {
+    const what = { use: "use something", drop: "put something down", feed: "feed someone", forage: "find food", eat: "eat", take_out: "take something out", swap: "swap" }[verb] ?? verb;
+    return `tried to ${what}: ${clean(res.replace(/^[a-z_ ]+(at \(-?\d+,\s*-?\d+\))?:\s*/, "")).slice(0, 70)}`;
+  }
+  return clean(res).slice(0, 90);
+}

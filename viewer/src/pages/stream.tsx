@@ -8,7 +8,7 @@ import { getClient, useInventions, useLives, useMap, useMinimap, useNow, useObje
 import { ageStage, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait, withFamilyNames } from "../shared/index.ts";
 import { flowersForLives } from "../ohol/flower.ts";
 import { Sticker, Wordmark } from "../theme/index.ts";
-import { biomeName, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
+import { biomeName, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, describeAction, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
 import { CELL, FOCUS_DROP, WorldCamera, type Bubble } from "../stream/WorldCamera.tsx";
 import { MiniMap } from "../stream/MiniMap.tsx";
 import "../stream/stream.css";
@@ -386,6 +386,14 @@ function Following(p: FollowingProps) {
   const since = life?.bornAt ?? 0;
   const thoughtEv = recentOf(p.events, agent?.agentId, "thought", since, 1)[0];
   const said = recentOf(p.events, agent?.agentId, "say", since, 3);
+  // their latest hands-on action (not walking, speaking or babies), in plain words
+  const doing = (() => {
+    for (const e of recentOf(p.events, agent?.agentId, "action", since, 12)) {
+      const d = describeAction(e.text ?? "");
+      if (d) return { t: e.t, text: d };
+    }
+    return null;
+  })();
   const agentName = (id: string) => displayName(p.agents.find((a) => a.agentId === id)?.name, "someone");
   const thought = agent?.lifeId === life?.lifeId || !life ? (agent?.lastThought ?? thoughtEv?.text ?? null) : (thoughtEv?.text ?? null);
 
@@ -476,6 +484,15 @@ function Following(p: FollowingProps) {
             <span className="tx ugc">{thought ?? "Nothing on their mind yet."}</span>
           </div>
         </div>
+        {doing && (
+          <div className="sec doing-sec">
+            <div className="label">Doing</div>
+            <div className="thought">
+              <span className="t">{formatRelative(doing.t, p.now)}</span>
+              <span className="tx ugc">{doing.text}</span>
+            </div>
+          </div>
+        )}
         <div className="sec said-sec">
           <div className="label">Said recently</div>
           {said.length === 0 ? (

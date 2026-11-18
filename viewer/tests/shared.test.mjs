@@ -245,3 +245,18 @@ test("withFamilyNames: unnamed people show their family name; records with names
   const same = [lives[0]];
   assert.equal(withFamilyNames(same), same, "nothing to fill: same array");
 });
+
+test("describeAction: plain sentences for hands-on actions, null for walking/speech/babies", async () => {
+  const { describeAction } = await import("../src/stream/logic.ts");
+  const cases = [
+    ["use (61, 5) -> use: tile (61,5) Banana Plant (4/7 left) -> Banana Plant (3/7 left); holding nothing -> Banana", "picked up a Banana"],
+    ["use (3, 4) -> use: tile (3,4) Big Hard Rock -> Big Hard Rock; holding Stone -> Sharp Stone", "made a Sharp Stone on the Big Hard Rock"],
+    ["use (5, 4) -> use: tile (5,4) Wild Carrot -> Dug Wild Carrot; holding Sharp Stone -> Sharp Stone", "used a Sharp Stone on the Wild Carrot: it became a Dug Wild Carrot"],
+    ["drop (2, 2) -> drop: tile (2,2) nothing -> Banana Peel; holding Banana Peel -> nothing", "put down a Banana Peel"],
+    ["forage (48, 6) -> ate Banana; food 4 -> 12/12", "ate a Banana"],
+    ["forage (48, 6) -> you're full, so you didn't eat: you picked a Banana and are holding it", "picked a Banana to carry"],
+    ["use (44, 2) -> use at (44,2): nothing happened", "tried to use something: nothing happened"],
+  ];
+  for (const [inp, want] of cases) assert.equal(describeAction(inp), want, inp);
+  for (const inp of ["go (3, 4) -> arrived", "pick_up_baby #3 -> picked up baby #3", 'say "F" -> said "F"', "wait -> waited 2 turns", "jump -> wiggled"]) assert.equal(describeAction(inp), null, inp);
+});

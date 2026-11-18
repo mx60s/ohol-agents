@@ -152,7 +152,7 @@ test("your own wound is a condition, not a held thing; others' wounds are shown 
   assert.match(obs, /You are WOUNDED: Hog Cut from a Wild Boar\. A wound fills your hands; it can't be dropped or eaten\. You are bleeding: you die within ~3 turns unless someone heals you \(only a Sterile Wool Pad used on you treats a Hog Cut\)\./);
   assert.match(obs, /Holding: nothing \(hands taken by a wound: Hog Cut\)/);
   assert.doesNotMatch(obs, /eat the Hog Cut/);
-  assert.match(obs, /#2 .*, SICK \(Yellow Fever\)/);
+  assert.match(obs, /#2 .*, SICK \(Yellow Fever; hands taken\)/);
   const body = new Body(g.conn, g.world, gd);
   assert.match(await body.drop(), /can't drop: your hands are taken by your wound \(Hog Cut\); it can't be put down/);
   assert.match(await body.self(), /can't: your hands are taken by your wound/);
@@ -171,7 +171,7 @@ test("others' wounds name what treats them", () => {
   g.addPlayer({ id: 2, x: 2, y: 0, age: 30, held: id("Bite Wound"), female: false });
   g.start();
   const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
-  assert.match(obs, /#2 .*, WOUNDED \(Bite Wound; treated only by a Sterile Wool Pad\)/);
+  assert.match(obs, /#2 .*, WOUNDED \(Bite Wound; hands taken; treated only by a Sterile Wool Pad\)/);
 });
 
 test("a plant and the food it gives never share a name in the observation", () => {
@@ -223,17 +223,12 @@ test("small observation fixes: notices, other families' language, baby hunger, b
   g.world.handle({ type: "PS", says: [{ id: 7, isCurse: false, text: "TOBA KEMI" }] });
   const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
   assert.match(obs, /notice from the game: "YOU INHERITED A HOME"/);
-  // 4 players: the server doesn't scramble anyone's speech below 15
-  assert.match(obs, /#7 [^\n]*\): "TOBA KEMI"/);
-  assert.doesNotMatch(obs, /language differs/);
+  // languages are on from the first player (minActivePlayersForLanguages = 1)
+  assert.match(obs, /#7 .*\[other family: their language differs from yours\]: "TOBA KEMI"/, "nothing better known: another family's speech is scrambled");
   const withHook = (r: boolean | null) => buildObservation(g.world, gd, { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock, speechScrambled: () => r });
   assert.match(withHook(true), /#7 .*\[other family: their language differs from yours\]: "TOBA KEMI"/, "the words differed from what #7 said");
-  assert.doesNotMatch(withHook(false), /language differs/);
-  assert.doesNotMatch(withHook(null), /language differs/, "unknown: fall back to the visible population (4)");
-  const p7 = g.world.players.get(7)!;
-  for (let i = 0; i < 12; i++) g.world.players.set(100 + i, { ...p7, id: 100 + i, x: 40, y: 40 });
-  assert.ok(g.world.players.size >= 15);
-  assert.match(withHook(null), /language differs/, "15+ people known and nothing better known: the server is scrambling other families");
+  assert.doesNotMatch(withHook(false), /language differs/, "same words as said (e.g. learned by living together)");
+  assert.match(withHook(null), /language differs/, "unknown: fall back to the population rule");
   assert.match(obs, /Food: 2\/4, STARVING - say F so a woman picks you up/);
   assert.doesNotMatch(obs, /EAT NOW/, "babies can't eat");
   assert.match(systemPromptFor({ promptBaseline: "playbook" }), /speech between families arrives as scrambled words/);
@@ -528,4 +523,20 @@ test("a mother holding her own unnamed baby is asked to name it; not once it has
   assert.doesNotMatch(buildObservation(own.world, gd, base), /has no name yet/);
   const other = mk(9);
   assert.doesNotMatch(buildObservation(other.world, gd, base), /has no name yet/);
+});
+
+test("leadership from the server's FW messages: who you follow and who follows you", () => {
+  const base = { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock };
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 30, held: 0, female: true });
+  g.addPlayer({ id: 2, x: 2, y: 0, age: 20, held: 0, female: true });
+  g.addPlayer({ id: 3, x: 3, y: 0, age: 40, held: 0, female: true });
+  g.start();
+  g.world.handle({ type: "NM", names: [{ id: 3, first: "LUNA", last: "THISTLE" }] });
+  g.world.handle({ type: "FW", follows: [{ followerId: 1, leaderId: 3, colorIndex: 0 }, { followerId: 2, leaderId: 1, colorIndex: 0 }] });
+  const o = buildObservation(g.world, gd, base);
+  assert.match(o, /^You follow #3 LUNA THISTLE\.$/m);
+  assert.match(o, /^Your followers: #2\.$/m);
+  g.world.handle({ type: "FW", follows: [{ followerId: 1, leaderId: -1, colorIndex: 0 }] });
+  assert.doesNotMatch(buildObservation(g.world, gd, base), /You follow/);
 });

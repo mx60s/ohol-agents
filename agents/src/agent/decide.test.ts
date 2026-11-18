@@ -87,3 +87,19 @@ test("vllm style (self-hosted Qwen): thinking on with thinking_token_budget, no 
   await cappedDecision(f.llm, msgs, { ...cfg, llmReasoningStyle: "vllm" }, fresh());
   assert.deepEqual(f.calls[0], { maxTokens: 800, extra: { chat_template_kwargs: { enable_thinking: true }, thinking_token_budget: 300 } });
 });
+
+test("vllm style: a reply that ran out is retried with the same thinking budget and the full total; never uncapped", async () => {
+  const st = fresh();
+  const announced: string[] = [];
+  const v = { ...cfg, llmReasoningStyle: "vllm" as const };
+  const f = fake([res("", "length", 800), res(OK, "stop", 900), res("", "length", 800), res(OK, "stop", 900), res(OK, "stop", 300)]);
+  await cappedDecision(f.llm, msgs, v, st, (m) => announced.push(m));
+  const r = await cappedDecision(f.llm, msgs, v, st, (m) => announced.push(m));
+  assert.equal(r.text, OK);
+  const budget = { chat_template_kwargs: { enable_thinking: true }, thinking_token_budget: 300 };
+  assert.deepEqual(f.calls[1], { extra: budget }, "retry keeps the thinking budget; total = LLM_MAX_TOKENS");
+  assert.deepEqual(announced, []);
+  assert.equal(st.uncapped.size, 0);
+  await cappedDecision(f.llm, msgs, v, st);
+  assert.deepEqual(f.calls[4], { maxTokens: 800, extra: budget }, "later calls still capped");
+});

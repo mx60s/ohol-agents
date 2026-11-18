@@ -125,7 +125,7 @@ export function idealDrainWallSeconds(w: World, clock: TurnClock): number {
 }
 
 /** Server minActivePlayersForLanguages: below this many players nobody's speech is scrambled. */
-export const LANGUAGES_MIN_PLAYERS = 15;
+export const LANGUAGES_MIN_PLAYERS = 1; // server/settings/minActivePlayersForLanguages.ini
 
 /**
  * Should a line from another family carry the "their language differs" tag?
@@ -183,6 +183,16 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   L.push(`${playerLabel(w, gd, me)}, ${isEve ? "an Eve (first of a family)" : `generation ${me.ancestors.length + 1}`}.`);
   const myFlower = o.flowerOf?.(me.id);
   if (myFlower) L.push(`You wear ${withArticle(myFlower)} in your hair.`);
+  // leadership, as the client shows it with badges: who you follow and who follows you
+  const nameOf = (id: number) => {
+    const p = w.players.get(id);
+    const n = p?.name ?? w.names.get(id);
+    return `#${id}${n ? ` ${n}` : ""}`;
+  };
+  const myLeader = w.leaders.get(me.id);
+  if (myLeader) L.push(`You follow ${nameOf(myLeader)}.`);
+  const myFollowers = [...w.leaders].filter(([, l]) => l === me.id).map(([f]) => f);
+  if (myFollowers.length) L.push(`Your followers: ${myFollowers.slice(0, 8).map(nameOf).join(", ")}${myFollowers.length > 8 ? `, and ${myFollowers.length - 8} more` : ""}.`);
   if (me.name) L.push(`Your name is ${me.name}.`);
   if (!me.name) L.push(isEve ? `No name yet: found your family by saying "I AM <FIRST NAME> <FAMILY NAME>" (once only).${o.takenSurnames?.length ? ` Family names already taken (pick a new one): ${takenList(o.takenSurnames)}.` : ""}` : `No name yet; usually your mother names you.`);
   if (o.goal) L.push(`Your goal: ${o.goal}`);
@@ -440,9 +450,9 @@ function othersCondition(gd: GameData, p: Player): string {
   const c = gd.condition(p.held.id);
   if (c?.kind === "wound") {
     const h = gd.healers(p.held.id);
-    return `, WOUNDED (${gd.name(p.held.id)}${h.length ? `; treated only by ${h.slice(0, 3).map((n) => `a ${n}`).join(" or ")}` : ""})${p.dying ? ", bleeding" : ""}`;
+    return `, WOUNDED (${gd.name(p.held.id)}; hands taken${h.length ? `; treated only by ${h.slice(0, 3).map((n) => `a ${n}`).join(" or ")}` : ""})${p.dying ? ", bleeding" : ""}`;
   }
-  if (c?.kind === "sickness") return `, SICK (${gd.name(p.held.id)})`;
+  if (c?.kind === "sickness") return `, SICK (${gd.name(p.held.id)}; hands taken)`;
   return p.dying ? ", DYING" : "";
 }
 

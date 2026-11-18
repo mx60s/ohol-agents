@@ -103,6 +103,8 @@ export function ranOutOfTokens(r: LlmResult, maxTokens: number): boolean {
  * (an empty reply with finish_reason "length") or a cut-off reply: then the
  * call is retried once with the full budget, and after two such failures that
  * model stays uncapped. A cut-off reply that still parses is used as is.
+ * vLLM style: the retry keeps thinking_token_budget (only the total grows), and
+ * the model is never uncapped.
  */
 export async function cappedDecision(
   llm: Pick<Llm, "chat">,
@@ -120,6 +122,14 @@ export async function cappedDecision(
       : { reasoning: cfg.llmReasoningMaxTokens > 0 ? { max_tokens: cfg.llmReasoningMaxTokens } : { effort: "low" } };
   const r = await llm.chat(messages, { maxTokens: cfg.llmDecisionMaxTokens, extra });
   if (!ranOutOfTokens(r, cfg.llmDecisionMaxTokens) || parseReply(r.text).ok) return r;
+  if (cfg.llmReasoningStyle === "vllm") {
+    // vLLM enforces thinking_token_budget, so the reply itself didn't fit: retry with the
+    // same thinking budget and the full total. Never uncap: without the budget Qwen thinks
+    // until LLM_MAX_TOKENS and returns nothing (r5: ~17 s empty replies for every agent,
+    // turns slowed from ~8 to ~3 a minute).
+    const r2 = await llm.chat(messages, { extra });
+    return { ...r2, costUsd: r.costUsd + r2.costUsd, latencyMs: r.latencyMs + r2.latencyMs };
+  }
   const strikes = (state.strikes.get(model) ?? 0) + 1;
   state.strikes.set(model, strikes);
   if (strikes >= 2 && !state.uncapped.has(model)) {

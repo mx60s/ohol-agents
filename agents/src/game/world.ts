@@ -368,6 +368,13 @@ export class World {
           else this.names.delete(n.id);
         }
         break;
+      case "FW":
+        // who follows whom (server leadership; the client draws badges from this). -1 = follows no one
+        for (const f of m.follows) {
+          if (f.leaderId > 0) this.leaders.set(f.followerId, f.leaderId);
+          else this.leaders.delete(f.followerId);
+        }
+        break;
       case "LN":
         for (const l of m.lineages) {
           this.lineage.set(l.id, { ancestors: l.ancestors, eveId: l.eveId });
@@ -429,6 +436,8 @@ export class World {
 
   /** names and lineage persist even when players go out of range */
   names = new Map<number, string>();
+  /** follower id -> leader id, from FW messages */
+  leaders = new Map<number, number>();
   lineage = new Map<number, { ancestors: number[]; eveId: number }>();
 
   /**
