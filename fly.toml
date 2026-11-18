@@ -48,13 +48,13 @@ kill_timeout = "60s"
   LLM_MODEL_NAME = "Qwen/Qwen3-32B"
   # mild reasoning: thinking on, 400-token thinking budget inside 800 tokens (vLLM thinking_token_budget;
   # 400 removes Qwen3-32B's ~1% empty replies at 300, docs/research/selfhost-optimize.md)
-  LLM_REASONING_MAX_TOKENS = "400"
-  LLM_DECISION_MAX_TOKENS = "800"
+  LLM_REASONING_MAX_TOKENS = "1200"
+  LLM_DECISION_MAX_TOKENS = "1600"
   # turn-based clock (docs/turn-clock.md): the world is frozen while everyone thinks, then runs
   # TURN_GAME_S of game time per turn (2.4 s: a year is 25 turns). Server and agents read TURN_CLOCK.
   TURN_CLOCK = "1"
   TURN_GAME_S = "2.4"
-  TURN_DECIDE_TIMEOUT_S = "20"
+  TURN_DECIDE_TIMEOUT_S = "40"
   # no slowdown needed with turns: act windows run at normal game speed
   TIME_SCALE = "1"
   # the craft macro (recipe planner) is off with the new-player prompt

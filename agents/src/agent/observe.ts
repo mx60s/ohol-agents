@@ -24,7 +24,7 @@ const HELD_HINTS = 4;
 /** lines on what goes on the thing our last use just made */
 const MADE_HINTS = 3;
 /** recent action results shown (an actions list adds one line per step) */
-const HISTORY_SHOWN = 8;
+const HISTORY_SHOWN = 15;
 const FERTILE_MIN = 14, FERTILE_MAX = 40;
 /** timers are shown for things that change on their own within this many game seconds */
 const TIMER_MAX_S = 300;
@@ -41,9 +41,12 @@ export interface ObservationOptions {
   recipeHints: boolean;
   /** recent action results, newest last */
   history: { t: number; action: string; result: string }[];
-  notebook: string[];
   pastLifeNotes: string[];
+  /** this life's yearly memory summary (see memory.ts), one fact per line; empty = no section */
+  memory?: string[];
   goal: string | null;
+  /** when the goal was last set or changed (the clock of `now`); shown as its age in turns */
+  goalSetAt?: number | null;
   /** the thought from the previous reply (plan continuity) */
   lastThought?: string | null;
   foodSources?: FoodSource[];
@@ -76,7 +79,7 @@ const shownMs = (wallMs: number, clock: TurnClock) => (clock.lockstep ? Math.rou
 
 export function playerLabel(w: World, gd: GameData, p: Player, flower?: string | null): string {
   const age = w.currentAge(p);
-  const sex = p.female == null ? "person" : age < 3 ? (p.female ? "baby girl" : "baby boy") : p.female ? "woman" : "man";
+  const sex = p.female == null ? "person" : age < 3 ? (p.female ? "baby girl" : "baby boy") : age < 14 ? (p.female ? "girl" : "boy") : p.female ? "woman" : "man";
   // no name: say so inside the parentheses; a bare "unnamed" in name position got copied as a name ("I AM UNNAMED THORN")
   const name = p.name ? `${p.name} ` : "";
   return `#${p.id} ${name}(${p.name ? "" : "no name, "}${sex}, ${age.toFixed(age < 3 ? 1 : 0)}${flower ? `, ${flower}` : ""})`;
@@ -197,7 +200,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   if (myFollowers.length) L.push(`Your followers: ${myFollowers.slice(0, 8).map(nameOf).join(", ")}${myFollowers.length > 8 ? `, and ${myFollowers.length - 8} more` : ""}.`);
   if (me.name) L.push(`Your name is ${me.name}.`);
   if (!me.name) L.push(isEve ? `You have no name yet, and neither does your family: name yourself and your family now, this turn, by saying "I AM <FIRST NAME> <FAMILY NAME>" (once only; your children carry the family name).${o.takenSurnames?.length ? ` Family names already taken (pick a new one): ${takenList(o.takenSurnames)}.` : ""}` : `No name yet; usually your mother names you.`);
-  if (o.goal) L.push(`Your goal: ${o.goal}`);
+  if (o.goal) L.push(`Your goal${goalAge(o.goalSetAt, now, clock)}: ${o.goal}`);
   L.push(homeLine(w, pos, isEve));
 
   // --- body state
@@ -323,12 +326,19 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
     L.push(`== NOTES FROM YOUR PAST LIVES ==`);
     L.push(...o.pastLifeNotes.slice(-15).map((n) => `- ${n}`));
   }
-  if (o.notebook.length) {
+  if (o.memory?.length) {
     L.push(``);
-    L.push(`== YOUR NOTEBOOK (this life) ==`);
-    L.push(...o.notebook.slice(-12).map((n) => `- ${n}`));
+    L.push(`== WHAT YOU REMEMBER (this life) ==`);
+    L.push(...o.memory.map((n) => `- ${n}`));
   }
   return L.join("\n");
+}
+
+/** " (set 3 turns ago)", " (just set)", or "" when unknown */
+function goalAge(setAt: number | null | undefined, now: number, clock: TurnClock): string {
+  if (setAt == null) return "";
+  const ago = turnsAgo(setAt, now, clock);
+  return ago === "just now" ? " (just set)" : ` (set ${ago})`;
 }
 
 /**

@@ -201,5 +201,5 @@ body.stream { background: var(--grain), var(--parchment); }
   display: inline-block;
 }
 
-/* "Doing": the followed person's latest hands-on action, one line */
-.side .doing-sec .tx { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* "Doing": the followed person's latest hands-on action, in full (results like "not food… nearest food…" matter) */
+.side .doing-sec .tx { white-space: normal; overflow-wrap: anywhere; }

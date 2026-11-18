@@ -122,11 +122,12 @@ test("mirrored constants match observe.ts, salience.ts, agent.ts and prompt.ts",
   assert.match(o, new RegExp(`const DEATHS_SHOWN_MS = ${L.deathsWindowS}_000;`));
   assert.match(o, /now - d\.t < shownMs\(DEATHS_SHOWN_MS, clock\)\)/);
   assert.match(o, new RegExp(`deaths\\.slice\\(-${L.deathsMax}\\)`));
-  assert.match(o, new RegExp(`notebook\\.slice\\(-${L.notebookShown}\\)`));
+  const m = src("agent/memory.ts");
+  assert.match(m, new RegExp(`MEMORY_MAX_LINES = ${L.memoryLines};`));
+  assert.match(m, new RegExp(`MEMORY_LINE_CHARS = ${L.memoryLineChars};`));
   assert.match(src("agent/salience.ts"), new RegExp(`const HEAR_RADIUS = ${L.wakeSpeechRadius};`));
   const a = src("agent/agent.ts");
   assert.ok(a.includes(`obs + "\\n\\n${USER_SUFFIX}"`), "user suffix");
-  assert.match(a, new RegExp(`notebook\\.length > ${L.notebookKept}\\)`));
   assert.match(a, new RegExp(`world\\.food <= ${L.reflexFood} &&`));
 });
 

@@ -28,6 +28,9 @@ const DANGER_SCAN = 24;
 export const ANIMAL_JUMP_TILES = 4;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** a tile change by someone else this recent (game ms, about two turns) is reported as "just now" */
+const TILE_JUST_CHANGED_MS = 6_000;
+
 export class Body {
   private moveSeq = 1;
   /** set by the agent: non-null = abandon a long walk or craft now (urgent event) */
@@ -315,7 +318,21 @@ export class Body {
       return `${out} (a ${this.gd.name(held).replace(/ \(\d+\/\d+ left\)$/, "")} does nothing on a ${this.gd.name(target)}${this.worksOn(target, held)})`;
     if (/nothing happened$/.test(out) && held === 0 && o && o.permanent && !(o.numSlots > 0) && !this.gd.transition(0, target))
       return `${out} (bare hands do nothing on a ${this.gd.name(target)}${this.worksOn(target, 0)})`;
-    return out;
+    return /nothing happened$/.test(out) ? out + this.tileNow(x, y) : out;
+  }
+
+  /** For an unexplained "nothing happened": what the tile has now, and who changed it just before (under the turn
+   * clock everyone acts in the same window, so two people going for one tile is common: the second action was
+   * planned on the old picture and quietly does nothing). */
+  private tileNow(x: number, y: number): string {
+    const c = this.world.cell(x, y);
+    const now = c && c.obj.id > 0 ? `the tile at (${x},${y}) now has ${this.gd.describeStack(c.obj)}` : `the tile at (${x},${y}) is now empty`;
+    const me = this.world.self?.id;
+    if (c?.by && c.by !== me && this.world.now() - c.t < TILE_JUST_CHANGED_MS) {
+      const who = this.world.players.get(c.by);
+      return ` (${now}; #${c.by}${who?.name ? " " + who.name : ""} changed it just now${c.prev ? `, it had ${this.gd.name(c.prev)}` : ""})`;
+    }
+    return ` (${now})`;
   }
 
   /** "; what works on it: a Kindling (it becomes Fire)", from the client's hint list for the target */
@@ -390,7 +407,7 @@ export class Body {
     const nowHeld = this.world.self?.held.id ?? 0;
     if (heldId > 0 && there > 0 && nowHeld > 0 && nowHeld !== heldId && this.world.objAt(x, y).id === heldId)
       return `swapped at (${x},${y}): you put down the ${this.gd.name(heldId)} and picked up the ${this.gd.name(nowHeld)} that was lying there (dropping onto an item swaps them; drop without x,y finds an empty tile)`;
-    return out;
+    return /nothing happened$/.test(out) ? out + this.tileNow(x, y) : out;
   }
 
   /** Nearest empty tile that doesn't block walking, within r (by steps), or null. */

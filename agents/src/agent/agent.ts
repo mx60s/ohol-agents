@@ -9,7 +9,8 @@ import type { GameData } from "../game/gameData.ts";
 import type { Config } from "../config.ts";
 import type { EventLog } from "../events.ts";
 import type { AgentView } from "../api-types.ts";
-import { Llm, llmLogFields, type ChatMessage, type LlmResult } from "./llm.ts";
+import { Llm, llmLogFields, type ChatMessage, type ChatOptions, type LlmResult } from "./llm.ts";
+import { YearMemory } from "./memory.ts";
 import { buildObservation } from "./observe.ts";
 import { foodBonusOf, systemPromptFor } from "./prompt.ts";
 import { firstNameKey, mergeSurnames, namingSayAfterStep, reviewSpeech, surnameOf, type NamingContext } from "./naming.ts";
@@ -74,7 +75,7 @@ export type TurnPlan = { kind: "reflex" } | Decision;
 
 /** What the model said, parsed (or why it couldn't be). */
 type Decision =
-  | { kind: "reply"; reply: Record<string, any>; obsBuiltAt: number }
+  | { kind: "reply"; reply: Record<string, any>; obsBuiltAt: number; obsWorldT?: number }
   | { kind: "unparseable"; reason: string; cut: boolean };
 
 /** Per-process memory of models that ignore the reasoning cap (see cappedDecision). */
@@ -94,6 +95,20 @@ const capState: CapState = { uncapped: new Set(), strikes: new Map() };
 export function ranOutOfTokens(r: LlmResult, maxTokens: number): boolean {
   if (r.finishReason === "length" || r.finishReason === "max_tokens") return true;
   return !r.text.trim() && r.completionTokens >= maxTokens;
+}
+
+/** The reasoning-cap request options for a decision (null = uncapped). */
+export function capOptions(
+  cfg: Pick<Config, "llmModel" | "llmReasoningCap" | "llmReasoningMaxTokens" | "llmDecisionMaxTokens"> & Partial<Pick<Config, "llmReasoningStyle">>,
+  state: CapState = capState,
+): ChatOptions | null {
+  if (!cfg.llmReasoningCap || state.uncapped.has(cfg.llmModel)) return null;
+  // vLLM (self-hosted Qwen): thinking on, budget via thinking_token_budget; OpenRouter: reasoning.max_tokens
+  const extra =
+    cfg.llmReasoningStyle === "vllm"
+      ? { chat_template_kwargs: { enable_thinking: true }, ...(cfg.llmReasoningMaxTokens > 0 ? { thinking_token_budget: cfg.llmReasoningMaxTokens } : {}) }
+      : { reasoning: cfg.llmReasoningMaxTokens > 0 ? { max_tokens: cfg.llmReasoningMaxTokens } : { effort: "low" } };
+  return { maxTokens: cfg.llmDecisionMaxTokens, extra };
 }
 
 /**
@@ -116,13 +131,10 @@ export async function cappedDecision(
   onUncapped?: (model: string) => void,
 ): Promise<LlmResult> {
   const model = cfg.llmModel;
-  if (!cfg.llmReasoningCap || state.uncapped.has(model)) return llm.chat(messages);
-  // vLLM (self-hosted Qwen): thinking on, budget via thinking_token_budget; OpenRouter: reasoning.max_tokens
-  const extra =
-    cfg.llmReasoningStyle === "vllm"
-      ? { chat_template_kwargs: { enable_thinking: true }, ...(cfg.llmReasoningMaxTokens > 0 ? { thinking_token_budget: cfg.llmReasoningMaxTokens } : {}) }
-      : { reasoning: cfg.llmReasoningMaxTokens > 0 ? { max_tokens: cfg.llmReasoningMaxTokens } : { effort: "low" } };
-  const r = await llm.chat(messages, { maxTokens: cfg.llmDecisionMaxTokens, extra });
+  const capped = capOptions(cfg, state);
+  if (!capped) return llm.chat(messages);
+  const extra = capped.extra!;
+  const r = await llm.chat(messages, capped);
   if (!ranOutOfTokens(r, cfg.llmDecisionMaxTokens) || parseReply(r.text).ok) return r;
   if (cfg.llmReasoningStyle === "vllm") {
     // vLLM enforces thinking_token_budget, so the reply itself didn't fit: retry with the
@@ -143,6 +155,8 @@ export async function cappedDecision(
 }
 
 const BABY_AGE = 3;
+/** action results kept (the observation shows the last 15) */
+const HISTORY_MAX = 20;
 /** turn clock: wall ms between our SAY messages (the server's flood gap is 1 wall s) */
 const SAY_GAP_MS = 1100;
 
@@ -153,12 +167,15 @@ export class Agent implements TurnAgent<TurnPlan> {
   conn: Connection | null = null;
   body: Body | null = null;
   goal: string | null = null;
+  /** World.now() of the decision that last set or changed the goal */
+  goalSetAt: number | null = null;
   lastThought: string | null = null;
   lastAction: string | null = null;
   lastSaid: string | null = null;
-  notebook: string[] = [];
   pastLifeNotes: string[] = [];
   history: { t: number; action: string; result: string }[] = [];
+  /** this life's yearly summary (MEMORY_SUMMARY; see memory.ts) */
+  readonly mem: YearMemory;
   private wake: (() => void) | null = null;
   private lastReflexAt = 0;
   private stopped = false;
@@ -187,7 +204,26 @@ export class Agent implements TurnAgent<TurnPlan> {
     private log: EventLog,
     private speech?: SpeechSink,
     private hooks: AgentHooks = {},
-  ) {}
+  ) {
+    const clock = turnClock(cfg);
+    this.mem = new YearMemory({
+      everyTurns: Math.max(1, Math.floor(cfg.memorySummaryTurns ?? 25)),
+      lockstep: !!clock.lockstep,
+      cycleMs: clock.cycleMs,
+      // the agents' own model, under the same reasoning cap as decisions; plain text, not JSON
+      call: (messages) => this.llm.chat(messages, { ...(capOptions(this.cfg) ?? {}), json: false }),
+      onDone: (r) =>
+        this.log.write("llm.jsonl", {
+          t: Date.now(), kind: "summary", agentId: this.id, playerId: this.world?.selfId ?? null, lifeIndex: this.lifeIndex, input: r.input,
+          ...(r.ok ? { reply: r.result.text, memory: r.memory, ...llmLogFields(r.result), finishReason: r.result.finishReason } : { error: r.error }),
+        }),
+    });
+  }
+
+  /** this life's memory lines as the model sees them ([] with MEMORY_SUMMARY=0) */
+  get memory(): string[] {
+    return this.cfg.memorySummary ? this.mem.memory : [];
+  }
 
   get email() {
     return `${this.cfg.runId}-${this.id}@mts.local`;
@@ -247,6 +283,8 @@ export class Agent implements TurnAgent<TurnPlan> {
           this.speech?.spoke(this, h.text, h.x, h.y);
         } else {
           if (h.speakerId != null) this.speech?.heard(this, h.speakerId, h.text);
+          const who = h.speakerId != null ? world.names.get(h.speakerId) ?? world.players.get(h.speakerId)?.name ?? `#${h.speakerId}` : "someone";
+          this.mem.add(`heard ${who}: "${h.text}"`);
           this.noteSalient(speechEvent(world, h));
         }
       },
@@ -295,9 +333,10 @@ export class Agent implements TurnAgent<TurnPlan> {
       this.status = "alive";
       if (!sameAsBefore) {
         // a new process: this life's earlier turns are gone from memory
-        this.notebook = [];
+        this.mem.reset();
         this.history = [];
         this.goal = null;
+        this.goalSetAt = null;
       }
       this.ev("system", `${this.id} reconnected to ${this.nameOf() ?? `#${me.id}`} (age ${age.toFixed(0)})`, {
         reconnect: true, playerId: me.id, motherId: me.ancestors[0] ?? null, eve: isEve, generation: me.ancestors.length + 1, lifeIndex: this.lifeIndex,
@@ -310,13 +349,15 @@ export class Agent implements TurnAgent<TurnPlan> {
 
     this.lifeIndex = Math.max(this.lifeIndex, this.hooks.lastLifeIndex?.(this) ?? 0) + 1;
     this.status = "alive";
-    if (this.cfg.memoryMode === "persistent" && this.notebook.length) {
-      this.pastLifeNotes.push(...this.notebook);
+    // persistent memory carries the last life's yearly summary over
+    if (this.cfg.memoryMode === "persistent" && this.memory.length) {
+      this.pastLifeNotes.push(...this.memory);
       this.pastLifeNotes = this.pastLifeNotes.slice(-30);
     }
-    this.notebook = [];
+    this.mem.reset();
     this.history = [];
     this.goal = null;
+    this.goalSetAt = null;
     this.lastThought = this.lastAction = this.lastSaid = null;
     this.ev("birth", isEve ? `${this.id} appeared as an Eve (age ${age.toFixed(0)})` : `${this.id} was born to mother #${me.ancestors[0]}`, {
       playerId: me.id, motherId: me.ancestors[0] ?? null, eve: isEve, generation: me.ancestors.length + 1, lifeIndex: this.lifeIndex, x: me.x, y: me.y,
@@ -494,12 +535,16 @@ export class Agent implements TurnAgent<TurnPlan> {
     const me = world.self!;
     // what woke us / happened since the last decision
     const alerts = this.pending.splice(0).map((s) => s.reason);
+    // a year's summary in the background (fire and forget: never awaited here)
+    if (this.cfg.memorySummary && !this.llm.overBudget) this.mem.tick(world.now());
+    const obsWorldT = world.now();
     let obs = buildObservation(world, this.gd, {
       recipeHints: this.cfg.recipeHints,
       history: this.history,
-      notebook: this.notebook,
       pastLifeNotes: this.pastLifeNotes,
+      memory: this.memory,
       goal: this.goal,
+      goalSetAt: this.goalSetAt,
       lastThought: this.lastThought,
       foodSources: body.foodSources(),
       clock: this.clock,
@@ -530,10 +575,10 @@ export class Agent implements TurnAgent<TurnPlan> {
     });
     const parsed = parseReply(llmRes.text);
     if (!parsed.ok) return { kind: "unparseable", reason: parsed.reason, cut: llmRes.finishReason === "length" };
-    return { kind: "reply", reply: parsed.value as Record<string, any>, obsBuiltAt };
+    return { kind: "reply", reply: parsed.value as Record<string, any>, obsBuiltAt, obsWorldT };
   }
 
-  /** Act on a decision: thought, goal, note, speech, then the action list. */
+  /** Act on a decision: thought, goal, speech, then the action list ("note" is ignored: the notebook is gone). */
   private async apply(d: Decision) {
     if (d.kind === "unparseable") {
       const cut = d.cut ? " (it was cut off: keep it short)" : "";
@@ -546,14 +591,13 @@ export class Agent implements TurnAgent<TurnPlan> {
     const thought = cleanText(reply.thought, 400);
     if (thought) {
       this.lastThought = thought;
+      this.mem.add(`you thought: ${thought}`);
       this.ev("thought", thought);
     }
     const goal = cleanText(reply.goal, 200);
-    if (goal && goal !== this.goal) this.goal = goal;
-    const note = cleanText(reply.note, 200);
-    if (note) {
-      this.notebook.push(note);
-      if (this.notebook.length > 30) this.notebook.shift();
+    if (goal && goal !== this.goal) {
+      this.goal = goal;
+      this.goalSetAt = d.obsWorldT ?? this.world?.now() ?? Date.now();
     }
     const say = cleanText(reply.say, 200);
     const checked = checkActions(reply, this.cfg.craftMacro, this.cfg.actionListMax ?? 4);
@@ -712,7 +756,8 @@ export class Agent implements TurnAgent<TurnPlan> {
 
   private record(action: string, result: string) {
     this.history.push({ t: this.world?.now() ?? Date.now(), action, result });
-    if (this.history.length > 20) this.history.shift();
+    if (this.history.length > HISTORY_MAX) this.history.shift();
+    this.mem.add(`${action} -> ${result}`);
   }
 
   private async execute(a: Action): Promise<string> {

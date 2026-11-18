@@ -330,6 +330,10 @@ finish_regen() {
     done
   done
   log "world regeneration: moved $moved world files out of $WORLD_DIR"
+  # "keepTerrain": true in the request: the same land comes back (terrain and wild objects come from the seed), freshly grown
+  if grep -q '"keepTerrain"[[:space:]]*:[[:space:]]*true' "$p/request.json" 2>/dev/null && [ -s "$p/stage/biomeRandSeed.txt" ]; then
+    cp -f "$p/stage/biomeRandSeed.txt" "$WORLD_DIR/biomeRandSeed.txt" && log "world regeneration: kept the terrain seed (same land)"
+  fi
   # from here on the run dir holds no world; the rest is bookkeeping
   dest="$WORLD_ARCHIVE_DIR/$stamp"
   mkdir -p "$WORLD_ARCHIVE_DIR"

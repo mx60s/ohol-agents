@@ -386,7 +386,7 @@ function numRecord<T extends { [K in keyof T]: number }>(v: unknown, d: T): T {
 
 const LIMITS0: AgentSpecLimits = {
   viewRadius: 0, peopleRadius: 0, resourceRadius: 0, maxThingKinds: 0, maxHints: 0, maxPeople: 0, historyShown: 0, heardWindowS: 0, heardMax: 0,
-  deathsWindowS: 0, deathsMax: 0, notebookShown: 0, notebookKept: 0, wakeSpeechRadius: 0, hearingRadius: 0, reflexFood: 0,
+  deathsWindowS: 0, deathsMax: 0, memoryLines: 0, memoryLineChars: 0, wakeSpeechRadius: 0, hearingRadius: 0, reflexFood: 0,
 };
 
 function normAgentExample(v: unknown): AgentSpecExample | null {

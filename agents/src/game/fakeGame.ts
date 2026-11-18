@@ -126,14 +126,17 @@ export class FakeGame {
         if (!this.near(me, x, y)) return this.later({ type: "PU", updates: [this.pu(me)] });
         const target = this.tile(x, y);
         const t = this.gd.transition(me.held > 0 ? me.held : 0, target);
+        let changed = true;
         if (t && me.held >= 0) {
           me.held = t.newActor;
           this.setTile(x, y, t.newTarget > 0 ? t.newTarget : 0);
         } else if (me.held === 0 && target && !this.gd.isPermanent(target)) {
           me.held = target;
           this.setTile(x, y, 0);
-        }
-        this.later(this.mx(x, y), { type: "PU", updates: [this.pu(me)] });
+        } else changed = false;
+        // like the server: a click that changes nothing sends no map change
+        if (changed) this.later(this.mx(x, y), { type: "PU", updates: [this.pu(me)] });
+        else this.later({ type: "PU", updates: [this.pu(me)] });
         break;
       }
       case "DROP": {

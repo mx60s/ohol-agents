@@ -104,7 +104,7 @@ test("a nursed baby is told its food isn't draining", () => {
 test("observation shows home marker, water, heat and food left, in turns, no seconds", () => {
   const g = camp();
   const body = new Body(g.conn, g.world, gd);
-  const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], notebook: [], pastLifeNotes: [], goal: null, foodSources: body.foodSources(), clock });
+  const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], pastLifeNotes: [], goal: null, foodSources: body.foodSources(), clock });
   assert.match(obs, /Home \(your family's Home Marker\): \(12, 14\), 4 tiles N/);
   assert.match(obs, /Water: Pond at \(5, 10\), 5 tiles W/);
   assert.match(obs, /Fire\/heat: Fire at \(10, 16\), 6 tiles N/);
@@ -117,7 +117,7 @@ test("without a marker: the birth spot; home follows a marker we place", () => {
   const g = new FakeGame(gd);
   g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: 0, female: true });
   g.start();
-  const o = () => buildObservation(g.world, gd, { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
+  const o = () => buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock });
   assert.match(o(), /No Home Marker known\. You appeared at \(0, 0\), here/);
   g.world.handle({ type: "MX", changes: [{ x: 2, y: 1, floor: 0, obj: { id: id("Home Marker"), contained: [] }, responsibleId: 1 }] });
   assert.match(o(), /Home \(your family's Home Marker\): \(2, 1\)/);
@@ -141,7 +141,7 @@ test("your own wound is a condition, not a held thing; others' wounds are shown 
   g.addPlayer({ id: 2, x: 2, y: 0, age: 30, held: id("Yellow Fever"), female: false });
   g.start();
   g.world.handle({ type: "DY", ids: [1] });
-  const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
+  const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], pastLifeNotes: [], goal: null, clock });
   assert.match(obs, /You are WOUNDED: Hog Cut from a Wild Boar\. A wound fills your hands; it can't be dropped or eaten\. You are bleeding: you die within ~3 turns unless someone heals you \(only a Sterile Wool Pad used on you treats a Hog Cut\)\./);
   assert.match(obs, /Holding: nothing \(hands taken by a wound: Hog Cut\)/);
   assert.doesNotMatch(obs, /eat the Hog Cut/);
@@ -163,7 +163,7 @@ test("others' wounds name what treats them", () => {
   g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: 0, female: true });
   g.addPlayer({ id: 2, x: 2, y: 0, age: 30, held: id("Bite Wound"), female: false });
   g.start();
-  const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
+  const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], pastLifeNotes: [], goal: null, clock });
   assert.match(obs, /#2 .*, WOUNDED \(Bite Wound; hands taken; treated only by a Sterile Wool Pad\)/);
 });
 
@@ -181,7 +181,7 @@ test("a plant and the food it gives never share a name in the observation", () =
   g.setTile(2, 0, 404);
   g.setTile(3, 0, 40);
   g.start();
-  const obs = buildObservation(g.world, gd, { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
+  const obs = buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock });
   assert.match(obs, /- Wild Carrot \(plant\): \(2, 0\)/);
   assert.match(obs, /- Wild Carrot: \(3, 0\)/);
 });
@@ -194,7 +194,7 @@ test("people are shown where they are now: carried babies with the carrier, walk
   g.addPlayer({ id: 5, x: 9, y: 9, age: 0.5, held: 0, female: false, motherId: 4 }); // stale pick-up spot
   g.start();
   g.world.handle({ type: "PM", moves: [{ id: 3, start: [2, 0], totalSec: 6, etaSec: 6, truncated: false, path: [[3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0]] }] });
-  const at = (ms: number) => buildObservation(g.world, gd, { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock, now: Date.now() + ms });
+  const at = (ms: number) => buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock, now: Date.now() + ms });
   assert.match(at(3000), /#3 .* at \(5, 0\), 5 away, walking to \(8, 0\)/);
   assert.match(at(0), /#3 .* at \(2, 0\), 2 away, walking to \(8, 0\)/);
   assert.match(at(7000), /#3 .* at \(8, 0\), 8 away(?!, walking)/, "arrived");
@@ -214,11 +214,11 @@ test("small observation fixes: notices, other families' language, baby hunger, b
   g.world.handle({ type: "LN", lineages: [{ id: 1, ancestors: [], eveId: 1 }, { id: 2, ancestors: [1], eveId: 1 }, { id: 7, ancestors: [50], eveId: 50 }] });
   g.world.handle({ type: "MS", text: "YOU INHERITED A HOME" });
   g.world.handle({ type: "PS", says: [{ id: 7, isCurse: false, text: "TOBA KEMI" }] });
-  const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
+  const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], pastLifeNotes: [], goal: null, clock });
   assert.match(obs, /notice from the game: "YOU INHERITED A HOME"/);
   // languages are on from the first player (minActivePlayersForLanguages = 1)
   assert.match(obs, /#7 .*\[other family: their language differs from yours\]: "TOBA KEMI"/, "nothing better known: another family's speech is scrambled");
-  const withHook = (r: boolean | null) => buildObservation(g.world, gd, { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock, speechScrambled: () => r });
+  const withHook = (r: boolean | null) => buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock, speechScrambled: () => r });
   assert.match(withHook(true), /#7 .*\[other family: their language differs from yours\]: "TOBA KEMI"/, "the words differed from what #7 said");
   assert.doesNotMatch(withHook(false), /language differs/, "same words as said (e.g. learned by living together)");
   assert.match(withHook(null), /language differs/, "unknown: fall back to the population rule");
@@ -230,7 +230,7 @@ test("small observation fixes: notices, other families' language, baby hunger, b
   assert.equal(gd.name(gd.transition(0, 6953)!.newTarget), "Empty Banana Plant", "the last banana empties it");
   // a baby that died at 0.88 is not "age 1"
   g.world.handle({ type: "PU", updates: [{ id: 3, displayId: 347, facing: 0, action: false, actionTarget: [0, 0], held: { id: 0, contained: [] }, heldOriginValid: false, heldOrigin: [0, 0], heldTransitionSourceId: 0, heat: 0.5, doneMovingSeq: 0, forced: false, x: null as unknown as number, y: null as unknown as number, age: 0.88, ageRate: 60, moveSpeed: 3.75, clothing: [], justAte: false, lastAteId: 0, responsibleId: -1, heldYum: false, heldLearned: false, deathReason: "reason_hunger" }] });
-  const obs2 = buildObservation(g.world, gd, { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
+  const obs2 = buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock });
   assert.match(obs2, /DEATHS YOU SAW ==\n.*, age 0\.\d,/);
 });
 
@@ -294,7 +294,7 @@ test("flowers: own flower after the identity line, each nearby person's inside t
   g.addPlayer({ id: 2, x: 2, y: 0, age: 24, held: 0, female: false });
   g.start();
   const labels: Record<number, string> = { 1: "orange rose", 2: "blue daisy" };
-  const base = { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock };
+  const base = { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock };
   const obs = buildObservation(g.world, gd, { ...base, flowerOf: (pid) => labels[pid] ?? null });
   const lines = obs.split("\n");
   const idx = lines.findIndex((l) => l.startsWith("#1 "));
@@ -315,7 +315,7 @@ test("flowers: own flower after the identity line, each nearby person's inside t
 
 // --- decay timers (a human sees the fire shrink) and the danger line
 
-const obsAt = (g: FakeGame, now: number, clk = clock) => buildObservation(g.world, gd, { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock: clk, now });
+const obsAt = (g: FakeGame, now: number, clk = clock) => buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock: clk, now });
 
 test("timers: a fire we saw lit counts down in turns, in game time scaled by TIME_SCALE", () => {
   const g = new FakeGame(gd);
@@ -433,7 +433,7 @@ test("hints: the client's hint list for an object, most basic other object first
 
 test("hints: the ignition chain can be found one click at a time from the observation", async () => {
   const k3 = { cycleMs: 8000, timeScale: 3 };
-  const obs = () => buildObservation(g.world, gd, { recipeHints: true, history: [], notebook: [], pastLifeNotes: [], goal: null, clock: k3 });
+  const obs = () => buildObservation(g.world, gd, { recipeHints: true, history: [], pastLifeNotes: [], goal: null, clock: k3 });
   const g = new FakeGame(gd);
   g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: id("Fire Bow Drill"), female: true });
   g.setTile(1, 0, id("Long Straight Shaft"));
@@ -487,7 +487,7 @@ test("names: no placeholder in name position that could be copied as a name (\"I
   g.addPlayer({ id: 1, x: 0, y: 0, age: 14, held: 0, female: true });
   g.addPlayer({ id: 2, x: 1, y: 0, age: 0.5, held: 0, female: true });
   g.start();
-  const obs = buildObservation(g.world, gd, { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock });
+  const obs = buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock });
   assert.doesNotMatch(obs, /unnamed/i);
   assert.match(obs, /^#1 \(no name, woman, 14\)/m);
   assert.match(obs, /^- #2 \(no name, baby girl, 0\.5\) /m);
@@ -498,12 +498,12 @@ test("a named character is told its name in so many words", () => {
   g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: 0, female: true });
   g.start();
   g.world.self!.name = "LILA PINE";
-  const base = { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock };
+  const base = { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock };
   assert.match(buildObservation(g.world, gd, base), /^Your name is LILA PINE\.$/m);
 });
 
 test("a mother holding her own unnamed baby is asked to name it; not once it has a name, not for someone else's baby", () => {
-  const base = { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock };
+  const base = { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock };
   const mk = (motherId: number) => {
     const g = new FakeGame(gd);
     g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: -2, female: true });
@@ -520,7 +520,7 @@ test("a mother holding her own unnamed baby is asked to name it; not once it has
 });
 
 test("leadership from the server's FW messages: who you follow and who follows you", () => {
-  const base = { recipeHints: false, history: [], notebook: [], pastLifeNotes: [], goal: null, clock };
+  const base = { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock };
   const g = new FakeGame(gd);
   g.addPlayer({ id: 1, x: 0, y: 0, age: 30, held: 0, female: true });
   g.addPlayer({ id: 2, x: 2, y: 0, age: 20, held: 0, female: true });
@@ -533,4 +533,18 @@ test("leadership from the server's FW messages: who you follow and who follows y
   assert.match(o, /^Your followers: #2\.$/m);
   g.world.handle({ type: "FW", follows: [{ followerId: 1, leaderId: -1, colorIndex: 0 }] });
   assert.doesNotMatch(buildObservation(g.world, gd, base), /You follow/);
+});
+
+test("children 3-13 are girls and boys, not women and men (a mother asked her 4-year-old 'woman' to carry the baby)", () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 21, held: 0, female: true });
+  g.addPlayer({ id: 2, x: 1, y: 0, age: 4, held: 0, female: true });
+  g.addPlayer({ id: 3, x: 2, y: 0, age: 13, held: 0, female: false });
+  g.addPlayer({ id: 4, x: 3, y: 0, age: 14, held: 0, female: false });
+  g.start();
+  const obs = buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock });
+  assert.match(obs, /^#1 \(no name, woman, 21\)/m);
+  assert.match(obs, /^- #2 \(no name, girl, 4\) /m);
+  assert.match(obs, /^- #3 \(no name, boy, 13\) /m);
+  assert.match(obs, /^- #4 \(no name, man, 14\) /m);
 });

@@ -47,6 +47,13 @@ export const config = {
   /** stable prefix for login emails; same prefix = same bodies after a restart */
   runId: env.RUN_ID ?? "pilot1",
   memoryMode: (env.MEMORY_MODE === "persistent" ? "persistent" : "per-life") as "per-life" | "persistent",
+  /**
+   * 1 (default) = a yearly summary of this life ("WHAT YOU REMEMBER") rewritten in the
+   * background every MEMORY_SUMMARY_TURNS turns by the agents' model (agent/memory.ts); 0 = none
+   */
+  memorySummary: env.MEMORY_SUMMARY !== "0",
+  /** turns between memory summaries (turn clock: 25 turns of TURN_GAME_S=2.4 = one game year; else decisions) */
+  memorySummaryTurns: Math.max(1, Math.floor(num("MEMORY_SUMMARY_TURNS", 25))),
   recipeHints: env.RECIPE_HINTS !== "0",
   llmBaseUrl,
   llmApiKey,

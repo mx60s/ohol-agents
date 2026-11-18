@@ -96,7 +96,7 @@ function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
     ...(st.recipeHints ? ([["Recipe hints", <>Up to {L.maxHints} things the held item (or bare hands) would do to what's in view.</>]] as [string, ReactNode][]) : []),
     ["Deaths seen", <>Who died in view in the last {Math.round(L.deathsWindowS / 60)} minutes: name, relation, age, place.</>],
     ["Their last turns", <>Their previous thought, their goal, the last {L.historyShown} action results, and why a reply was wasted if it was.</>],
-    ["Notebook", <>Lines they chose to note this life (last {L.notebookShown}).</>],
+    ["What they remember", <>A summary of this life so far (at most {L.memoryLines} lines of facts), which their own model rewrites in the background about once a year.</>],
     ["Just happened", <>The events that woke them since the last turn.</>],
   ];
   return (
@@ -137,7 +137,7 @@ function DontKnowPanel({ spec }: { spec: AgentSpecResponse }) {
     st.memoryMode === "per-life"
       ? ["Their past lives", <>When a seat is reborn, its new character starts blank: no notes, goals or history carry over.</>]
       : ["Their past lives (partly)", <>Memory is set to persistent: notes from a seat's earlier lives are shown, but nothing else carries over.</>],
-    ["Earlier turns", <>No conversation history. Only the previous thought, the goal, the notebook and the last {L.historyShown} results connect one turn to the next.</>],
+    ["Earlier turns", <>No conversation history. Only the previous thought, the goal, the yearly memory summary and the last {L.historyShown} results connect one turn to the next.</>],
     ["Anything out of view", <>Things beyond {L.viewRadius} tiles, people beyond {L.peopleRadius}, speech beyond about {L.hearingRadius}. No map of the world, no idea where other camps are.</>],
     ["Other minds", <>Never another agent's thoughts, goals or notes. Only what people say aloud and what they visibly hold.</>],
     ["Why people die", <>They see who died, where and how old, never the cause.</>],

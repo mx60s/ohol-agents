@@ -134,3 +134,22 @@ Turn metrics come from sampling the server's `/data/world/mtsClockNow.txt` + `mt
 - **Languages:** on from 15:47 (15 alive), always on from 16:16 with learning. Cross-family lines were mostly clear right after the 16:16 deploy.
 - **LLM:** Qwen3-32B on H200 `7kdcewk4x17t85`, ~13.5k calls, p50 rising 3.5 -> 5.9 s with population, 0 HTTP errors. Balance $142.08 (14:47) -> ~$132 (16:43), about $5.3/h.
 - **Changes during r5** (input for a baseline freeze): 25faa2e, 2ed99a9, 712c6d7, 535c66c, ffe8b97, 3d8c074 (mine), bc3e83d, b816064, c1951ba, f7d7493, ac017b7, e0b3bf3, 88e706b (mine), ee315d4, e673ecc (mine), 4b4dc15, 3c1d46d, be59942, 65dcffa, e3fba8d, 09304c4, plus the new-world commits f1818f0 and da3d705. Settings: forced naming 120 s, languages always on (min players 1, learning), early birth cap 2 (gens 1–5).
+
+## 16:44–18:51 gap: run r6 (pilot1-r6-mwlefexg), not watched live
+- **My watch lapsed from 16:45 to 18:52** (a long wait on my side: no checks, no fixes). The notes below come after the fact, from /api/lives and the server logs.
+- r6: new gentler world, 3 Eves near (-150, 60), started 16:44:29; ended by a regeneration at ~18:50 (archive 20261118T025043Z). Agents restarted 8 times (log dirs 00-48, 01-33, 01-41, 01-48, 01-55, 02-00, 02-02, 02-25Z). 33 lives: **10 Eves** (3 at the start, then 3 at ~17:2x and 4 more later; regeneration on extinction or unexpected Eves), 26 dead, **all of hunger**, 7 lost at the regen. Max age **52.18** (IRIS MAPLE), max gen 3. Adults who died: EVE MARIGOLD 20.5, LILY MAPLE 15.1, AURORA HAWTHORN 18.6, ELARA HAWTHORN 16.4, EIRA VERVAIN 21.8, LUNA BURDOCK 17.6, LUNA HAWTHORN 39.2, FLORA MEADOW 15.8, ARIA CRIMSON 19.3, LUNA MEADOW 38.4, MIRE BURDOCK 44.3, IRIS MAPLE 52.2. Events: 19.6k (5437 say, 6706 action), 0 "too slow" decides, no turn-clock warnings. Inventions: /api/inventions only serves the current run, so the r6 list isn't recovered.
+- Changes in the gap (coordinator; listed for the baseline freeze): f1818f0, da3d705 (3-Eve gentle world), 9074ca8 (stream walks), 39c3b54 (minimap persists), dba4ffb + b82bb3e (name a nameless baby within 3 tiles; server mtsNameNearbyBabyTiles), f1bcc5e (forage at a non-food names it and points to real food), ac20bfe (launch-qwen SPLIT=tp), 46bd3d2 (memory: a yearly summary replaces the notebook; 15 history lines; goal age), 231070b (regen keepTerrain; **medium reasoning: thinking 1200 of 1600 tokens, decide timeout 40 s**).
+- **GPU pod changed (coordinator):** H200 `7kdcewk4x17t85` terminated. Now `z81h7sx30hgzmd`, 2x H100 tensor-parallel, $8.78/h; LLM_BASE_URL points there. Turns are expected to run about half as fast. Don't restore the old 400 cap.
+
+## 18:53 run r7 started (pilot1-r7-mwliz6mm, dev run)
+- Regenerated on purpose on the same land (keepTerrain). Started 18:51:49, image 20261118T025132Z. 3 Eves, each with a baby by 18:52: LUNA VIOLET (-159,70) + AURORA VIOLET; AURORA CEDAR (-156,56) + LIRA CEDAR; LIRA THORNE (-131,58) + p7. Turn n=8 at 18:53.
+- **Biome mix** of the 2343 cells seen so far: badlands 28%, prairie 28%, swamp 25%, grassland 19%. Around each Eve (±12 tiles):
+  - VIOLET: prairie 51%, badlands 28%, grassland 21%.
+  - CEDAR: swamp 39%, grassland 37%, prairie 19%.
+  - THORNE: swamp 45%, grassland 22%, badlands 17%, prairie 16%.
+  Not barren badlands.
+- **Food and water near the Eves (±12):**
+  - VIOLET: 2 Wild Gooseberry Bushes, a Wild Rose with Fruit, a Wild Onion, 8 Seeding Wild Carrot, 14 Ripe Wheat, 4 Flowering Milkweed, 5 Rabbit Holes; water: 1 Natural Spring.
+  - CEDAR: 3 Gooseberry Bushes, 2 Wild Onions, a Wild Cucumber, a Cold Goose Egg, Wheat, Carrot; water: 14 Canada Goose Ponds (13 with eggs).
+  - THORNE: 2 Wild Squash, Burdock, a Wild Rose with Fruit, a Wild Onion, a Goose Egg, a little Wheat/Carrot; water: 4 Goose Ponds.
+- vLLM on z81h7sx30hgzmd: /v1/models 200. Balance $117.28, spend $8.81/h. At $8.8/h to 23:15 that is ~$39, leaving ~$78; the $15 floor won't be reached.

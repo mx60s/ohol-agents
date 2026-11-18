@@ -342,3 +342,18 @@ test("forage aimed at something that isn't food names it and points to real food
   const r = await body.forage(2, 0);
   assert.match(r, /^the Dug Wild Cabbage at \(2,0\) is not food: nothing there can be eaten by hand\. The nearest food by hand: Wild Gooseberry Bush.* at \(6,0\)\.$/);
 });
+
+test("an unexplained 'nothing happened' says what the tile has now, and who just changed it (two people, one tile, one turn)", async () => {
+  const g = setup(0, [9, 9]);
+  g.addPlayer({ id: 2, x: 2, y: 0, age: 30, held: 0, female: true, name: "LIRA THORNE" } as never);
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  // empty hands on an empty tile: nothing to use
+  assert.equal(await body.use(1, 0), "use at (1,0): nothing happened (the tile at (1,0) is now empty)");
+  // someone else grabs the thing first: our click lands on an empty tile
+  const SEED = gd.idByName("Carrot Seed Head")!;
+  g.world.handle({ type: "MX", changes: [{ x: 1, y: 0, floor: 0, obj: { id: SEED, contained: [] }, responsibleId: -1 }] } as never);
+  g.world.handle({ type: "MX", changes: [{ x: 1, y: 0, floor: 0, obj: { id: 0, contained: [] }, responsibleId: 2 }] } as never);
+  const r = await body.use(1, 0);
+  assert.match(r, /^use at \(1,0\): nothing happened \(the tile at \(1,0\) is now empty; #2 (LIRA THORNE )?changed it just now, it had Carrot Seed Head\)$/);
+});

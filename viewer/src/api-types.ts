@@ -599,8 +599,9 @@ export interface AgentSpecLimits {
   heardMax: number;
   deathsWindowS: number;
   deathsMax: number;
-  notebookShown: number;
-  notebookKept: number;
+  /** the yearly memory summary: at most this many lines of this many chars */
+  memoryLines: number;
+  memoryLineChars: number;
   /** speech this close (tiles) wakes an agent before its turn */
   wakeSpeechRadius: number;
   /** the server delivers speech this far (tiles) */

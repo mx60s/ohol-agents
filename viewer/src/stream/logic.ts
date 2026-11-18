@@ -441,7 +441,7 @@ export function describeAction(text: string): string | null {
   if (sw) return `swapped ${an(sw[1])} for the ${sw[2]}`;
   if (/nothing happened|can't|couldn't|not holding|you're full|no food|too young|blocks/.test(res)) {
     const what = { use: "use something", drop: "put something down", feed: "feed someone", forage: "find food", eat: "eat", take_out: "take something out", swap: "swap" }[verb] ?? verb;
-    return `tried to ${what}: ${clean(res.replace(/^[a-z_ ]+(at \(-?\d+,\s*-?\d+\))?:\s*/, "")).slice(0, 70)}`;
+    return `tried to ${what}: ${clean(res.replace(/^[a-z_ ]+(at \(-?\d+,\s*-?\d+\))?:\s*/, ""))}`;
   }
-  return clean(res).slice(0, 90);
+  return clean(res);
 }

@@ -45,16 +45,16 @@ export const OBSERVATION_LIMITS = {
   /** observe.ts: people listed, nearest first */
   maxPeople: 10,
   /** observe.ts HISTORY_SHOWN */
-  historyShown: 8,
+  historyShown: 15,
   /** observe.ts: heard lines kept for 90 s, last 10 */
   heardWindowS: 90,
   heardMax: 10,
   /** observe.ts: deaths seen kept for 300 s, last 5 */
   deathsWindowS: 300,
   deathsMax: 5,
-  /** observe.ts: notebook lines shown / agent.ts: kept */
-  notebookShown: 12,
-  notebookKept: 30,
+  /** memory.ts: the yearly summary ("WHAT YOU REMEMBER") is at most this many lines of this many chars */
+  memoryLines: 8,
+  memoryLineChars: 160,
   /** salience.ts HEAR_RADIUS: speech this close wakes an agent early */
   wakeSpeechRadius: 10,
   /** server.cpp maxSpeechRadius (Euclidean): speech is delivered this far */
@@ -67,7 +67,6 @@ export const OBSERVATION_LIMITS = {
 export const REPLY_FIELDS: { name: string; meaning: string }[] = [
   { name: "thought", meaning: "one short sentence; shown back to it next turn as its previous thought (max 400 chars)" },
   { name: "goal", meaning: "optional; kept and shown every turn until it changes (max 200 chars)" },
-  { name: "note", meaning: "optional; one line added to its notebook for this life (max 200 chars)" },
   { name: "say", meaning: "optional; spoken aloud now, before the action; a baby naming line ('YOU ARE X') waits for a pick_up_baby in the same reply (max 200 chars, cut further by age)" },
   { name: "action", meaning: "one action object (see the table)" },
   { name: "actions", meaning: "instead of action: a list of steps run back to back" },
@@ -167,7 +166,8 @@ export function interventions(cfg: Config, s: AgentSpecSettings): AgentSpecInter
     { id: "events", name: "Event-driven turns", category: "beyond-human", on: true, detail: "hunger thresholds, births, deaths, being picked up and nearby speech wake the agent early" },
     { id: "wasted-turns", name: "Wasted-turn feedback", category: "beyond-human", on: true, detail: "a malformed reply or invalid action is explained next turn" },
     { id: "reasoning-cap", name: "Mild reasoning cap", category: "beyond-human", on: cfg.llmReasoningCap, detail: `about ${cfg.llmReasoningMaxTokens} reasoning tokens within ${cfg.llmDecisionMaxTokens} in total` },
-    { id: "memory", name: "Notes from past lives", category: "beyond-human", on: cfg.memoryMode === "persistent", detail: "MEMORY_MODE=persistent carries a slot's notebook into its next life; off = each life starts fresh" },
+    { id: "memory-summary", name: "Yearly memory summary", category: "beyond-human", on: cfg.memorySummary, detail: `every ${cfg.memorySummaryTurns} turns the agent's own model rewrites its memory of this life in the background (at most ${L.memoryLines} lines of facts, no plans), shown every turn` },
+    { id: "memory", name: "Notes from past lives", category: "beyond-human", on: cfg.memoryMode === "persistent", detail: "MEMORY_MODE=persistent carries a slot's last yearly memory summary into its next life; off = each life starts fresh" },
     // declared changes to the game
     { id: "food-bonus", name: "New-player food bonus", category: "game-setting", on: on(s.foodBonus), detail: `+${s.foodBonusSecondsPerPip.value ?? "?"} s on every food pip, every life (stock OHOL gives it to newcomers)` },
     { id: "time-scale", name: "Time dilation", category: "game-setting", on: s.timeScale !== 1, detail: `game clock ${s.timeScale}x slower than stock` },
@@ -255,8 +255,6 @@ function cleanReply(v: Record<string, unknown>, steps: Action[]): AgentSpecExamp
   if (thought) out.thought = thought;
   const goal = cleanText(v.goal, 200);
   if (goal) out.goal = goal;
-  const note = cleanText(v.note, 200);
-  if (note) out.note = note;
   const say = cleanText(v.say, 200);
   if (say) out.say = say;
   const plain = steps.map((a) => Object.fromEntries(Object.entries(a).filter(([, x]) => x !== undefined)) as Record<string, unknown>);
