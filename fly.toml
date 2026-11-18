@@ -33,6 +33,12 @@ kill_timeout = "60s"
   AGENT_COUNT = "28"
   INITIAL_EVES = "2"
   FAMILY_ROOM_MAX_HOLD_S = "0"
+  # early birth cap (server mtsEarlyMaxBabies/mtsEarlyMaxGenerations, mirrored here so free slots wait
+  # for a mother who can still have a baby): at most 2 babies per woman in generations 1-5
+  EARLY_MAX_BABIES = "2"
+  EARLY_MAX_GENERATIONS = "5"
+  # after a login unexpectedly comes out as an Eve, joins wait this long (no Eve floods)
+  EVE_MIN_GAP_S = "300"
   # new-player prompt: controls and our rules only, no recipes or strategy (agents/src/agent/prompt.ts)
   PROMPT_BASELINE = "new"
   # agents: self-hosted Qwen3-32B-FP8 + EAGLE-3 on one RunPod H200 (MODEL=q3 deploy/gpu/launch-qwen.sh; GPUS=2 for more agents;

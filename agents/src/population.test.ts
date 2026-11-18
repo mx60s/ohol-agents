@@ -171,3 +171,33 @@ test("merged map keeps a known biome when a newer object-only update for that ce
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("family room respects the early birth cap; an Eve outside the burst holds joins for a while", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pop-"));
+  try {
+    const cfg: Config = { ...config, logDir: dir, runId: "t", narratorIntervalMs: 0, earlyMaxBabies: 2, earlyMaxGenerations: 5, eveMinGapMs: 300_000 };
+    const kids: Record<string, string[]> = { "t:1": ["t:5", "t:6"], "t:2": [] };
+    const lives = {
+      playerFields: (pid: number) => ({ lifeId: `t:${pid}`, lineageId: "t:1", flower: null }),
+      get: (id: string) => (id in kids ? { lifeId: id, generation: 2, childLifeIds: kids[id] } : null),
+    };
+    const pop = new Population(cfg, { name: () => "Stone" } as unknown as GameData, new EventLog(dir, "t"), { lives: lives as never });
+    const woman = (id: number) => ({ status: "alive", world: { self: { id, female: true }, currentAge: () => 22 } });
+    pop.agents.push(woman(1) as never, { status: "alive", world: { self: { id: 7, female: false }, currentAge: () => 1 } } as never);
+    // the only fertile woman is capped: she isn't counted, so it's "no mother at all" and a new Eve is welcome
+    assert.equal(pop.familyRoom(), true);
+    pop.agents.push(woman(2) as never);
+    // now an uncapped mother exists, but with a baby already for each counted mother: wait for room
+    assert.equal(pop.familyRoom(), false, "babies (1) not < counted mothers (1)");
+    pop.agents.pop();
+    pop.agents.push(woman(2) as never, woman(3) as never);
+    kids["t:3"] = [];
+    assert.equal(pop.familyRoom(), true, "two mothers who can still have babies, one baby");
+    // an Eve appears outside the starting burst: joins wait
+    (pop.logins as unknown as { phase: string }).phase = "join";
+    (pop as unknown as { log: EventLog }).log.emitEvent("birth", { agentId: "a09", text: "Eve", data: { eve: true, playerId: 9 } } as never);
+    assert.equal(pop.familyRoom(), false, "held after an unexpected Eve");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

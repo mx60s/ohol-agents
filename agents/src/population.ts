@@ -129,7 +129,10 @@ export class Population implements SpeechSink {
     log.on("event", (e) => {
       // a reconnect to a still-open life (agent.ts): the slot is in the world, but nobody was born
       if (e.kind === "system" && e.data?.reconnect === true && e.agentId) return this.logins.onBorn(e.agentId, false);
-      if (e.kind === "birth" && e.agentId) this.logins.onBorn(e.agentId, e.data?.eve === true);
+      if (e.kind === "birth" && e.agentId) {
+        if (e.data?.eve === true && this.logins.phase !== "burst") this.lastEveAt = Date.now();
+        this.logins.onBorn(e.agentId, e.data?.eve === true);
+      }
       if (e.kind === "death" && e.agentId) this.logins.onDied(e.agentId, e.t);
       const pid = Number(e.data?.playerId ?? e.playerId);
       if (e.kind === "birth" && Number.isFinite(pid)) {
@@ -252,6 +255,8 @@ export class Population implements SpeechSink {
    * living characters, with ages from the game.
    */
   familyRoom(): boolean {
+    // a login just came out as an Eve: hold joins for a while (we can't see cooldowns; no Eve floods)
+    if (this.cfg.eveMinGapMs > 0 && Date.now() < this.lastEveAt + this.cfg.eveMinGapMs) return false;
     let babies = 0, moms = 0, total = 0;
     for (const a of this.agents) {
       const me = a.status === "alive" ? a.world?.self : null;
@@ -259,10 +264,20 @@ export class Population implements SpeechSink {
       const age = a.world.currentAge(me);
       total++;
       if (age < 3) babies++;
-      else if (me.female && age >= 14 && age <= 40) moms++;
+      else if (me.female && age >= 14 && age <= 40 && !this.atBirthCap(me.id)) moms++;
     }
     return moms === 0 || (babies < moms && babies < total - babies);
   }
+
+  /** the server's early birth cap: generation <= earlyMaxGenerations and earlyMaxBabies children already */
+  private atBirthCap(playerId: number): boolean {
+    if (!(this.cfg.earlyMaxBabies > 0)) return false;
+    const lifeId = this.extras.lives?.playerFields(playerId).lifeId;
+    const life = lifeId ? this.extras.lives?.get(lifeId) : null;
+    if (!life || life.generation > this.cfg.earlyMaxGenerations) return false;
+    return (life.childLifeIds?.length ?? 0) >= this.cfg.earlyMaxBabies;
+  }
+  private lastEveAt = -Infinity;
 
   /**
    * LLM outage pause (every 5 s, from checkLimits). When the provider has been

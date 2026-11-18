@@ -167,6 +167,15 @@ export const config = {
    * a new Eve appears only when no woman alive can have a baby. FAMILY_ROOM_MAX_HOLD_S, default 600.
    */
   familyRoomMaxHoldMs: num("FAMILY_ROOM_MAX_HOLD_S", 600) * 1000,
+  /**
+   * Early birth cap, mirrored from the server (mtsEarlyMaxBabies / mtsEarlyMaxGenerations): a woman of
+   * generation <= EARLY_MAX_GENERATIONS with EARLY_MAX_BABIES children doesn't count as family room,
+   * so free slots wait for a mother who can still have a baby. 0 = off.
+   */
+  earlyMaxBabies: num("EARLY_MAX_BABIES", 0),
+  earlyMaxGenerations: num("EARLY_MAX_GENERATIONS", 5),
+  /** after a login comes out as an Eve (outside the starting burst), hold joins this long: no Eve floods. 0 = off */
+  eveMinGapMs: num("EVE_MIN_GAP_S", 300) * 1000,
   // --- LLM provider outage handling and request options
   /** provider failing (401/402/403, 5xx, timeouts) for longer than this many s -> run paused, lives flagged; 0 = never pause */
   llmOutagePauseMs: num("LLM_OUTAGE_PAUSE_S", 60) * 1000,

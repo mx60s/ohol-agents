@@ -1,0 +1,56 @@
+MTS patch: early-birth cap (setting mtsEarlyMaxBabies, default 0 = off).
+
+In the first mtsEarlyMaxGenerations generations (parentChainLength: Eve =
+1, her children 2, ...; default 5) a woman has at most mtsEarlyMaxBabies
+babies in her life (her babyBirthTimes, which player saves keep). A capped
+woman is skipped as a mother in every pass of the mother search (also the
+ones that ignore cooldowns, and the d-town list), so when no woman can take
+another baby the login becomes an Eve, as stock does. Later generations and
+mtsEarlyMaxBabies=0: stock.
+
+diff --git a/server/server.cpp b/server/server.cpp
+index 4273fd4..b28ed66 100644
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -10033,6 +10033,13 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+ 
+     int maxLivingChildrenPerMother = 
+         SettingsManager::getIntSetting( "maxLivingChildrenPerMother", 4 );
++
++    // MTS patch: in the first generations a woman has at most this many
++    // babies in her life (0 = off)
++    int mtsEarlyMaxBabies =
++        SettingsManager::getIntSetting( "mtsEarlyMaxBabies", 0 );
++    int mtsEarlyMaxGenerations =
++        SettingsManager::getIntSetting( "mtsEarlyMaxGenerations", 5 );
+     
+ 
+     // first, find all mothers that could possibly have us
+@@ -10095,6 +10102,14 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+                 continue;
+                 }
+ 
++            if( mtsEarlyMaxBabies > 0 &&
++                player->parentChainLength <= mtsEarlyMaxGenerations &&
++                player->babyBirthTimes->size() >= mtsEarlyMaxBabies ) {
++                // MTS patch: early-birth cap, in every pass (also when
++                // cooldowns are ignored); no mother left = a new Eve
++                continue;
++                }
++
+             if( isFertileAge( player ) ) {
+                 numOfAge ++;
+                 
+@@ -10432,7 +10447,11 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+                 ! player->isTutorial &&
+                 ! player->vogMode &&
+                 player->curseStatus.curseLevel > 0 &&
+-                isFertileAge( player ) ) {
++                isFertileAge( player ) &&
++                // MTS patch: early-birth cap
++                ! ( mtsEarlyMaxBabies > 0 &&
++                    player->parentChainLength <= mtsEarlyMaxGenerations &&
++                    player->babyBirthTimes->size() >= mtsEarlyMaxBabies ) ) {
+                 
+                 parentChoices.push_back( player );
+                 }
