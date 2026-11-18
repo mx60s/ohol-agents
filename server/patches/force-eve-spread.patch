@@ -1,0 +1,48 @@
+MTS patch: spread forced Eve placements (setting mtsForceEveSpread, tiles,
+default 0 = stock).
+
+With forceEveLocation=1 every Eve is placed exactly at forceEveLocationX/Y.
+With mtsForceEveSpread=r > 0 each Eve instead gets a random spot within r
+tiles of it (a disc), on a tile that doesn't block walking and holds no
+deadly object (up to 50 tries, else the forced spot), so the families are
+neighbours but not on top of each other.
+
+diff --git a/server/server.cpp b/server/server.cpp
+index b28ed66..24c9bd5 100644
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -11396,6 +11396,34 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+                 SettingsManager::getIntSetting( "forceEveLocationX", 0 );
+             startY = 
+                 SettingsManager::getIntSetting( "forceEveLocationY", 0 );
++
++            // MTS patch: spread forced Eves over a disc of this radius
++            // (tiles) so several don't land on the same tile; a random
++            // walkable spot with no deadly object, else the forced spot
++            int spread =
++                SettingsManager::getIntSetting( "mtsForceEveSpread", 0 );
++            if( spread > 0 ) {
++                for( int t=0; t<50; t++ ) {
++                    int dx = randSource.getRandomBoundedInt( -spread, spread );
++                    int dy = randSource.getRandomBoundedInt( -spread, spread );
++                    if( dx * dx + dy * dy > spread * spread ) {
++                        continue;
++                        }
++                    int x = startX + dx;
++                    int y = startY + dy;
++                    if( isMapSpotBlocking( x, y ) ) {
++                        continue;
++                        }
++                    int oID = getMapObject( x, y );
++                    if( oID > 0 && getObject( oID ) != NULL &&
++                        getObject( oID )->deadlyDistance > 0 ) {
++                        continue;
++                        }
++                    startX = x;
++                    startY = y;
++                    break;
++                    }
++                }
+             }
+         
+         

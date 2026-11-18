@@ -238,9 +238,11 @@ test("withFamilyNames: unnamed people show their family name; records with names
     { lifeId: "1", name: "LUNA VALLEY", lineageId: "A", bornAt: 1 },
     { lifeId: "2", name: null, lineageId: "A", bornAt: 2 },
     { lifeId: "3", name: null, lineageId: "B", bornAt: 3 },
+    { lifeId: "4", name: "LUNA", lineageId: "A", bornAt: 4 },
+    { lifeId: "5", name: "AURORA II", lineageId: "A", bornAt: 5 },
   ];
   const out = withFamilyNames(lives);
-  assert.deepEqual(out.map((l) => l.name), ["LUNA VALLEY", "UNNAMED VALLEY", null]);
+  assert.deepEqual(out.map((l) => l.name), ["LUNA VALLEY", "UNNAMED VALLEY", null, "LUNA VALLEY", "AURORA II VALLEY"]);
   assert.equal(lives[1].name, null, "input not mutated");
   const same = [lives[0]];
   assert.equal(withFamilyNames(same), same, "nothing to fill: same array");

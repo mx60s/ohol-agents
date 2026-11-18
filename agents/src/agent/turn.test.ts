@@ -306,7 +306,7 @@ test("naming: an unnamed Eve can't found a family with a surname any family has 
   assert.deepEqual(says(g), [], "the naming is not sent");
   // HOPE: seen on #9 (AURORA HOPE), not in the records yet
   assert.equal(results(A)[0], 'say "I am Aurora Dawn" -> family name DAWN is already taken by an earlier family; choose a new one (taken: DAWN, SOL, HOPE)');
-  assert.match(seen[0], /No name yet: found your family by saying "I AM <FIRST NAME> <FAMILY NAME>" \(once only\)\. Family names already taken \(pick a new one\): DAWN, SOL, HOPE\./);
+  assert.match(seen[0], /You have no name yet, and neither does your family: name yourself and your family now, this turn, by saying "I AM <FIRST NAME> <FAMILY NAME>" \(once only; your children carry the family name\)\. Family names already taken \(pick a new one\): DAWN, SOL, HOPE\./);
   await A.turn();
   assert.match(seen[1], /DAWN is already taken/, "the refusal reaches the next observation");
   assert.deepEqual(says(g), ["I AM AURORA REED"]);

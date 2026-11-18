@@ -200,6 +200,14 @@ export class Population implements SpeechSink {
       familyFirstNames: (playerId: number) => this.extras.lives?.familyFirstNames(this.cfg.runId, playerId) ?? [],
       speechScrambled: (speakerId: number, text: string) => this.speechScrambled(speakerId, text),
       turns: this.turns?.link(),
+      // the receiver sees the item land at their feet: a notice in their next observation
+      gave: (from: Agent, toPlayerId: number, item: string, at: [number, number]) => {
+        const to = this.agents.find((x) => x.status === "alive" && x.world?.selfId === toPlayerId);
+        const me = from.world?.self;
+        if (!to || !me) return;
+        const who = `#${me.id}${me.name ? ` ${me.name}` : ""}`;
+        to.noteSalient({ reason: `${who} put ${/^[AEIOU]/i.test(item) ? "an" : "a"} ${item} down next to you at (${at[0]}, ${at[1]})`, urgent: false, t: Date.now() });
+      },
     };
     for (let i = 0; i < c.agentCount && !this.halted; i++) {
       const a = new Agent(agentIdOf(i), c, this.gd, this.llm, this.log, this, hooks);

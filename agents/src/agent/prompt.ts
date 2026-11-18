@@ -71,6 +71,7 @@ export function actionList(o: PromptOptions): string {
     `{"type":"go","x":X,"y":Y}  walk somewhere`,
     `{"type":"pick_up_baby","person":ID}  pick up and carry a baby or small child`,
     `{"type":"feed","person":ID}  use what you hold on another person: feed them, clothe them`,
+    `{"type":"give","person":ID}  put what you hold down next to another person for them to pick up`,
     `{"type":"jump"}  as a baby: wriggle out of someone's arms`,
     `{"type":"wait","turns":N}  do nothing for 1-4 turns; you are woken early if something important happens`,
   ].map((l) => `- ${l}`).join("\n");

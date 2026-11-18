@@ -132,9 +132,19 @@ export function withFamilyNames<T extends { name: string | null; lineageId: stri
   }
   let changed = false;
   const out = lives.map((l) => {
-    if (l.name || !surname.has(l.lineageId)) return l;
-    changed = true;
-    return { ...l, name: `UNNAMED ${surname.get(l.lineageId)}` };
+    const fam = surname.get(l.lineageId);
+    if (!fam) return l;
+    if (!l.name) {
+      changed = true;
+      return { ...l, name: `UNNAMED ${fam}` };
+    }
+    // named before the family had a name ("LUNA", "AURORA II"): show the family surname too
+    const words = l.name.trim().split(/\s+/);
+    if (words.length === 1 || (words.length === 2 && NAME_NUMERAL.test(words[1]))) {
+      changed = true;
+      return { ...l, name: `${l.name.trim()} ${fam}` };
+    }
+    return l;
   });
   return changed ? out : (lives as T[]);
 }

@@ -31,7 +31,7 @@ kill_timeout = "60s"
   # few starting camps that grow by births: 2 Eves, 28 slots (one H200's comfortable load); a free slot waits to be born to a
   # mother (no forced Eves); a new Eve appears only when no woman alive can have a baby
   AGENT_COUNT = "28"
-  INITIAL_EVES = "2"
+  INITIAL_EVES = "3"
   FAMILY_ROOM_MAX_HOLD_S = "0"
   # early birth cap (server mtsEarlyMaxBabies/mtsEarlyMaxGenerations, mirrored here so free slots wait
   # for a mother who can still have a baby): at most 2 babies per woman in generations 1-5

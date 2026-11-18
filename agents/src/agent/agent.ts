@@ -65,6 +65,8 @@ export interface AgentHooks {
    * actTurn) instead of its own loop; World runs on the coordinator's game-paced clock.
    */
   turns?: TurnLink;
+  /** we put an item down next to another player (give): tell them, if they're one of ours */
+  gave?(from: Agent, toPlayerId: number, item: string, at: [number, number]): void;
 }
 
 /** A decision waiting for the act window (turn clock): the parsed reply, or the starving reflex. */
@@ -761,6 +763,12 @@ export class Agent implements TurnAgent<TurnPlan> {
         case "pick_up_baby":
           if (!a.person) return "need person id";
           return await b.pickUpBaby(Number(a.person));
+        case "give": {
+          if (!a.person) return "need person id";
+          const g = await b.give(Number(a.person));
+          if (g.at && g.item) this.hooks.gave?.(this, Number(a.person), g.item, g.at);
+          return g.text;
+        }
         case "feed":
         case "use_on_person":
           if (!a.person) return "need person id";

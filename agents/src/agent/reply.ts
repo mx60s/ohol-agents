@@ -31,6 +31,7 @@ const SPECS: Record<string, { need?: ("xy" | "person" | "item" | "slot")[]; craf
   go: { need: ["xy"] },
   pick_up_baby: { need: ["person"] },
   feed: { need: ["person"] },
+  give: { need: ["person"] },
   jump: {},
   wait: {},
 };
@@ -42,6 +43,7 @@ const SPECS: Record<string, { need?: ("xy" | "person" | "item" | "slot")[]; craf
  */
 const ALIASES: Record<string, string> = {
   use_on: "use", interact: "use", apply: "use", grab: "use",
+  hand: "give", give_to: "give", pass: "give", hand_over: "give", pass_to: "give",
   put_down: "drop", set_down: "drop", place: "drop", put: "drop",
   exchange: "swap", swap_with: "swap",
   takeout: "take_out", take_from: "take_out", remove: "take_out",
@@ -51,7 +53,7 @@ const ALIASES: Record<string, string> = {
   take_off: "undress", remove_clothing: "undress",
   walk: "go", move: "go", walk_to: "go", go_to: "go", goto: "go", move_to: "go",
   pickup_baby: "pick_up_baby", pick_baby: "pick_up_baby", carry: "pick_up_baby", carry_baby: "pick_up_baby", hold_baby: "pick_up_baby", pick_up_person: "pick_up_baby",
-  give: "feed", use_on_person: "feed", feed_baby: "feed",
+  use_on_person: "feed", feed_baby: "feed",
   wiggle: "jump",
   idle: "wait",
 };

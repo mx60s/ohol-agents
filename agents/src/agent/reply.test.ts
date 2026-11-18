@@ -221,3 +221,11 @@ test('plain-value type-as-key replies: {"wait":1} and {"say":"F"}', () => {
   if (!("error" in s)) assert.deepEqual([s.action.type, s.action.text], ["say", "F"]);
   assert.ok("error" in checkAction({ action: { go: 3 } }, false), "other types still need an object");
 });
+
+test("give: needs a person; hand/pass are aliases", () => {
+  const ok = checkAction({ action: { type: "give", person: 4 } }, false);
+  assert.ok(!("error" in ok) && ok.action.type === "give");
+  const alias = checkAction({ action: { type: "hand", person: 4 } }, false);
+  assert.ok(!("error" in alias) && alias.action.type === "give");
+  assert.ok("error" in checkAction({ action: { type: "give" } }, false));
+});

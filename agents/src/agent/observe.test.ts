@@ -414,6 +414,7 @@ test("new-player prompt (default): controls and our rules only; no game name, re
   assert.match(p, /"I FOLLOW YOU": the nearest person becomes your leader/);
   assert.match(p, /Name yourself as soon as you appear as an Eve, and name each baby you have while you hold it\./);
   assert.match(p, /What you can do depends on your age:/);
+  assert.match(p, /"type":"give","person":ID\}  put what you hold down next to another person for them to pick up/);
   assert.match(p, /"YOU ARE <FIRST>": names the nameless baby you hold, or, with your arms empty, the nearest nameless person aged 5 or older within 20 tiles/);
   assert.match(p, /From 10: you can carry a baby\./);
   assert.match(p, /While you carry a baby your arms are full/);

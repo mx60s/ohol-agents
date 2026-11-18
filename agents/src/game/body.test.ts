@@ -308,3 +308,26 @@ test("feeding someone while carrying a baby says the arms are full and sends not
   assert.match(await body.useOnPerson(3), /nothing happened \(your arms are full: you're carrying baby .*; put the baby down first\)$/);
   assert.equal(g.sent.filter((c) => c.startsWith("UBABY")).length, 0, "nothing sent");
 });
+
+test("swap or take_out aimed at a person says items can't be traded with a person", async () => {
+  const g = setup(SHARP_STONE, [99, 99]);
+  g.addPlayer({ id: 2, x: 1, y: 0, age: 12, held: gd.idByName("Flint Chip")!, female: true });
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.match(await body.swap(1, 0), /no item at \(1,0\), only #2.*can't be swapped with or taken from a person; one puts it down, the other picks it up/);
+  assert.match(await body.takeOut(1, 0), /no item at \(1,0\), only #2/);
+  assert.equal(g.world.self!.held.id, SHARP_STONE, "nothing changed");
+});
+
+test("give puts the held item on an empty tile next to the person and says where", async () => {
+  const g = setup(SHARP_STONE, [99, 99]);
+  g.addPlayer({ id: 2, x: 4, y: 0, age: 12, held: 0, female: true });
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  const r = await body.give(2);
+  assert.equal(g.world.self!.held.id, 0, r.text);
+  assert.ok(r.at && Math.max(Math.abs(r.at[0] - 4), Math.abs(r.at[1])) <= 1, `next to #2 (${r.text})`);
+  assert.equal(g.world.objAt(r.at![0], r.at![1]).id, SHARP_STONE);
+  assert.match(r.text, /put the Sharp Stone down next to #2 at/);
+  assert.equal((await body.give(2)).text, "not holding anything to give");
+});

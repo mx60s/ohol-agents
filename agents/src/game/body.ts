@@ -408,9 +408,19 @@ export class Body {
   }
 
   /** Swap held item with the object on a tile. */
+  /** A person standing on an empty tile: aiming an item action there means aiming it at them */
+  private personInsteadOfItem(x: number, y: number): string | null {
+    if (this.world.objAt(x, y).id !== 0) return null;
+    const me = this.world.self?.id;
+    const p = [...this.world.players.values()].find((q) => q.id !== me && Math.round(this.world.posOf(q)[0]) === x && Math.round(this.world.posOf(q)[1]) === y);
+    return p ? `there is no item at (${x},${y}), only #${p.id}${p.name ? ` ${p.name}` : ""}: things can't be swapped with or taken from a person; one puts it down, the other picks it up` : null;
+  }
+
   async swap(x: number, y: number): Promise<string> {
     const blocked = this.conditionBlock();
     if (blocked) return `can't swap: ${blocked}`;
+    const person = this.personInsteadOfItem(x, y);
+    if (person) return `swap at (${x},${y}): nothing happened (${person})`;
     const a = await this.approach(x, y);
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
     const r = await this.act(`SWAP ${x} ${y}`, x, y);
@@ -419,6 +429,8 @@ export class Body {
 
   /** Take an item out of a container on a tile. */
   async takeOut(x: number, y: number): Promise<string> {
+    const person = this.personInsteadOfItem(x, y);
+    if (person) return `take out at (${x},${y}): nothing happened (${person})`;
     const a = await this.approach(x, y);
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
     const r = await this.act(`REMV ${x} ${y} -1`, x, y);
@@ -466,6 +478,25 @@ export class Body {
     const o2 = this.world.players.get(id);
     if (!o2) return `person #${id} left`;
     return { p: [o2.x, o2.y] };
+  }
+
+  /**
+   * Put what we hold down on an empty tile next to a person, for them to pick up (the game has no
+   * direct handover: a player sets it at the other's feet). Returns the result and where it landed.
+   */
+  async give(id: number): Promise<{ text: string; at: Pos | null; item: string | null }> {
+    const held = this.world.self?.held.id ?? 0;
+    if (held === 0) return { text: "not holding anything to give", at: null, item: null };
+    const blocked = this.conditionBlock();
+    if (blocked) return { text: `can't give: ${blocked}`, at: null, item: null };
+    const item = this.heldName();
+    const n = await this.nearPlayer(id);
+    if (typeof n === "string") return { text: n, at: null, item: null };
+    const spot = [n.p, ...DIRS8.map(([dx, dy]) => [n.p[0] + dx, n.p[1] + dy] as Pos)].find(([x, y]) => this.world.objAt(x, y).id === 0 && this.world.walkable(x, y)) ?? this.nearestEmpty(n.p, DROP_SEARCH_RADIUS);
+    if (!spot) return { text: `no empty tile next to #${id} to put the ${item} down`, at: null, item: null };
+    const r = await this.drop(spot[0], spot[1]);
+    if ((this.world.self?.held.id ?? 0) !== 0) return { text: `couldn't put the ${item} down next to #${id}: ${r}`, at: null, item: null };
+    return { text: `put the ${item} down next to #${id} at (${spot[0]},${spot[1]}); they can pick it up`, at: spot, item };
   }
 
   /** Hand-pickable food near us: loose food, or things that yield food by hand. */
