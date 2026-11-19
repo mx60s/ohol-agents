@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd agent for deploy/backup-logs.sh: every 3 hours and at login.
+  Template: __HOME__ and __FLY__ are filled in at install (deploy/README.md, "Log backups").
+  The script runs from a copy in ~/ohol-archive/bin, so switching branches doesn't stop it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ohol.backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__HOME__/ohol-archive/bin/backup-logs.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>FLY</key>
+    <string>__FLY__</string>
+  </dict>
+  <key>StartInterval</key>
+  <integer>10800</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>__HOME__/ohol-archive/backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/ohol-archive/backup.log</string>
+</dict>
+</plist>

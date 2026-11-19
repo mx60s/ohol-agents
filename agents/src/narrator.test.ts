@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildNarratorInput, NARRATOR_SYSTEM, PERSONA_NAME } from "./narrator.ts";
+import { buildNarratorInput, inQuietHours, NARRATOR_SYSTEM, PERSONA_NAME } from "./narrator.ts";
 import { FIXTURES } from "./tools/narrator-examples.ts";
 
 test("persona: Dolores Pike, voiced after Philomena Cunk", () => {
@@ -32,4 +32,14 @@ test("movement memory only keeps living characters (no per-life growth in an alw
   buildNarratorInput(f.agents, f.events, f.history, lastPos);
   const alive = f.agents.filter((a) => a.status === "alive" && a.x != null).length;
   assert.equal(lastPos.size, alive);
+});
+
+test("narrator quiet hours: 23-10 Pacific wraps midnight; empty or malformed means always on", () => {
+  const pt = (iso: string) => new Date(iso); // UTC instants; Pacific is UTC-8 in November
+  assert.equal(inQuietHours("23-10", "America/Los_Angeles", pt("2026-11-19T07:30:00Z")), true, "23:30 PT");
+  assert.equal(inQuietHours("23-10", "America/Los_Angeles", pt("2026-11-19T17:59:00Z")), true, "09:59 PT");
+  assert.equal(inQuietHours("23-10", "America/Los_Angeles", pt("2026-11-19T18:00:00Z")), false, "10:00 PT");
+  assert.equal(inQuietHours("23-10", "America/Los_Angeles", pt("2026-11-20T06:59:00Z")), false, "22:59 PT");
+  assert.equal(inQuietHours("", "America/Los_Angeles"), false);
+  assert.equal(inQuietHours("nonsense", "America/Los_Angeles"), false);
 });

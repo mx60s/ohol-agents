@@ -51,6 +51,8 @@ export interface ObservationOptions {
   goalSetAt?: number | null;
   /** the thought from the previous reply (plan continuity) */
   lastThought?: string | null;
+  /** the last few thoughts, newest last (shown dated); when absent, lastThought is shown alone */
+  recentThoughts?: { t: number; text: string }[];
   foodSources?: FoodSource[];
   /** converts durations to turns; default 8 s per turn, no time dilation */
   clock?: TurnClock;
@@ -344,10 +346,13 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
     L.push(...o.search.lines);
   }
 
-  if (o.history.length || o.lastThought) {
+  if (o.history.length || o.lastThought || o.recentThoughts?.length) {
     L.push(``);
     L.push(`== YOUR LAST ACTIONS ==`);
-    if (o.lastThought) L.push(`Your previous thought: "${o.lastThought.slice(0, 200)}"`);
+    if (o.recentThoughts?.length) {
+      L.push(`Your recent thoughts:`);
+      for (const th of o.recentThoughts) L.push(`- ${turnsAgo(th.t, now, clock)}: "${th.text}"`);
+    } else if (o.lastThought) L.push(`Your previous thought: "${o.lastThought}"`);
     for (const h of o.history.slice(-HISTORY_SHOWN)) L.push(`- ${turnsAgo(h.t, now, clock)}: ${h.action} -> ${h.result}`);
   }
 

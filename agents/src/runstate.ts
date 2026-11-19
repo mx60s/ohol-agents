@@ -13,6 +13,7 @@
 
 import { existsSync, mkdirSync, openSync, readFileSync, readSync, closeSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { rotatedFiles } from "./events.ts";
 
 export interface RunRecord {
   runId: string;
@@ -144,13 +145,13 @@ export class RunStateFile {
 }
 
 /**
- * Highest event seq in `<dir>/events.jsonl` (or its rotated `.1`), from the
+ * Highest event seq in `<dir>/events.jsonl` (or its newest rotated generation), from the
  * file's tail. 0 if none. A resumed run continues the seq from there, so
  * viewers polling /api/events?since=<seq> keep receiving events.
  */
 export function readLastSeq(dir: string | null): number {
   if (!dir) return 0;
-  for (const f of ["events.jsonl", "events.jsonl.1"]) {
+  for (const f of ["events.jsonl", ...rotatedFiles(dir, "events.jsonl").reverse()]) {
     const p = path.join(dir, f);
     let size = 0;
     try {

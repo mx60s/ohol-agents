@@ -8,7 +8,7 @@ import { PersonalityCloud } from "../site/Cloud.tsx";
 import { RecentDeaths } from "../site/Deaths.tsx";
 import { FieldNotes } from "../site/FieldNotes.tsx";
 import { median, sortBy } from "../site/logic.ts";
-import { StorySoFar, WorldNews } from "../site/News.tsx";
+import { WorldNews } from "../site/News.tsx";
 import { LifeFigure, LifePortrait, LivesState, Seg, Sex } from "../site/ui.tsx";
 import { useSite, type SiteData } from "../site/useSite.ts";
 import { WorldMap } from "../site/WorldMap.tsx";
@@ -266,9 +266,6 @@ function Home() {
             </Panel>
             <Families site={site} />
           </div>
-          <Panel title="📖 The story so far" variant="berry" id="story">
-            <StorySoFar />
-          </Panel>
         </div>
         <div className="span-4 stack">
           <About />

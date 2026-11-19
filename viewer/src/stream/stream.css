@@ -61,7 +61,7 @@ body.stream { background: var(--grain), var(--parchment); }
 .cam-label.is-focus .ag { color: var(--ink-3); font-size: 18px; margin-left: 6px; }
 
 .cam-bubble { max-width: 380px; font-size: 25px; z-index: 3; }
-.cam-bubble .tx { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.cam-bubble .tx { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 /* an emote over a head (+HOMESICK+): small and quiet, not a speech bubble */
 .cam-emote {
   display: flex; align-items: center; gap: 5px; z-index: 3;

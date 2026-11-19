@@ -761,3 +761,14 @@ test("WHAT YOU SAW NEARBY: babies picked up and put down, births, naming, out of
   assert.equal(lines.length, 20, "at most 20 lines");
   assert.match(lines.at(-1)!, /#43 .* came into view/, "newest last; the oldest dropped");
 });
+
+test("recent thoughts: shown dated and in full (no 200-char cut)", () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: 0, female: true });
+  g.start();
+  const long = "I will " + "carefully ".repeat(30) + "make thread.";
+  const now = g.world.now();
+  const obs = buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock, recentThoughts: [{ t: now - 2, text: "First." }, { t: now - 1, text: "Second." }, { t: now, text: long }] });
+  assert.match(obs, /Your recent thoughts:\n- [^\n]*: "First\."\n- [^\n]*: "Second\."\n- [^\n]*: "I will carefully/);
+  assert.ok(obs.includes(long), "the long thought is shown whole");
+});

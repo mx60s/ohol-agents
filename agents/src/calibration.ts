@@ -11,6 +11,7 @@ import path from "node:path";
 import type { RunEvent } from "./api-types.ts";
 import { classifyAction } from "./lives.ts";
 import { parseReply } from "./agent/reply.ts";
+import { rotatedFiles } from "./events.ts";
 
 export const SCORECARD_VERSION = 2;
 /** stock OHOL: one game year per real minute (times TIME_SCALE when the clock is dilated) */
@@ -127,7 +128,8 @@ export interface ScoreMeta {
 
 function readJsonl(file: string): any[] {
   const out: any[] = [];
-  for (const f of [`${file}.1`, file]) {
+  const gens = rotatedFiles(path.dirname(file), path.basename(file)).map((f) => path.join(path.dirname(file), f));
+  for (const f of [...gens.slice(-1), file]) {
     if (!existsSync(f)) continue;
     for (const line of readFileSync(f, "utf8").split("\n")) {
       if (!line.trim()) continue;

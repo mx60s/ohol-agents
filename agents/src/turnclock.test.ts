@@ -54,13 +54,13 @@ interface Harness {
 }
 
 /** 2.4 game s per turn at 200 game s per wall s: a 12 ms act window */
-function harness(o: { decideTimeoutMs?: number; babyIdleTurns?: number; paused?: () => boolean } = {}): Harness {
+function harness(o: { decideTimeoutMs?: number; babyIdleTurns?: number; paused?: () => boolean; onActEnd?: (n: number, gameTime: number | null) => void } = {}): Harness {
   const port = new FakeClockPort(1000, 200);
   const agents: FakeAgent[] = [];
   const warnings: string[] = [];
   const coord = new TurnCoordinator(port, () => agents, {
     turnGameS: 2.4, timeScale: 1, decideTimeoutMs: o.decideTimeoutMs ?? 150, babyIdleTurns: o.babyIdleTurns ?? 4,
-    pollMs: 2, idleMs: 5, paused: o.paused, warn: (t) => warnings.push(t),
+    pollMs: 2, idleMs: 5, paused: o.paused, warn: (t) => warnings.push(t), onActEnd: o.onActEnd,
   });
   const h: Harness = {
     port, coord, agents, warnings,
@@ -120,6 +120,17 @@ test("every agent decides while the world is frozen, then all act; the target ri
   assert.ok(w.length >= 3);
   for (let i = 1; i < w.length; i++) assert.ok(Math.abs(w[i] - w[i - 1] - 2.4) < 1e-6, `step ${w[i] - w[i - 1]}`);
   assert.equal(w[0], 1002.4);
+});
+
+test("onActEnd runs once after each act window with the turn and the game time reached (positions.jsonl)", async () => {
+  const ends: [number, number | null][] = [];
+  const h = harness({ onActEnd: (n, g) => ends.push([n, g]) });
+  h.add("a");
+  h.coord.start();
+  await h.until(() => ends.length >= 3);
+  await h.coord.stop();
+  assert.deepEqual(ends.slice(0, 3).map((e) => e[0]), [1, 2, 3]);
+  for (const [n, g] of ends.slice(0, 3)) assert.ok(g != null && Math.abs(g - (1000 + 2.4 * n)) < 0.01, `turn ${n}: ${g}`);
 });
 
 test("a slow agent times out: its reply is dropped, it is told so, and it isn't asked again while still thinking", async () => {

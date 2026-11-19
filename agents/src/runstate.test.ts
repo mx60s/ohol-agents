@@ -73,6 +73,10 @@ test("RunStateFile round trip, one-shot new-run flag, last event seq", () => {
     assert.equal(readLastSeq(ev), 0);
     writeFileSync(path.join(ev, "events.jsonl.1"), '{"seq":7,"t":1}\n');
     assert.equal(readLastSeq(ev), 7);
+    // just rotated to a stamped name: the newest generation, not the legacy one
+    writeFileSync(path.join(ev, "events.20261118T194512Z.jsonl"), '{"seq":30,"t":1}\n');
+    writeFileSync(path.join(ev, "events.jsonl"), "");
+    assert.equal(readLastSeq(ev), 30);
     writeFileSync(path.join(ev, "events.jsonl"), '{"seq":41,"t":1}\n{"seq":42,"t":2}\n{"seq":4');
     assert.equal(readLastSeq(ev), 42);
     assert.equal(readLastSeq(null), 0);

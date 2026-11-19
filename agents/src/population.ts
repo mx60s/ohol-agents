@@ -10,10 +10,13 @@ import type { EventLog } from "./events.ts";
 import type { LifeStore } from "./lifestore.ts";
 import type { LeadershipResponse, MapCellTuple, MapResponse, MinimapResponse, PlayerView, StateResponse } from "./api-types.ts";
 import { buildLeadership } from "./leadership.ts";
-import type { TriedNothing, World } from "./game/world.ts";
+import type { Player, TriedNothing, World } from "./game/world.ts";
 import { LoginScheduler, type LoginDeps } from "./logins.ts";
 import { LANGUAGES_MIN_PLAYERS } from "./agent/observe.ts";
 import { FileClockPort, TurnCoordinator, type ClockPort } from "./turnclock.ts";
+
+/** positions.jsonl without the turn clock: one snapshot this often */
+export const POSITIONS_INTERVAL_MS = 10_000;
 
 /** how long a character's own lines are kept for speechScrambled (heard lines are shown for 90 s) */
 const SPOKEN_KEEP_MS = 120_000;
@@ -152,6 +155,7 @@ export class Population implements SpeechSink {
   halted = false;
   haltReason: string | null = null;
   private limitTimer: NodeJS.Timeout | null = null;
+  private positionsTimer: NodeJS.Timeout | null = null;
   /** non-null while LLM calls are paused by the daily cap (for pause/resume events) */
   private pausedFor: string | null = null;
   /** true while we've announced that the LLM provider is failing */
@@ -230,6 +234,7 @@ export class Population implements SpeechSink {
         decideTimeoutMs: c.turnDecideTimeoutMs,
         babyIdleTurns: c.babyIdleTurns,
         paused: () => !this.playing,
+        onActEnd: (n, gameTime) => this.logPositions(n, gameTime),
         warn: (text) => {
           this.log.emitEvent("system", { text });
           console.error(text);
@@ -268,6 +273,7 @@ export class Population implements SpeechSink {
       void a.run();
     }
     this.turns?.start();
+    if (!this.turns) this.positionsTimer = setInterval(() => this.logPositions(null, null), POSITIONS_INTERVAL_MS);
   }
 
   /** started, not halted, not paused (LLM outage or daily cap): our characters are being played */
@@ -283,6 +289,8 @@ export class Population implements SpeechSink {
   stop() {
     // the clock stays paused at the last target (nothing new is written)
     void this.turns?.stop();
+    if (this.positionsTimer) clearInterval(this.positionsTimer);
+    this.positionsTimer = null;
     this.logins.close();
     for (const a of this.agents) a.stop();
   }
@@ -591,30 +599,62 @@ export class Population implements SpeechSink {
     return buildLeadership(this.cfg.runId, views, this.extras.lives, now);
   }
 
-  state(): StateResponse {
-    const agentsByPlayer = new Map<number, string>();
-    for (const a of this.agents) if (a.status === "alive" && a.world?.selfId != null) agentsByPlayer.set(a.world.selfId, a.id);
-
-    const players = new Map<number, PlayerView & { seen: number }>();
+  /**
+   * Every player some living agent sees, merged across their views: per player id, the
+   * freshest sighting (highest lastSeen) and the world that saw it. /api/state and positions.jsonl.
+   */
+  private mergedPlayers(): Map<number, { p: Player; w: World }> {
+    const out = new Map<number, { p: Player; w: World }>();
     for (const a of this.agents) {
       const w = a.world;
       if (!w || a.status !== "alive") continue;
       for (const p of w.players.values()) {
-        const prev = players.get(p.id);
-        if (prev && prev.seen >= p.lastSeen) continue;
-        let held: string | null = null;
-        if (p.held.id < 0) held = `baby #${-p.held.id}`;
-        else if (p.held.id > 0) held = this.gd.describeStack(p.held);
-        // a wound or sickness is held like an item (it takes the hands)
-        const c = p.held.id > 0 ? this.gd.condition(p.held.id) : null;
-        const condition = c && c.kind !== "mark" ? { kind: c.kind, name: this.gd.name(p.held.id) } : null;
-        players.set(p.id, {
-          id: p.id, x: w.posOf(p)[0], y: w.posOf(p)[1], age: Math.round(w.currentAge(p) * 10) / 10, female: p.female,
-          name: p.name ?? w.names.get(p.id) ?? null, held, agentId: agentsByPlayer.get(p.id) ?? null, dying: p.dying, condition, seen: p.lastSeen,
-          moving: w.isWalking(p), displayId: p.displayId,
-          ...(this.extras.lives?.playerFields(p.id) ?? { lifeId: null, lineageId: null, flower: null }),
-        });
+        const prev = out.get(p.id);
+        if (prev && prev.p.lastSeen >= p.lastSeen) continue;
+        out.set(p.id, { p, w });
       }
+    }
+    return out;
+  }
+
+  /**
+   * One compact line in positions.jsonl (docs/data-format.md): after each turn's act window, or
+   * every POSITIONS_INTERVAL_MS without the turn clock.
+   * {t, turn, gameTime, players: [[id, x, y, age, heldId, moving 0|1], ...]}
+   */
+  logPositions(turn: number | null, gameTime: number | null) {
+    try {
+      const players: [number, number, number, number, number, 0 | 1][] = [];
+      for (const { p, w } of this.mergedPlayers().values()) {
+        const [x, y] = w.posOf(p);
+        players.push([p.id, x, y, Math.round(w.currentAge(p) * 10) / 10, p.held.id, w.isWalking(p) ? 1 : 0]);
+      }
+      if (!players.length) return;
+      players.sort((a, b) => a[0] - b[0]);
+      this.log.write("positions.jsonl", { t: Date.now(), turn, gameTime, players });
+    } catch (e) {
+      console.error("positions log failed", e);
+    }
+  }
+
+  state(): StateResponse {
+    const agentsByPlayer = new Map<number, string>();
+    for (const a of this.agents) if (a.status === "alive" && a.world?.selfId != null) agentsByPlayer.set(a.world.selfId, a.id);
+
+    const players = new Map<number, PlayerView>();
+    for (const { p, w } of this.mergedPlayers().values()) {
+      let held: string | null = null;
+      if (p.held.id < 0) held = `baby #${-p.held.id}`;
+      else if (p.held.id > 0) held = this.gd.describeStack(p.held);
+      // a wound or sickness is held like an item (it takes the hands)
+      const c = p.held.id > 0 ? this.gd.condition(p.held.id) : null;
+      const condition = c && c.kind !== "mark" ? { kind: c.kind, name: this.gd.name(p.held.id) } : null;
+      players.set(p.id, {
+        id: p.id, x: w.posOf(p)[0], y: w.posOf(p)[1], age: Math.round(w.currentAge(p) * 10) / 10, female: p.female,
+        name: p.name ?? w.names.get(p.id) ?? null, held, agentId: agentsByPlayer.get(p.id) ?? null, dying: p.dying, condition,
+        moving: w.isWalking(p), displayId: p.displayId,
+        ...(this.extras.lives?.playerFields(p.id) ?? { lifeId: null, lineageId: null, flower: null }),
+      });
     }
     // homesick is known only to the character's own agent (the server's private +HOMESICK+ / +HOME+ cues)
     for (const a of this.agents) {
@@ -650,7 +690,7 @@ export class Population implements SpeechSink {
       traitSource: this.cfg.traitSource,
       now: Date.now(),
       agents: views,
-      players: [...players.values()].map(({ seen, ...p }) => p),
+      players: [...players.values()],
       stats: {
         alive: alive.length,
         totalBirths: this.births,

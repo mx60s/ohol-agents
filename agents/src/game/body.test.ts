@@ -74,6 +74,20 @@ test("a long walk stops on an urgent interrupt between legs", async () => {
   assert.match(r, /stopped walking at .*your baby says F/);
 });
 
+test("onWalk reports each walk's start and target once (approach: the target tile, not the tile beside it)", async () => {
+  const g = setup(0, [100, 100]);
+  g.start(40);
+  const body = new Body(g.conn, g.world, gd);
+  const walks: [number[], number[]][] = [];
+  body.onWalk = (from, to) => walks.push([from, to]);
+  assert.equal(await body.walkTo([[5, 0]]), "arrived");
+  assert.equal(await body.walkTo([[5, 0]]), "arrived", "already there: no walk");
+  await body.approach(100, 100);
+  assert.deepEqual(walks[0], [[0, 0], [5, 0]]);
+  assert.deepEqual(walks[1], [[5, 0], [100, 100]]);
+  assert.equal(walks.length, 2);
+});
+
 /** tiles the MOVE commands walked through */
 function walked(g: FakeGame): [number, number][] {
   const out: [number, number][] = [];

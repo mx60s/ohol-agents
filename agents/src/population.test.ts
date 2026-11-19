@@ -1,7 +1,7 @@
 // Run status and limits in continuous vs normal mode (no game, no LLM calls).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -259,6 +259,34 @@ test("readBirthReady: parses '<ready> <soonest>'; missing or stale = null", () =
     const old = (Date.now() - 60_000) / 1000;
     utimesSync(f, old, old);
     assert.equal(readBirthReady(dir), null, "not rewritten for a minute: the server isn't writing it");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("positions.jsonl: one compact line of every living player, merged across views (freshest sighting wins)", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pop-"));
+  try {
+    const cfg: Config = { ...config, logDir: dir, runId: "t", narratorIntervalMs: 0 };
+    const log = new EventLog(dir, "t");
+    const pop = new Population(cfg, gd, log);
+    const P = (id: number, x: number, lastSeen: number, held = 0, moving = false) => ({ id, x, y: -x, age: 12.345, held: { id: held }, lastSeen, moving });
+    const world = (players: ReturnType<typeof P>[]) => ({
+      players: new Map(players.map((p) => [p.id, p])),
+      posOf: (p: ReturnType<typeof P>) => [p.x, p.y],
+      currentAge: (p: ReturnType<typeof P>) => p.age,
+      isWalking: (p: ReturnType<typeof P>) => p.moving,
+    });
+    pop.agents.push({ status: "alive", world: world([P(7, 1, 100), P(3, 5, 100, 33)]) } as never);
+    pop.agents.push({ status: "alive", world: world([P(7, 2, 200, -3, true)]) } as never);
+    pop.agents.push({ status: "dead", world: world([P(9, 9, 900)]) } as never);
+    pop.logPositions(12, 34.5);
+    pop.agents.splice(0);
+    pop.logPositions(13, 36.9); // nobody alive: no line
+    const lines = readFileSync(path.join(log.dir, "positions.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    assert.equal(lines.length, 1);
+    assert.equal(typeof lines[0].t, "number");
+    assert.deepEqual({ ...lines[0], t: 0 }, { t: 0, turn: 12, gameTime: 34.5, players: [[3, 5, -5, 12.3, 33, 0], [7, 2, -2, 12.3, -3, 1]] });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

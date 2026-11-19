@@ -172,6 +172,9 @@ const HISTORY_MAX = 20;
 /** turn clock: wall ms between our SAY messages (the server's flood gap is 1 wall s) */
 const SAY_GAP_MS = 1100;
 
+/** thoughts shown back each turn (dated, in full up to the 400-char thought limit) */
+const RECENT_THOUGHTS = 3;
+
 export class Agent implements TurnAgent<TurnPlan> {
   status: AgentView["status"] = "waiting";
   lifeIndex = 0;
@@ -182,6 +185,8 @@ export class Agent implements TurnAgent<TurnPlan> {
   /** World.now() of the decision that last set or changed the goal */
   goalSetAt: number | null = null;
   lastThought: string | null = null;
+  /** the last few thoughts of this life, newest last, with the World time they were had (shown dated, in full) */
+  recentThoughts: { t: number; text: string }[] = [];
   lastAction: string | null = null;
   lastSaid: string | null = null;
   pastLifeNotes: string[] = [];
@@ -342,6 +347,8 @@ export class Agent implements TurnAgent<TurnPlan> {
     this.conn = conn;
     this.body = new Body(conn, world, gd);
     this.body.interrupt = () => this.urgentSinceActionStart();
+    // where people walk (docs/data-format.md, positions.jsonl)
+    this.body.onWalk = (from, to) => this.log.write("positions.jsonl", { t: Date.now(), kind: "walk", id: world.selfId, from, to });
 
     // wait for our first PU
     for (let i = 0; i < 50 && !world.self; i++) await sleep(100);
@@ -390,6 +397,7 @@ export class Agent implements TurnAgent<TurnPlan> {
     this.goal = null;
     this.goalSetAt = null;
     this.lastThought = this.lastAction = this.lastSaid = null;
+    this.recentThoughts = [];
     this.ev("birth", isEve ? `${this.id} appeared as an Eve (age ${age.toFixed(0)})` : `${this.id} was born to mother #${me.ancestors[0]}`, {
       playerId: me.id, motherId: me.ancestors[0] ?? null, eve: isEve, generation: me.ancestors.length + 1, lifeIndex: this.lifeIndex, x: me.x, y: me.y,
       age: Math.round(age * 100) / 100, female: me.female, displayId: me.displayId,
@@ -596,6 +604,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       goal: this.goal,
       goalSetAt: this.goalSetAt,
       lastThought: this.lastThought,
+      recentThoughts: this.recentThoughts,
       foodSources: body.foodSources(),
       clock: this.clock,
       now: world.now(),
@@ -641,6 +650,8 @@ export class Agent implements TurnAgent<TurnPlan> {
     const thought = cleanText(reply.thought, 400);
     if (thought) {
       this.lastThought = thought;
+      this.recentThoughts.push({ t: d.obsWorldT ?? this.world?.now() ?? Date.now(), text: thought });
+      if (this.recentThoughts.length > RECENT_THOUGHTS) this.recentThoughts.shift();
       this.ev("thought", thought);
     }
     const goal = cleanText(reply.goal, 200);

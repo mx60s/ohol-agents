@@ -22,6 +22,7 @@ import { SEEN_SHOWN, SEEN_TURNS } from "./agent/observe.ts";
 import { MEMORY_LINE_CHARS, MEMORY_MAX_LINES, NOTE_HEADINGS, REMEMBER_EXTRA_LINES } from "./agent/memory.ts";
 import { REMEMBER_CHARS } from "./agent/reply.ts";
 import { cleanText, stripControl } from "./safety.ts";
+import { rotatedFiles } from "./events.ts";
 import type {
   AgentSpecAction,
   AgentSpecExample,
@@ -327,8 +328,10 @@ export function findExampleTurn(runDir: string, cfg: Pick<Config, "craftMacro" |
   let events = readTailLines(path.join(runDir, "events.jsonl"), caps.tailBytes);
   if (llm.length < 2) {
     // just rotated: the previous generation has the history
-    llm = [...readTailLines(path.join(runDir, "llm.jsonl.1"), caps.tailBytes), ...llm];
-    events = [...readTailLines(path.join(runDir, "events.jsonl.1"), caps.tailBytes), ...events];
+    const prev = (f: string) => rotatedFiles(runDir, f).slice(-1)[0];
+    const llmPrev = prev("llm.jsonl"), evPrev = prev("events.jsonl");
+    if (llmPrev) llm = [...readTailLines(path.join(runDir, llmPrev), caps.tailBytes), ...llm];
+    if (evPrev) events = [...readTailLines(path.join(runDir, evPrev), caps.tailBytes), ...events];
   }
   const recs = llm.map((l) => parseLine<LlmLine>(l)).filter((r): r is LlmLine => !!r && typeof r.t === "number" && typeof r.agentId === "string");
   const nextOf = new Map<number, number>(); // index -> t of the same character's next decision

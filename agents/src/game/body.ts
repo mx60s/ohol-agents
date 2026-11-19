@@ -45,6 +45,8 @@ export class Body {
   private moveSeq = 1;
   /** set by the agent: non-null = abandon a long walk or craft now (urgent event) */
   interrupt: (() => string | null) | null = null;
+  /** set by the agent: a walk starts from `from` toward `to` (the go/approach target; positions.jsonl) */
+  onWalk: ((from: Pos, to: Pos) => void) | null = null;
 
   constructor(private conn: Pick<Connection, "send">, private world: World, private gd: GameData) {}
 
@@ -165,8 +167,15 @@ export class Body {
   }
 
   /** Walk until standing on one of `goals`. Handles long trips in legs. */
-  async walkTo(goals: Pos[], maxLegs = 8): Promise<string> {
+  async walkTo(goals: Pos[], maxLegs = 8, target?: Pos): Promise<string> {
     const start = this.pos;
+    if (start && goals.length && !goals.some((g) => g[0] === start[0] && g[1] === start[1])) {
+      try {
+        this.onWalk?.([start[0], start[1]], target ?? goals[0]);
+      } catch {
+        // logging only
+      }
+    }
     for (let leg = 0; leg < maxLegs; leg++) {
       const p = this.pos;
       if (!p) return "can't move: no body";
@@ -253,7 +262,7 @@ export class Body {
     const goals: Pos[] = DIRS4.map(([dx, dy]) => [x + dx, y + dy] as Pos).filter(([gx, gy]) => this.world.walkable(gx, gy));
     if (this.world.walkable(x, y)) goals.push([x, y]);
     if (!goals.length) return "target is surrounded, can't reach it";
-    const r = await this.walkTo(goals);
+    const r = await this.walkTo(goals, 8, [x, y]);
     const q = this.pos!;
     return isAdj4(q, [x, y]) || (q[0] === x && q[1] === y) ? "arrived" : r;
   }

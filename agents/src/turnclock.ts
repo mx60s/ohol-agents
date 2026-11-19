@@ -123,6 +123,8 @@ export interface TurnClockOptions {
   paused?: () => boolean;
   /** problems worth a system event (server clock silent, act window timed out) */
   warn?: (text: string) => void;
+  /** after each act window closes (turn n, game time reached): e.g. the positions log */
+  onActEnd?: (n: number, gameTime: number | null) => void;
   /** wall clock (tests) */
   wall?: () => number;
 }
@@ -422,6 +424,11 @@ export class TurnCoordinator {
     }
     await this.waitPaused(target);
     this.actOpen = false;
+    try {
+      this.o.onActEnd?.(this.n, this.last ? Math.round(this.last.gameTime * 1000) / 1000 : null);
+    } catch (e) {
+      console.error("turn clock: onActEnd failed", e);
+    }
   }
 
   /** until the server reports paused at `target`, or the act timeout */

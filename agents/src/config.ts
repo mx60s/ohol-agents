@@ -113,7 +113,11 @@ export const config = {
   /** omniscient broadcast narrator; 0 disables */
   narratorIntervalMs: num("NARRATOR_INTERVAL_MS", 90000),
   /** model for the narrator; default OVERHEAD_MODEL (see above) */
-  narratorModel: env.NARRATOR_MODEL || overheadModel,
+  narratorModel: env.NARRATOR_MODEL || (isOpenRouter(overheadBaseUrl) ? "anthropic/claude-sonnet-5.5" : overheadModel),
+  /** no narration in these local hours, "start-end" (wraps midnight; default "23-10"); "" = always on */
+  narratorQuietHours: env.NARRATOR_QUIET_HOURS ?? "23-10",
+  /** time zone for NARRATOR_QUIET_HOURS */
+  narratorQuietTz: env.NARRATOR_QUIET_TZ || "America/Los_Angeles",
   // --- stream director (picks the one character the stream camera follows); see director.ts
   /** ms between director decisions; 0 disables the director (focus stays null) */
   directorIntervalMs: num("DIRECTOR_INTERVAL_MS", 10000),
@@ -158,7 +162,7 @@ export const config = {
   /** ms between field notes; 0 disables */
   fieldNotesIntervalMs: num("FIELD_NOTES_INTERVAL_MS", 1_200_000),
   /** model for the field notes; default the story's model */
-  fieldNotesModel: env.FIELD_NOTES_MODEL || env.STORY_MODEL || env.NARRATOR_MODEL || overheadModel,
+  fieldNotesModel: env.FIELD_NOTES_MODEL || (isOpenRouter(overheadBaseUrl) ? "anthropic/claude-sonnet-5.5" : env.STORY_MODEL || env.NARRATOR_MODEL || overheadModel),
   /** 0 = process starts idle; begin the run with POST /api/start?token=... */
   autostart: env.AUTOSTART !== "0",
   /** 1 = anyone can start/stop runs from the dashboard (no password) */
@@ -171,14 +175,16 @@ export const config = {
   /** max concurrent SSE (/api/stream) clients; more get 503 */
   sseMaxClients: num("SSE_MAX_CLIENTS", 200),
   logDir: env.LOG_DIR ?? path.join(root, "agents/logs"),
-  /** raw per-run log files (llm.jsonl, events.jsonl, ...) rotate to <file>.1 (older ones to .2, .3, ...) past this many MB; 0 = never */
+  /** raw per-run log files (llm.jsonl, events.jsonl, ...) rotate past this many MB to a stable stamped name, llm.<YYYYMMDDTHHMMSSZ>.jsonl; 0 = never */
   logMaxFileMb: num("LOG_MAX_FILE_MB", 32),
   /**
-   * cap on all run dirs under LOG_DIR together (MB): past it the oldest rotated
-   * generations are deleted, live files never. /data is a 3 GB volume shared
-   * with the world (fly.toml), so 2 GB. 0 = no cap
+   * last-resort cap on all run dirs under LOG_DIR together (MB). Everything is
+   * kept and backed up off-site (deploy/backup-logs.sh); only past this cap are
+   * the oldest rotated files deleted, never one younger than 24 h and never a
+   * live file. A warning is logged when the volume passes 80%. /data
+   * auto-extends to 10 GB (fly.toml). 0 = no cap
    */
-  logMaxTotalMb: num("LOG_MAX_TOTAL_MB", 2048),
+  logMaxTotalMb: num("LOG_MAX_TOTAL_MB", 8192),
   // --- starting setup and rejoins (see logins.ts and README "Run setup")
   /** Eves to start the run with: logins go in one at a time until this many have appeared as Eves */
   initialEves: num("INITIAL_EVES", 2),

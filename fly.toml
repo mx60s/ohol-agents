@@ -63,7 +63,10 @@ kill_timeout = "60s"
   RECIPE_HINTS = "1"
   # actions per reply, back to back: 4 fits the ember chain (drill, swap, leaf, tinder) in one list
   ACTION_LIST_MAX = "4"
-  NARRATOR_INTERVAL_MS = "90000"
+  NARRATOR_INTERVAL_MS = "300000"
+  # no narration 23:00-10:00 Pacific
+  NARRATOR_QUIET_HOURS = "23-10"
+  NARRATOR_QUIET_TZ = "America/Los_Angeles"
   # stream director + "story so far" (defaults from .env.example)
   DIRECTOR_ENGINE = "jev"
   DIRECTOR_INTERVAL_MS = "10000"
@@ -74,9 +77,10 @@ kill_timeout = "60s"
   DIRECTOR_CUTAWAY_MIN_SCORE = "7"
   DIRECTOR_CUTAWAY_HEURISTIC_SCORE = "9"
   DIRECTOR_CUTAWAY_P = "0.85"
-  STORY_INTERVAL_MS = "900000"
+  STORY_INTERVAL_MS = "0"
   # field notes on the home page (FIELD_NOTES_MODEL defaults to the story model)
   FIELD_NOTES_INTERVAL_MS = "1200000"
+  FIELD_NOTES_MODEL = "anthropic/claude-sonnet-5.5"
   # spend guards: 0 = off. Set e.g. DAILY_COST_USD = "5" to pause LLM calls
   # once the rolling 24h spend reaches it (survives restarts, kept in LOG_DIR).
   DAILY_COST_USD = "0"

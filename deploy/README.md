@@ -361,6 +361,68 @@ fly machine restart <machine_id>
 Caveat: unpacking while the server is running can race with its writes. The
 safest order is snapshot first, then restore, then restart right away.
 
+## Log backups (laptop, every 3 hours)
+
+Every log is kept on the volume (rotated files get stable names,
+`llm.<YYYYMMDDTHHMMSSZ>.jsonl`; `LOG_MAX_TOTAL_MB` 8192 is a last-resort cap that
+never deletes a rotated file younger than 24 h). The laptop copies them off-site.
+Every file is described in `docs/data-format.md`.
+
+`deploy/backup-logs.sh` runs on the laptop and only reads from the server:
+
+1. It lists `/data/logs` and `/data/worlds/archive` over `fly ssh console` (path, size, mtime).
+2. It compares that list with `~/ohol-archive/manifest.tsv` (path, size, mtime, uploaded-at, archive).
+3. It streams the new or changed files as one `tar czf -` over ssh, under `nice`.
+   The file list goes in on stdin (`tar -T -`), so there is no argument-length limit.
+4. It checks the download (`gzip -t`, and the tar listing against the expected files).
+   Then it writes `My Drive/ohol-archive/backups/ohol-<UTC stamp>.tar.gz` to your Google Drive,
+   with `ohol-<UTC stamp>.files.tsv` next to it (path, size, mtime, `live`/`rotated`).
+   It checks the Drive copy, and only then appends the files to the manifest.
+
+Live files that are still written (events.jsonl, llm.jsonl, positions.jsonl,
+`lives/*.jsonl`, `research/lives.snapshot.json`, ...) are included whenever they
+changed. So the newest backup always has their latest copy. A live copy may end
+in a torn line.
+
+On its first run, the script copies the manual backup
+`~/ohol-archive/ohol-data-20261118T1945.tar.gz` to Drive as
+`ohol-20261119T034500Z-initial.tar.gz` and seeds the manifest from it.
+
+The script also behaves like this:
+- It exits non-zero with a message when the Drive folder is missing or offline.
+- If Google Drive for desktop isn't running, it starts it in the background.
+  Set `OHOL_START_DRIVE=0` to fail instead.
+- A lock (`~/ohol-archive/backup.lock`) keeps a second copy from running.
+- It logs to `~/ohol-archive/backup.log`.
+
+**Install** (launchd, every 3 h and at login; the job runs a copy of the script, so
+switching branches doesn't stop it; re-run the `cp` after changing the script):
+
+```sh
+mkdir -p ~/ohol-archive/bin && cp deploy/backup-logs.sh ~/ohol-archive/bin/
+sed -e "s#__HOME__#$HOME#g" -e "s#__FLY__#$(which fly)#g" deploy/com.ohol.backup.plist > ~/Library/LaunchAgents/com.ohol.backup.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ohol.backup.plist
+launchctl kickstart gui/$(id -u)/com.ohol.backup     # run once now
+tail -f ~/ohol-archive/backup.log
+```
+
+**macOS privacy (one time).** macOS keeps background jobs out of the Google Drive
+folder (`~/Library/CloudStorage`). Until you allow it, each scheduled run logs
+"macOS doesn't let this job read your Google Drive folder (Operation not permitted)"
+and exits 1. To allow it, open System Settings > Privacy & Security > Full Disk Access,
+click +, press Cmd-Shift-G and enter `/bin/bash`, then turn it on. Check with
+`launchctl kickstart gui/$(id -u)/com.ohol.backup; tail ~/ohol-archive/backup.log`.
+Running the script from a Terminal works without this.
+
+**Uninstall:**
+`launchctl bootout gui/$(id -u)/com.ohol.backup && rm ~/Library/LaunchAgents/com.ohol.backup.plist`
+
+**Restore.** `deploy/restore-logs.sh <out dir> [runId ...]` extracts every
+backup in timestamp order. A later copy of a live file overwrites an earlier one,
+and each rotated file lands once. The result has the server's layout
+(`<out dir>/logs/<runId>-<startStamp>/...`). By hand it is the same:
+`for a in $(ls ohol-2*.tar.gz | sort); do tar xzf "$a" -C out; done`.
+
 ## Roll back
 
 A hot update rolls back with `deploy/hot-update.sh rollback` (see
