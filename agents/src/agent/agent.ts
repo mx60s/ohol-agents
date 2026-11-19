@@ -133,7 +133,7 @@ export function ranOutOfTokens(r: LlmResult, maxTokens: number): boolean {
 
 /** The reasoning-cap request options for a decision (null = uncapped). */
 export function capOptions(
-  cfg: Pick<Config, "llmModel" | "llmReasoningCap" | "llmReasoningMaxTokens" | "llmDecisionMaxTokens"> & Partial<Pick<Config, "llmReasoningStyle">>,
+  cfg: Pick<Config, "llmModel" | "llmReasoningCap" | "llmReasoningMaxTokens" | "llmDecisionMaxTokens"> & Partial<Pick<Config, "llmReasoningStyle" | "llmReasoningEffort">>,
   state: CapState = capState,
 ): ChatOptions | null {
   if (!cfg.llmReasoningCap || state.uncapped.has(cfg.llmModel)) return null;
@@ -141,14 +141,14 @@ export function capOptions(
   const extra =
     cfg.llmReasoningStyle === "vllm"
       ? { chat_template_kwargs: { enable_thinking: true }, ...(cfg.llmReasoningMaxTokens > 0 ? { thinking_token_budget: cfg.llmReasoningMaxTokens } : {}) }
-      : { reasoning: cfg.llmReasoningMaxTokens > 0 ? { max_tokens: cfg.llmReasoningMaxTokens } : { effort: "low" } };
+      : { reasoning: cfg.llmReasoningMaxTokens > 0 ? { max_tokens: cfg.llmReasoningMaxTokens } : { effort: cfg.llmReasoningEffort?.trim() || "low" } };
   return { maxTokens: cfg.llmDecisionMaxTokens, extra };
 }
 
 /**
  * One decision call. With LLM_REASONING_CAP=1 the model keeps some
  * reasoning, mildly capped: a reasoning budget of LLM_REASONING_MAX_TOKENS
- * (OpenRouter reasoning.max_tokens; 0 = effort "low") inside a total of
+ * (OpenRouter reasoning.max_tokens; 0 = LLM_REASONING_EFFORT, default "low") inside a total of
  * LLM_DECISION_MAX_TOKENS, leaving room for the visible JSON. Models that
  * ignore the cap can burn the whole budget on reasoning and return nothing
  * (an empty reply with finish_reason "length") or a cut-off reply: then the
@@ -160,7 +160,7 @@ export function capOptions(
 export async function cappedDecision(
   llm: Pick<Llm, "chat">,
   messages: ChatMessage[],
-  cfg: Pick<Config, "llmModel" | "llmReasoningCap" | "llmReasoningMaxTokens" | "llmDecisionMaxTokens"> & Partial<Pick<Config, "llmReasoningStyle">>,
+  cfg: Pick<Config, "llmModel" | "llmReasoningCap" | "llmReasoningMaxTokens" | "llmDecisionMaxTokens"> & Partial<Pick<Config, "llmReasoningStyle" | "llmReasoningEffort">>,
   state: CapState = capState,
   onUncapped?: (model: string) => void,
 ): Promise<LlmResult> {

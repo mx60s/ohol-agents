@@ -47,15 +47,15 @@ kill_timeout = "60s"
   # docs/research/selfhost-optimize.md). LLM_BASE_URL and LLM_API_KEY are secrets (pod URL changes per pod).
   # Narrator, story and director stay on OpenRouter (OPENROUTER_API_KEY): Gemini 3.1 Flash-Lite and Jev.
   LLM_MODEL = "anthropic/claude-sonnet-5.5"
-  LLM_REASONING_EFFORT = "low"
+  LLM_REASONING_EFFORT = "medium"
   # mild reasoning: thinking on, 400-token thinking budget inside 800 tokens (vLLM thinking_token_budget;
   # 400 removes Qwen3-32B's ~1% empty replies at 300, docs/research/selfhost-optimize.md)
-  # OpenRouter: 0 = reasoning effort "low" (no token budget); room for thinking + the JSON reply
+  # OpenRouter: 0 = reasoning effort LLM_REASONING_EFFORT (no token budget); room for thinking + the JSON reply
   LLM_REASONING_MAX_TOKENS = "0"
   LLM_DECISION_MAX_TOKENS = "4000"
   # tester mode (agents/src/agent/tester.ts): one ordered task list per family; issues -> issues.jsonl
   TESTER_GOALS = '["make fire, then a kiln, then a clay bowl, then fill the bowl with water, then build adobe walls with a door and a floor", "grow carrots and beans from seed to harvest, then make clothing, then keep sheep"]'
-  RUN_LABEL = "TEST · Claude Sonnet 5.5 (low effort)"
+  RUN_LABEL = "TEST · Claude Sonnet 5.5 (medium effort)"
   # hard stop for the test: the run halts past MAX_COST_USD; DAILY_COST_USD also survives restarts
   MAX_COST_USD = "550"
   # turn-based clock (docs/turn-clock.md): the world is frozen while everyone thinks, then runs

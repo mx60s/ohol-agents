@@ -2,7 +2,7 @@
 // (empty reply, finish_reason "length") get one full-budget retry, and are uncapped after two.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cappedDecision, ranOutOfTokens, type CapState } from "./agent.ts";
+import { capOptions, cappedDecision, ranOutOfTokens, type CapState } from "./agent.ts";
 import type { ChatMessage, ChatOptions, LlmResult } from "./llm.ts";
 
 const cfg = { llmModel: "moonshotai/kimi-k3.1-pro", llmReasoningCap: true, llmReasoningMaxTokens: 300, llmDecisionMaxTokens: 800 };
@@ -102,4 +102,11 @@ test("vllm style: a reply that ran out is retried with the same thinking budget 
   assert.equal(st.uncapped.size, 0);
   await cappedDecision(f.llm, msgs, v, st);
   assert.deepEqual(f.calls[4], { maxTokens: 800, extra: budget }, "later calls still capped");
+});
+
+test("openrouter style with no reasoning budget: the effort is LLM_REASONING_EFFORT (default low)", () => {
+  const base = { llmModel: "m", llmReasoningCap: true, llmReasoningMaxTokens: 0, llmDecisionMaxTokens: 4000, llmReasoningStyle: "openrouter" as const };
+  const fresh = { uncapped: new Set<string>(), strikes: new Map<string, number>() };
+  assert.deepEqual(capOptions(base, fresh)?.extra, { reasoning: { effort: "low" } });
+  assert.deepEqual(capOptions({ ...base, llmReasoningEffort: "medium" }, fresh)?.extra, { reasoning: { effort: "medium" } });
 });
