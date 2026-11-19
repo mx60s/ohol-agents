@@ -212,6 +212,8 @@ body.stream { background: var(--grain), var(--parchment); }
   font-size: 0.9em;
   display: inline-block;
 }
+.side .condition.homesick { background: var(--grad-navy, #33507a); }
+.side .condition.back-home { background: var(--grad-leaf, #46621c); }
 
 /* "Doing": the followed person's latest hands-on action, in full (results like "not food… nearest food…" matter) */
 .side .doing-sec .tx { white-space: normal; overflow-wrap: anywhere; }

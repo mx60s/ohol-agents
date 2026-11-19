@@ -98,8 +98,9 @@ export function cueOfSay(text: string | null | undefined): string | null {
   return m ? m[1] : null;
 }
 
-/** "homesick", "free rein": a cue as a muted label */
+/** "homesick", "back home", "free rein": a cue as a muted label */
 export function cueLabel(word: string): string {
+  if (word === "HOME") return "back home";
   return word.toLowerCase();
 }
 

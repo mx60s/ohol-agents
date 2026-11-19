@@ -220,16 +220,19 @@ export function personLayers(m: OholManifest, baseId: number, hairDonor?: number
     return null;
   };
 
-  // Donor layers of one kind, re-anchored on the base head. `back` = drawn before the donor's
-  // body (long hair hanging behind the body); those go before the base body, the rest where the
-  // base's first layer of that kind was (keeps e.g. eyes-under-hair ordering).
+  // Donor layers of one kind, re-anchored on the base head, in the donor's own depth bands:
+  // `back` = drawn before the donor's body (long hair hanging behind the body), goes before the
+  // base body; `mid` = after the body but before the head (the back of a big hairdo, e.g. Male019's
+  // afro), goes right before the base head; `front` = after the head, goes where the base's first
+  // layer of that kind after its head was (keeps e.g. eyes-under-hair ordering). Base layers of a
+  // replaced kind are dropped wherever they sit.
   interface Src {
     donor: number; // -1 = base
     idx: number; // index in its source object
     L: Layer;
     hair: boolean;
   }
-  const donorLayers = (donorId: number | undefined, kind: Exclude<Kind, null>): { back: Src[]; front: Src[] } | null => {
+  const donorLayers = (donorId: number | undefined, kind: Exclude<Kind, null>): { back: Src[]; mid: Src[]; front: Src[] } | null => {
     if (donorId === undefined || donorId === baseId) return null;
     const d = m.objects[donorId];
     if (!d) return null;
@@ -239,13 +242,14 @@ export function personLayers(m: OholManifest, baseId: number, hairDonor?: number
     const dx = base.l[bh].x - d.l[dh].x;
     const dy = base.l[bh].y - d.l[dh].y;
     const back: Src[] = [];
+    const mid: Src[] = [];
     const front: Src[] = [];
     d.l.forEach((L, i) => {
       if (kindOf(d, i, dh) !== kind) return;
       const src = { donor: donorId, idx: i, L: { ...L, x: L.x + dx, y: L.y + dy, bp: undefined }, hair: kind === "hair" };
-      (i < dbody ? back : front).push(src);
+      (i < dbody ? back : i < dh ? mid : front).push(src);
     });
-    return { back, front };
+    return { back, mid, front };
   };
 
   const hair = donorLayers(hairDonor, "hair");
@@ -260,16 +264,20 @@ export function personLayers(m: OholManifest, baseId: number, hairDonor?: number
       if (hair) seq.push(...hair.back);
       if (face) seq.push(...face.back);
     }
+    if (i === bh) {
+      if (hair) seq.push(...hair.mid);
+      if (face) seq.push(...face.mid);
+    }
     const kind = kindOf(base, i, bh);
-    // (base layers of a replaced kind that sit behind the body are just dropped)
+    // (base layers of a replaced kind that sit behind the head are just dropped)
     if (kind === "hair" && hair) {
-      if (!hairDone && i > baseBody) seq.push(...hair.front);
-      hairDone = i > baseBody;
+      if (!hairDone && i > bh) seq.push(...hair.front);
+      hairDone = hairDone || i > bh;
       return;
     }
     if (kind === "face" && face) {
-      if (!faceDone && i > baseBody) seq.push(...face.front);
-      faceDone = i > baseBody;
+      if (!faceDone && i > bh) seq.push(...face.front);
+      faceDone = faceDone || i > bh;
       return;
     }
     seq.push({ donor: -1, idx: i, L, hair: isHairName(name(L)) });

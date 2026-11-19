@@ -527,3 +527,25 @@ export function speechBubbles(events: readonly RunEvent[], now: number): SpeechB
   }
   return out;
 }
+
+/** how long the card's "Back home" badge stays after a +HOME+ cue (server ms) */
+export const BACK_HOME_MS = 60_000;
+
+/**
+ * Did this person come back into their family's homeland in the last BACK_HOME_MS? True when
+ * their latest +HOME+ / +HOMESICK+ cue since `sinceT` is +HOME+ and at most BACK_HOME_MS old
+ * (events oldest first; a person is matched by agent id or player id).
+ */
+export function backHome(events: readonly RunEvent[], who: { agentId?: string | null; playerId?: number | null }, sinceT: number, now: number): boolean {
+  if (!who.agentId && who.playerId == null) return false;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.t < sinceT || now - e.t > BACK_HOME_MS) return false;
+    if (e.kind !== "say" || e.t > now) continue;
+    if (!((who.agentId && e.agentId === who.agentId) || (who.playerId != null && e.playerId === who.playerId))) continue;
+    const cue = cueOfSay(e.text);
+    if (cue === "HOME") return true;
+    if (cue === "HOMESICK") return false;
+  }
+  return false;
+}

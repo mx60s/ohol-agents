@@ -302,6 +302,25 @@ test("graft: donor hair is re-anchored on the base head and flagged; base face k
   assert.notEqual(old[0].hairTint, "#3366cc");
 });
 
+test("graft: a donor's behind-the-head hair stays behind the base head; donor front hair goes in front", { skip: !haveAssets }, () => {
+  const headIdx = (L) => L.findIndex((l) => (l.bp ?? 0) & 1);
+  // Male019 (3078)'s afro has layers between body and head: on another body they must stay behind the face
+  for (const base of [355, 354, 1629]) {
+    const L = personLayers(M, base, 3078, undefined);
+    const h = headIdx(L);
+    const behind = L.filter((l, i) => l.hair && i < h).map((l) => M.sprites[l.s].n);
+    const front = L.filter((l, i) => l.hair && i > h).map((l) => M.sprites[l.s].n);
+    assert.ok(behind.length >= 6 && behind.every((n) => /019/.test(n)), `${base}: back of the afro behind the head`);
+    assert.ok(front.length > 0 && front.every((n) => /019/.test(n)), `${base}: front of the afro in front`);
+    assert.ok(L.filter((l) => l.hair).every((l) => /019/.test(M.sprites[l.s].n)), `${base}: no base hair left`);
+  }
+  // and the reverse: 3078 as the body, its own behind-head hair dropped, donor hair in front of the head
+  const L = personLayers(M, 3078, 347, undefined);
+  const h = headIdx(L);
+  assert.ok(!L.some((l) => /019/.test(M.sprites[l.s].n) && /hair|beard/i.test(M.sprites[l.s].n)), "no Male019 hair left");
+  assert.ok(L.filter((l) => l.hair).every((l) => L.indexOf(l) > h), "donor hair drawn over the head");
+});
+
 test("flip mirrors x; clothing and held objects are placed", { skip: !haveAssets }, () => {
   const r = composePerson(M, { displayId: 19, age: 30 });
   const l = composePerson(M, { displayId: 19, age: 30, facingLeft: true });

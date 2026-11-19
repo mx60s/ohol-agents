@@ -592,6 +592,11 @@ export class Population implements SpeechSink {
         });
       }
     }
+    // homesick is known only to the character's own agent (the server's private +HOMESICK+ / +HOME+ cues)
+    for (const a of this.agents) {
+      const self = a.status === "alive" && a.world?.selfId != null ? players.get(a.world.selfId) : undefined;
+      if (self && a.world?.homesick) self.homesick = true;
+    }
     const lives = this.extras.lives;
     const views = this.agents.map((a) => {
       const v = a.view();

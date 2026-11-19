@@ -8,7 +8,7 @@ import { getClient, useInventions, useLives, useMap, useMinimap, useNow, useObje
 import { ageStage, cueLabel, cueOfSay, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait, withFamilyNames } from "../shared/index.ts";
 import { flowersForLives } from "../ohol/flower.ts";
 import { Sticker, Wordmark } from "../theme/index.ts";
-import { biomeName, cutawayShot, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, speechBubbles, describeAction, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
+import { backHome, biomeName, cutawayShot, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, speechBubbles, describeAction, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
 import { CELL, FOCUS_DROP, WorldCamera } from "../stream/WorldCamera.tsx";
 import { MiniMap } from "../stream/MiniMap.tsx";
 import "../stream/stream.css";
@@ -459,6 +459,10 @@ function Following(p: FollowingProps) {
                 ⚠ {player?.condition ? `${player.condition.kind === "sickness" ? "Sick" : "Wounded"}: ${player.condition.name}` : "Wounded"}
                 {player?.dying ? " · bleeding" : ""}
               </div>
+            )}
+            {!dead && player?.homesick && <div className="condition homesick">🏠 Homesick: outside their family's homeland</div>}
+            {!dead && !player?.homesick && backHome(p.events, { agentId: agent?.agentId, playerId: player?.id ?? life?.playerId }, since, p.now) && (
+              <div className="condition back-home">🏠 Back home: returned to their family's homeland</div>
             )}
           </div>
         </div>

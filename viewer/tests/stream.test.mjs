@@ -404,6 +404,8 @@ test("cues are told apart from speech: +HOMESICK+, +FREE REIN+; not words around
   const { cueOfSay, cueLabel } = await import("../src/shared/format.ts");
   assert.equal(cueOfSay("+HOMESICK+"), "HOMESICK");
   assert.equal(cueLabel(cueOfSay("+FREE REIN+")), "free rein");
+  assert.equal(cueLabel(cueOfSay("+HOME+")), "back home");
+  assert.equal(cueLabel(cueOfSay("+HOMESICK+")), "homesick");
   assert.equal(cueOfSay("I MISS HOME"), null);
   assert.equal(cueOfSay("+HOME+ NOW"), null);
   assert.equal(cueOfSay(null), null);
@@ -412,4 +414,33 @@ test("cues are told apart from speech: +HOMESICK+, +FREE REIN+; not words around
 test("the camera draws an emote bubble as a small house badge, not a speech bubble", () => {
   const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/stream/WorldCamera.tsx"), "utf8");
   assert.match(src, /if \(b\.emote\) \{[\s\S]*?data-kind="emote" className="cam-emote"[\s\S]*?continue;/);
+});
+
+test("card: 'Back home' badge for BACK_HOME_MS after the person's latest +HOME+, unless homesick again", async () => {
+  const { backHome, BACK_HOME_MS } = await import("../src/stream/logic.ts");
+  assert.equal(BACK_HOME_MS, 60_000);
+  const say = (seq, t, text, playerId = 7, agentId = "a7") => ({ seq, t, kind: "say", text, playerId, agentId });
+  const me = { agentId: "a7", playerId: 7 };
+  const evs = [say(1, 1_000, "+HOMESICK+"), say(2, 10_000, "+HOME+"), say(3, 12_000, "HELLO"), say(4, 15_000, "+HOMESICK+", 8, "a8")];
+  assert.equal(backHome(evs, me, 0, 5_000), false, "before the +HOME+");
+  assert.equal(backHome(evs, me, 0, 10_000), true);
+  assert.equal(backHome(evs, me, 0, 10_000 + BACK_HOME_MS), true);
+  assert.equal(backHome(evs, me, 0, 10_000 + BACK_HOME_MS + 1), false, "expired");
+  assert.equal(backHome(evs, { playerId: 7 }, 0, 20_000), true, "matched by player id");
+  assert.equal(backHome(evs, { agentId: "a8", playerId: 8 }, 0, 20_000), false, "someone else's cue");
+  assert.equal(backHome(evs, {}, 0, 20_000), false);
+  assert.equal(backHome(evs, me, 11_000, 20_000), false, "a +HOME+ before this life doesn't count");
+  // left again: the newer +HOMESICK+ ends it
+  const left = [...evs, say(5, 30_000, "+HOMESICK+")];
+  assert.equal(backHome(left, me, 0, 31_000), false);
+});
+
+test("the card shows the green 'Back home' badge, the emote keeps its house icon", () => {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  const page = fs.readFileSync(path.join(dir, "../src/pages/stream.tsx"), "utf8");
+  assert.match(page, /backHome\(p\.events[\s\S]*?className="condition back-home">🏠 Back home: returned to their family's homeland/);
+  const css = fs.readFileSync(path.join(dir, "../src/stream/stream.css"), "utf8");
+  assert.match(css, /\.side \.condition\.back-home \{ background: var\(--grad-leaf/);
+  const cam = fs.readFileSync(path.join(dir, "../src/stream/WorldCamera.tsx"), "utf8");
+  assert.match(cam, /b\.emote === "HOME"\) && <HomeIcon tear=\{b\.emote === "HOMESICK"\}/);
 });

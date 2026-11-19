@@ -156,6 +156,7 @@ function normPlayer(v: unknown): PlayerView | null {
     agentId: strOrNull(v.agentId),
     dying: v.dying === true,
     condition: normCondition(v.condition),
+    homesick: v.homesick === true,
     moving: v.moving === true,
     displayId: num(v.displayId, 19),
     lifeId: strOrNull(v.lifeId),
