@@ -456,7 +456,7 @@ function numRecord<T extends { [K in keyof T]: number }>(v: unknown, d: T): T {
 
 const LIMITS0: AgentSpecLimits = {
   viewRadius: 0, peopleRadius: 0, resourceRadius: 0, maxThingKinds: 0, maxHints: 0, maxPeople: 0, historyShown: 0, heardWindowS: 0, heardMax: 0,
-  heardTurns: 0, seenTurns: 0, seenMax: 0, seenPerPersonPerTurn: 0, memoryLines: 0, memoryLineChars: 0, rememberExtraLines: 0, rememberChars: 0, searchSteps: 0,
+  heardTurns: 0, seenTurns: 0, seenMax: 0, seenPerPersonPerTurn: 0, memoryLines: 0, memoryLineChars: 0, keptMax: 0, rememberChars: 0, searchSteps: 0,
   maxActDist: 0, wakeSpeechRadius: 0, hearingRadius: 0, reflexFood: 0,
 };
 
@@ -464,7 +464,7 @@ function normAgentExample(v: unknown): AgentSpecExample | null {
   if (!isObj(v) || typeof v.observation !== "string") return null;
   const rep = isObj(v.reply) ? v.reply : {};
   const reply: AgentSpecExample["reply"] = {};
-  for (const k of ["thought", "goal", "say", "remember"] as const) if (typeof rep[k] === "string") reply[k] = rep[k] as string;
+  for (const k of ["thought", "goal", "say", "remember", "forget"] as const) if (typeof rep[k] === "string") reply[k] = rep[k] as string;
   if (isObj(rep.action)) reply.action = rep.action;
   if (Array.isArray(rep.actions)) reply.actions = rep.actions.filter(isObj);
   return {

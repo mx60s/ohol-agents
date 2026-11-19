@@ -260,10 +260,14 @@ test("describeAction: plain sentences for hands-on actions, null for walking/spe
     ["use (44, 2) -> use at (44,2): nothing happened", "tried to use something: nothing happened"],
     ['search "Fire" -> MAKING FIRE: 21 steps (see SEARCH)', "looked up how to make fire"],
     ['search "clothes" -> nothing is called "clothes"', "looked up how to make clothes"],
-    ['remember "the pond is at (5, 10) -> north" -> kept for your next notes', "noted: the pond is at (5, 10) -> north"],
+    ['remember "the pond is at (5, 10) -> north" -> kept', "remembered: the pond is at (5, 10) -> north"],
+    ['remember "ash went east" -> kept; you forgot the oldest: "pond at (5, 10)"', "remembered: ash went east"],
+    ['remember "LIRA wears the red rose" -> kept; you\'ll know the woman with the red rose as LIRA', "remembered: LIRA wears the red rose"],
+    ['forget 3 -> you let go of "the pond is at (5, 10)"', "forgot: the pond is at (5, 10)"],
+    ['forget "ash went east" -> you let go of "ash went east"', "forgot: ash went east"],
   ];
   for (const [inp, want] of cases) assert.equal(describeAction(inp), want, inp);
-  for (const inp of ["go (3, 4) -> arrived", "pick_up_baby #3 -> picked up baby #3", 'say "F" -> said "F"', "wait -> waited 2 turns", "jump -> wiggled", 'search "" -> search cleared', 'remember "x" -> not kept: notes are off']) assert.equal(describeAction(inp), null, inp);
+  for (const inp of ["go (3, 4) -> arrived", "pick_up_baby #3 -> picked up baby #3", 'say "F" -> said "F"', "wait -> waited 2 turns", "jump -> wiggled", 'search "" -> search cleared', 'remember "x" -> not kept: notes are off', 'remember "x" -> already remembered', 'forget 9 -> nothing let go: there is no memory 9 (you have 2)']) assert.equal(describeAction(inp), null, inp);
 });
 
 test("motion: a 30-tile move between polls walks (fast) instead of warping; a 80-tile jump snaps", async () => {

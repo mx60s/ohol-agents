@@ -234,7 +234,7 @@ export function scoreRecords(llm: any[], events: RunEvent[], meta: ScoreMeta): S
         const age = Number(e.data?.age);
         died.set(k, { t: e.t, age: Number.isFinite(age) ? age : null, reason: String(e.data?.reason ?? "unknown").replace(/^reason_/, "") });
       }
-    } else if (e.kind === "action" && typeof e.data?.remember !== "string") {
+    } else if (e.kind === "action" && typeof e.data?.remember !== "string" && typeof e.data?.forget !== "string") {
       const c = classifyAction(e);
       actions++;
       if (c.failedActions) failed++;

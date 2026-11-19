@@ -464,9 +464,12 @@ export function describeAction(text: string): string | null {
   // a hint search (search "fire" -> MAKING FIRE: 21 steps (see SEARCH)); "" cleared it
   const sq = /^search "(.*?)"(?: \[step \d+\/\d+\])? -> /.exec(t);
   if (sq) return sq[1].trim() ? `looked up how to make ${sq[1].trim().toLowerCase()}` : null;
-  // something kept for the yearly notes (remember "pond at (5, 10)" -> kept for your next notes); not kept: nothing to show
-  const rm = /^remember "(.*)" -> (.*)$/.exec(t);
-  if (rm) return rm[1].trim() && /^kept\b/.test(rm[2]) ? `noted: ${rm[1].trim()}` : null;
+  // something the agent chose to remember (remember "pond at (5, 10)" -> kept); already remembered or not kept: nothing to show
+  const rm = /^remember "(.*)" -> (kept\b.*|already remembered.*|not kept.*)$/.exec(t);
+  if (rm) return rm[1].trim() && /^kept\b/.test(rm[2]) ? `remembered: ${rm[1].trim()}` : null;
+  // a memory let go (forget 3 -> you let go of "pond at (5, 10)"); nothing let go: nothing to show
+  const fg = /^forget .*? -> (?:you let go of "(.*)"|nothing let go\b.*)$/.exec(t);
+  if (fg) return fg[1] ? `forgot: ${fg[1]}` : null;
   const verb = t.split(/[\s(]/)[0];
   const res = (t.split(" -> ").slice(1).join(" -> ") || "").replace(/\s*\(your path[^)]*\)\s*$/, "").trim();
   if (!res) return null;

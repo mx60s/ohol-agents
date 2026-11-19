@@ -66,16 +66,29 @@ export function validActionTypes(craft: boolean): string[] {
   return Object.keys(SPECS).filter((k) => craft || !SPECS[k].craft);
 }
 
-/** max length of a "remember" item (like a notes line) */
-export const REMEMBER_CHARS = 160;
+/** max length of a "remember" entry (kept verbatim, see kept.ts) */
+export const REMEMBER_CHARS = 200;
 
 /**
- * The reply's optional "remember" text for the next yearly notes, cleaned like
- * say/goal; "" when absent. The old per-turn "note" field stays ignored: it is
- * not read as "remember" (the notebook was removed on purpose).
+ * The reply's optional "remember" text, cleaned like say/goal and kept as
+ * written (kept.ts); "" when absent. The old per-turn "note" field stays
+ * ignored: it is not read as "remember" (the notebook was removed on purpose).
  */
 export function parseRemember(reply: Record<string, unknown>): string {
   return cleanText(reply.remember, REMEMBER_CHARS);
+}
+
+/**
+ * The reply's optional "forget": the number of a memory as listed (3, "3", "#3", "3.")
+ * or its exact text; null when absent or empty.
+ */
+export function parseForget(reply: Record<string, unknown>): number | string | null {
+  const v = reply.forget;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v !== "string") return null;
+  const m = /^\s*#?\s*(\d{1,4})\s*\.?\s*$/.exec(v);
+  if (m) return Number(m[1]);
+  return cleanText(v, REMEMBER_CHARS) || null;
 }
 
 const FORMAT = `Reply with one JSON object like {"thought":"...","action":{"type":"go","x":3,"y":4}}`;

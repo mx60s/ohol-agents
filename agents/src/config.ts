@@ -48,10 +48,13 @@ export const config = {
   runId: env.RUN_ID ?? "pilot1",
   memoryMode: (env.MEMORY_MODE === "persistent" ? "persistent" : "per-life") as "per-life" | "persistent",
   /**
-   * 1 (default) = a yearly summary of this life ("WHAT YOU REMEMBER") rewritten in the
-   * background every MEMORY_SUMMARY_TURNS turns by the agents' model (agent/memory.ts); 0 = none
+   * 1 = the note-taker: a yearly summary of this life ("YOUR NOTES") rewritten in the background
+   * every MEMORY_SUMMARY_TURNS turns by the agents' model (agent/memory.ts). Off by default (0):
+   * agents keep their own memory instead (the reply's "remember", agent/kept.ts)
    */
-  memorySummary: env.MEMORY_SUMMARY !== "0",
+  memorySummary: env.MEMORY_SUMMARY === "1",
+  /** entries an agent can keep in THINGS YOU CHOSE TO REMEMBER (the reply's "remember"; agent/kept.ts) */
+  memoryMaxEntries: Math.max(1, Math.floor(num("MEMORY_MAX_ENTRIES", 25))),
   /** turns between memory summaries (turn clock: 25 turns of TURN_GAME_S=2.4 = one game year; else decisions) */
   memorySummaryTurns: Math.max(1, Math.floor(num("MEMORY_SUMMARY_TURNS", 25))),
   recipeHints: env.RECIPE_HINTS !== "0",

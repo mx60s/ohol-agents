@@ -188,6 +188,8 @@ const pronoun = (female: boolean | null) => (female == null ? "them" : female ? 
 export class PeopleView {
   /** what tells two strangers apart who would read alike: ", holding a Stone" / ", at (3, 4)" */
   private extra = new Map<number, string>();
+  /** strangers told apart by where they stand (their extra is ", at (x, y)") */
+  private byPos = new Set<number>();
 
   constructor(readonly w: World, readonly gd: GameData, readonly acq: Acquaintances | null = null, readonly flowerOf?: (id: number) => string | null) {
     if (!acq) return;
@@ -207,6 +209,7 @@ export class PeopleView {
         else {
           const [x, y] = w.posOf(p);
           this.extra.set(p.id, `, at (${x}, ${y})`);
+          this.byPos.add(p.id);
         }
       });
     }
@@ -238,9 +241,12 @@ export class PeopleView {
     return "empty-handed";
   }
 
-  /** a stranger as seen: "a woman, 30, with a red rose" (+ what tells them apart from a look-alike in view) */
-  describe(p: Player): string {
-    return `${this.base(p)}${this.extra.get(p.id) ?? ""}`;
+  /**
+   * a stranger as seen: "a woman, 30, with a red rose" (+ what tells them apart from a look-alike in view);
+   * posShown: the line prints their position right after, so ", at (x, y)" is not added again
+   */
+  describe(p: Player, posShown = false): string {
+    return `${this.base(p)}${posShown && this.byPos.has(p.id) ? "" : this.extra.get(p.id) ?? ""}`;
   }
 
   /** how this character calls someone it named itself: "the woman with the red rose" */
@@ -253,9 +259,10 @@ export class PeopleView {
   /**
    * A person in a list or line: known, "#7 AURORA BREEZE (woman, 30, red rose)" (flower when asked);
    * named by this character itself, "#7 LIRA (as you know her), woman, 30, with a red rose";
-   * a stranger, "a woman, 30, with a red rose (name unknown to you)" or "(no name)" if they have none.
+   * a stranger, "a woman, 30, with a red rose (you don't know their name)" or "(no name)" if they have none.
+   * posShown: the caller prints their position right after (PEOPLE), so a look-alike's ", at (x, y)" is left out.
    */
-  label(p: Player, withFlower = false): string {
+  label(p: Player, withFlower = false, posShown = false): string {
     const name = this.nameOf(p);
     const q = name !== p.name ? { ...p, name } : p;
     if (!this.acq || this.acq.knowsTruly(this.w, p.id)) return playerLabel(this.w, this.gd, q, withFlower ? this.flower(p.id) : null);
@@ -265,7 +272,7 @@ export class PeopleView {
       const f = this.flower(p.id);
       return `#${p.id} ${own.name} (as you know ${pronoun(p.female)}), ${sexWord(p.female, age)}, ${ageText(age)}${f ? `, with ${withArticle(f)}` : ""}`;
     }
-    return `${this.describe(p)} (${name ? "name unknown to you" : "no name"})`;
+    return `${this.describe(p, posShown)} (${name ? "you don't know their name" : "no name"})`;
   }
 
   /**

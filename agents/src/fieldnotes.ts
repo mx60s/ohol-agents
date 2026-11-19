@@ -415,9 +415,9 @@ export class Digest {
         const p = this.person(e);
         this.hour(e.t, 3);
         const a = d.action as { type?: unknown } | undefined;
-        const type = typeof d.remember === "string" ? "remember" : d.reflex ? "forage (automatic)" : typeof a?.type === "string" ? a.type : (e.text.split(/[\s(]/)[0] || "other");
+        const type = typeof d.remember === "string" ? "remember" : typeof d.forget === "string" ? "forget" : d.reflex ? "forage (automatic)" : typeof a?.type === "string" ? a.type : (e.text.split(/[\s(]/)[0] || "other");
         p.actions.set(type, (p.actions.get(type) ?? 0) + 1);
-        if (type === "remember") break;
+        if (type === "remember" || type === "forget") break;
         const result = e.text.split(" -> ").slice(1).join(" -> ");
         const ate = /^ate ([^;]+)/.exec(result);
         if (ate) p.ate.set(ate[1], (p.ate.get(ate[1]) ?? 0) + 1);

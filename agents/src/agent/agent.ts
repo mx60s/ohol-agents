@@ -11,11 +11,12 @@ import type { EventLog } from "../events.ts";
 import type { AgentView } from "../api-types.ts";
 import { Llm, llmLogFields, type ChatMessage, type ChatOptions, type LlmResult } from "./llm.ts";
 import { YearMemory, summaryMaxTokens } from "./memory.ts";
+import { KEPT_MAX, KeptMemory, keptMemoryPath } from "./kept.ts";
 import { buildObservation, seenText, thingName } from "./observe.ts";
 import { Acquaintances, PeopleView, knownNamesPath, rememberedName } from "./people.ts";
 import { foodBonusOf, systemPromptFor } from "./prompt.ts";
 import { firstNameKey, mergeSurnames, namingSayAfterStep, reviewSpeech, surnameOf, type NamingContext } from "./naming.ts";
-import { parseReply, parseRemember, checkActions, sanitizeAction, type Action } from "./reply.ts";
+import { parseReply, parseRemember, parseForget, checkActions, sanitizeAction, type Action } from "./reply.ts";
 import { stepFailed, stepLabel, seenSnapshot, staleness, type Seen } from "./steps.ts";
 import { snapshot, bodyEvents, speechEvent, deathEvent, birthEvent, type Salient, type BodySnapshot } from "./salience.ts";
 import { turnClock, realMs } from "./turns.ts";
@@ -209,8 +210,10 @@ export class Agent implements TurnAgent<TurnPlan> {
   history: { t: number; action: string; result: string }[] = [];
   /** the latest hint search, shown in every observation until the next search (or "" clears it), like the client's hint panel */
   lastSearch: SearchResult | null = null;
-  /** this life's yearly summary (MEMORY_SUMMARY; see memory.ts) */
+  /** the note-taker's yearly summary (MEMORY_SUMMARY=1 only; see memory.ts) */
   readonly mem: YearMemory;
+  /** what this character chose to remember (the reply's "remember"; kept.ts), saved per agent for the current life */
+  readonly kept: KeptMemory;
   private wake: (() => void) | null = null;
   private lastReflexAt = 0;
   private stopped = false;
@@ -248,6 +251,7 @@ export class Agent implements TurnAgent<TurnPlan> {
   ) {
     const clock = turnClock(cfg);
     this.acq = new Acquaintances(cfg.logDir && cfg.runId ? knownNamesPath(cfg.logDir, cfg.runId, id) : null);
+    this.kept = new KeptMemory(cfg.logDir && cfg.runId ? keptMemoryPath(cfg.logDir, cfg.runId, id) : null, cfg.memoryMaxEntries ?? KEPT_MAX);
     this.mem = new YearMemory({
       everyTurns: Math.max(1, Math.floor(cfg.memorySummaryTurns ?? 25)),
       lockstep: !!clock.lockstep,
@@ -408,6 +412,8 @@ export class Agent implements TurnAgent<TurnPlan> {
     else if (!(sameAsBefore && this.acq.playerId === me.id)) this.acq.restore(me.id);
     this.acqLive = true;
     this.acq.sync(world);
+    // what it chose to remember: kept across a same-process reconnect, reloaded after a restart (a new life resets it below)
+    if (resumed && !(sameAsBefore && this.kept.playerId === me.id)) this.kept.restore(me.id);
     if (resumed) {
       this.lifeIndex = resumed.lifeIndex ?? Math.max(1, this.lifeIndex);
       this.status = "alive";
@@ -430,12 +436,14 @@ export class Agent implements TurnAgent<TurnPlan> {
 
     this.lifeIndex = Math.max(this.lifeIndex, this.hooks.lastLifeIndex?.(this) ?? 0) + 1;
     this.status = "alive";
-    // persistent memory carries the last life's yearly summary over
-    if (this.cfg.memoryMode === "persistent" && this.memory.length) {
-      this.pastLifeNotes.push(...this.memory);
+    // persistent memory carries the last life's memory over: what it chose to remember (and the yearly notes if on)
+    const carried = [...this.memory, ...this.kept.texts];
+    if (this.cfg.memoryMode === "persistent" && carried.length) {
+      this.pastLifeNotes.push(...carried);
       this.pastLifeNotes = this.pastLifeNotes.slice(-30);
     }
     this.mem.reset();
+    this.kept.reset(me.id);
     this.history = [];
     this.lastSearch = null;
     this.goal = null;
@@ -646,6 +654,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       search: searchSection(this.lastSearch),
       pastLifeNotes: this.pastLifeNotes,
       memory: this.memory,
+      kept: this.kept.entries,
       goal: this.goal,
       goalSetAt: this.goalSetAt,
       lastThought: this.lastThought,
@@ -683,7 +692,7 @@ export class Agent implements TurnAgent<TurnPlan> {
     return { kind: "reply", reply: parsed.value as Record<string, any>, obsBuiltAt, obsWorldT };
   }
 
-  /** Act on a decision: thought, goal, remember, speech, then the action list ("note" is ignored: the notebook is gone). */
+  /** Act on a decision: thought, goal, forget, remember, speech, then the action list ("note" is ignored: the notebook is gone). */
   private async apply(d: Decision) {
     if (d.kind === "unparseable") {
       const cut = d.cut ? " (it was cut off: keep it short)" : "";
@@ -705,16 +714,29 @@ export class Agent implements TurnAgent<TurnPlan> {
       this.goal = goal;
       this.goalSetAt = d.obsWorldT ?? this.world?.now() ?? Date.now();
     }
-    // "remember": kept for the next yearly notes; only this history line shows it (no pending list in the observation)
+    // "forget" first (so a full list can take a new entry without losing the oldest), then "remember"
+    const madeAt = d.obsWorldT ?? this.world?.now() ?? Date.now();
+    const forget = parseForget(reply);
+    if (forget != null) {
+      const label = typeof forget === "number" ? `forget ${forget}` : `forget "${forget}"`;
+      const r = this.kept.forget(forget);
+      const result = r.ok ? `you let go of "${r.text}"` : r.error;
+      this.record(label, result, false);
+      this.ev("action", `${label} -> ${result}`, { forget: String(forget), ...(r.ok ? { forgotten: r.text } : {}) });
+    }
+    // "remember": kept verbatim in THINGS YOU CHOSE TO REMEMBER (kept.ts)
     const remember = parseRemember(reply);
     if (remember) {
-      let result = !this.cfg.memorySummary ? "not kept: notes are off" : this.mem.remember(remember) ? "kept for your next notes" : "not kept: no words to keep";
+      const r = this.kept.remember(remember, madeAt);
+      let result = r.kind === "already" ? "already remembered" : r.kind === "empty" ? "not kept: no words to keep" : r.dropped != null ? `kept; you forgot the oldest: "${r.dropped}"` : "kept";
+      // the old note-taker (MEMORY_SUMMARY=1) still gets it for its next notes
+      if (this.cfg.memorySummary) this.mem.remember(remember);
       // a name stated for someone in view ("the woman with the red rose is LIRA"): this character's own name for them
       const pv = this.people();
       const named = pv ? rememberedName(remember, pv) : null;
       if (named && this.acq.learn(named.id, named.name, true)) result += `; you'll know ${named.who} as ${named.name}`;
       this.record(`remember "${remember}"`, result, false);
-      this.ev("action", `remember "${remember}" -> ${result}`, { remember });
+      this.ev("action", `remember "${remember}" -> ${result}`, { remember, ...(r.kind === "kept" && r.dropped != null ? { dropped: r.dropped } : {}) });
     }
     const say = cleanText(reply.say, 200);
     const checked = checkActions(reply, this.cfg.craftMacro, this.cfg.actionListMax ?? 4);

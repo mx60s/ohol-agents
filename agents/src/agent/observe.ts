@@ -10,6 +10,7 @@ import { DEFAULT_FOOD_BONUS_S, drainSecondsPerPip, newbornWindowSeconds } from "
 import { sayLimit } from "../game/body.ts";
 import { takenList } from "./naming.ts";
 import { NOTE_HEADINGS } from "./memory.ts";
+import { keptLines, type KeptEntry } from "./kept.ts";
 import { turnsAgo, turnsForWall, turnsText, turnsTextWall, type TurnClock } from "./turns.ts";
 import { ageText, playerLabel, PeopleView, type Acquaintances } from "./people.ts";
 
@@ -47,6 +48,8 @@ export interface ObservationOptions {
   pastLifeNotes: string[];
   /** this life's notes from the note-taker (see memory.ts): heading lines and facts; empty = no section */
   memory?: string[];
+  /** what the agent chose to remember this life (kept.ts), oldest first, verbatim; empty = no section */
+  kept?: KeptEntry[];
   goal: string | null;
   /** when the goal was last set or changed (the clock of `now`); shown as its age in turns */
   goalSetAt?: number | null;
@@ -248,7 +251,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
     const held = p.held.id && !gd.condition(p.held.id) ? `, holding ${heldText(w, gd, p, pv)}` : "";
     const by = w.carrierOf(p);
     const pp = w.posOf(p, now);
-    L.push(`- ${pv.label(p, true)}${rel ? ` [${rel}]` : ""} at (${pp[0]}, ${pp[1]}), ${dist(pos, pp)} away${held}${by ? `, carried by ${pv.ref(by.id)}` : w.isWalking(p, now) ? `, walking to (${p.x}, ${p.y})` : ""}${othersCondition(gd, p)}`);
+    L.push(`- ${pv.label(p, true, true)}${rel ? ` [${rel}]` : ""} at (${pp[0]}, ${pp[1]}), ${dist(pos, pp)} away${held}${by ? `, carried by ${pv.ref(by.id)}` : w.isWalking(p, now) ? `, walking to (${p.x}, ${p.y})` : ""}${othersCondition(gd, p)}`);
   }
   if (people.length > 10) L.push(`- ...and ${people.length - 10} more`);
   const myBabies = [...w.players.values()].filter((p) => p.ancestors[0] === me.id && w.currentAge(p) < 3);
@@ -354,6 +357,11 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
     L.push(``);
     L.push(`== YOUR NOTES (this life) ==`);
     L.push(...notesLines(o.memory));
+  }
+  if (o.kept?.length) {
+    L.push(``);
+    L.push(`== THINGS YOU CHOSE TO REMEMBER ==`);
+    L.push(...keptLines(o.kept, now, clock));
   }
   return L.join("\n");
 }

@@ -92,12 +92,20 @@ test("response shape: settings, interventions, limits, say limits", () => {
   assert.ok(s.replyFields.length === REPLY_FIELDS.length);
   // every reply field is named in the prompt's format
   for (const f of s.replyFields) assert.ok(s.systemPrompt.includes(`"${f.name}"`), f.name);
-  assert.deepEqual(s.replyFields.map((f) => f.name), ["thought", "goal", "say", "remember", "action", "actions"]);
+  assert.deepEqual(s.replyFields.map((f) => f.name), ["thought", "goal", "say", "remember", "forget", "action", "actions"]);
   assert.match(s.actions.find((a) => a.type === "search")!.note!, /hint search.*first step first.*until the next search/);
   assert.match(s.actions.find((a) => a.type === "use")!.note!, new RegExp(`${s.limits.maxActDist} tiles`));
   assert.equal(s.actions.find((a) => a.type === "go")!.note, undefined);
   assert.equal(s.settings.turnClock, false);
   assert.equal(s.limits.heardTurns, Math.round(90_000 / 4700));
+  // agent-kept memory replaces the note-taker (off by default); its capacity is MEMORY_MAX_ENTRIES
+  assert.equal(by["kept-memory"].on, true);
+  assert.match(by["kept-memory"].detail, /^up to 25 entries the agent chooses, verbatim/);
+  assert.equal(s.limits.keptMax, 25);
+  const small = buildAgentSpec(cfg({ memoryMaxEntries: 7 }), null, { env: {} });
+  assert.equal(small.limits.keptMax, 7);
+  assert.match(small.interventions.find((i) => i.id === "kept-memory")!.detail, /^up to 7 entries/);
+  assert.match(small.replyFields.find((f) => f.name === "remember")!.meaning, /up to 7 entries/);
 });
 
 test("turn clock: settings, heard turns and the turn-clock intervention", () => {

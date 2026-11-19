@@ -11,6 +11,8 @@ import { Sticker, Wordmark } from "../theme/index.ts";
 import { backHome, biomeName, cutawayShot, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, speechBubbles, describeAction, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
 import { CELL, FOCUS_DROP, WorldCamera } from "../stream/WorldCamera.tsx";
 import { MiniMap } from "../stream/MiniMap.tsx";
+import { ChatBox } from "../stream/ChatBox.tsx";
+import { chatLines } from "../stream/crowd.ts";
 import "../stream/stream.css";
 import { mount } from "./mount.tsx";
 
@@ -97,6 +99,16 @@ function Stream() {
     }
     return (pid: number) => byPlayer.get(pid) ?? null;
   }, [players, lives.byId, dimsForHair]);
+  // each person's flower (the chat box shows it by their name)
+  const lifeFlowers = useMemo(() => flowersForLives(lives.lives), [lives.lives]);
+  const flowerOf = useMemo(() => {
+    const byPlayer = new Map<number, NonNullable<PlayerView["flower"]>>();
+    for (const q of players) {
+      const f = q.flower ?? (q.lifeId ? (lives.byId[q.lifeId]?.flower ?? lifeFlowers.get(q.lifeId)) : null);
+      if (f) byPlayer.set(q.id, f);
+    }
+    return (pid: number) => byPlayer.get(pid) ?? null;
+  }, [players, lives.byId, lifeFlowers]);
   const player = players.find((p) => lifeId && p.lifeId === lifeId) ?? (agent?.playerId != null ? players.find((p) => p.id === agent.playerId) : undefined);
   const focusPlayerId = player?.id ?? life?.playerId ?? agent?.playerId ?? null;
 
@@ -129,6 +141,10 @@ function Stream() {
   const bubbleSecond = Math.floor(serverNow / 1000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const bubbles = useMemo(() => speechBubbles(w.events, serverNow), [w.events, bubbleSecond]);
+
+  // who is on screen (reported by the camera), for the chat box
+  const [inView, setInView] = useState<ReadonlySet<number>>(() => new Set());
+  const onInView = useCallback((ids: number[]) => setInView(new Set(ids)), []);
 
   const [cell, setCell] = useState<{ x: number; y: number; biome: number | null } | null>(null);
   const cellRef = useRef(cell);
@@ -184,6 +200,18 @@ function Stream() {
   const camPlayerId = nobody ? null : (shot?.playerId ?? focusPlayerId);
   const spot = shot?.spot ? { key: shot.key, x: shot.spot.x, y: shot.spot.y } : null;
 
+  // the chat box: recent lines by the people on screen (and whoever the camera follows)
+  const chatFocus = nobody || focusDead ? null : camPlayerId;
+  const chat = useMemo(() => {
+    const byId = new Map(players.map((q) => [q.id, q]));
+    const focusLineageId = chatFocus != null ? (byId.get(chatFocus)?.lineageId ?? null) : null;
+    return chatLines(w.events, { now: serverNow, inView, focusPlayerId: chatFocus, focusLineageId, who: (pid) => byId.get(pid) ?? null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [w.events, inView, chatFocus, players, bubbleSecond]);
+  // people who spoke in the last half minute: their labels win the camera's collision pass
+  const speakers = useMemo(() => new Set(chat.filter((l) => serverNow - l.t < 30_000).map((l) => l.playerId)), [chat, bubbleSecond]); // eslint-disable-line react-hooks/exhaustive-deps
+  const chatBox = <ChatBox lines={chat} colorOf={hairOf} flowerOf={flowerOf} focusPlayerId={chatFocus} docked={phone} />;
+
   const offline = !isStatic && w.connection === "offline";
   // model provider down: a quiet banner (never the raw error); goes away by itself on recovery
   const thinking = !offline && lostInThought(state?.run, serverNow);
@@ -222,6 +250,9 @@ function Stream() {
             focusDead={focusDead}
             spot={spot}
             bubbles={bubbles}
+            speakers={speakers}
+            colorOf={hairOf}
+            onInView={onInView}
             emptyCard={emptyCard}
             deathCard={deathCard}
             fallback={fallback}
@@ -242,10 +273,12 @@ function Stream() {
                 {LOST_IN_THOUGHT}
               </div>
             )}
+            {!phone && chatBox}
             {!phone && miniMap}
             {offline && <div className="reconnect">reconnecting…</div>}
           </WorldCamera>
         </section>
+        {phone && chat.length > 0 && <section className="chatbox">{chatBox}</section>}
         <Following
           agent={agent}
           life={life}
@@ -555,7 +588,14 @@ function Following(p: FollowingProps) {
 // ------------------------------------------------------------------ world news + ticker
 
 function News({ events, agents, players, byId, runId, now }: { events: RunEvent[]; agents: AgentView[]; players: PlayerView[]; byId: Record<string, LifeRecord>; runId: string | null; now: number }) {
-  const narr = latestNarrations(events, 2);
+  // keep the newest narrations on screen until newer ones arrive: at one line every few minutes they would
+  // otherwise scroll out of the page's recent-events window (busy worlds) and the box would go blank
+  const narrKeep = useRef<{ runId: string | null; list: RunEvent[] }>({ runId: null, list: [] });
+  const fresh = latestNarrations(events, 2);
+  if (narrKeep.current.runId !== runId) narrKeep.current = { runId, list: [] };
+  const merged = [...fresh, ...narrKeep.current.list].filter((e, i, arr) => arr.findIndex((x) => x.seq === e.seq) === i).sort((x, y) => y.t - x.t).slice(0, 2);
+  narrKeep.current.list = merged;
+  const narr = merged;
   const items = useMemo(() => {
     const agentNames: Record<string, string | null> = {};
     for (const a of agents) agentNames[a.agentId] = a.name;

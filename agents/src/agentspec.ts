@@ -14,13 +14,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config, type Config } from "./config.ts";
 import { actionList, systemPromptFor } from "./agent/prompt.ts";
-import { parseReply, checkActions, validActionTypes, type Action } from "./agent/reply.ts";
+import { parseReply, parseForget, checkActions, validActionTypes, type Action } from "./agent/reply.ts";
 import { turnClock, turnsFor } from "./agent/turns.ts";
 import { MAX_ACT_DIST, sayLimit } from "./game/body.ts";
 import { SEARCH_SHOWN } from "./game/search.ts";
 import { SEEN_SHOWN, SEEN_TURNS } from "./agent/observe.ts";
 import { MEMORY_LINE_CHARS, MEMORY_MAX_LINES, NOTE_HEADINGS, REMEMBER_EXTRA_LINES } from "./agent/memory.ts";
 import { REMEMBER_CHARS } from "./agent/reply.ts";
+import { KEPT_MAX } from "./agent/kept.ts";
 import { cleanText, stripControl } from "./safety.ts";
 import { rotatedFiles } from "./events.ts";
 import type {
@@ -62,9 +63,7 @@ export const OBSERVATION_LIMITS = {
   /** memory.ts: the note-taker's yearly notes ("YOUR NOTES") are at most this many lines (plus headings) of this many chars */
   memoryLines: MEMORY_MAX_LINES,
   memoryLineChars: MEMORY_LINE_CHARS,
-  /** memory.ts REMEMBER_EXTRA_LINES: extra note lines allowed for "remember" items */
-  rememberExtraLines: REMEMBER_EXTRA_LINES,
-  /** reply.ts REMEMBER_CHARS: one "remember" item */
+  /** reply.ts REMEMBER_CHARS: one "remember" entry */
   rememberChars: REMEMBER_CHARS,
   /** search.ts SEARCH_SHOWN: steps shown in the SEARCH section */
   searchSteps: SEARCH_SHOWN,
@@ -78,15 +77,19 @@ export const OBSERVATION_LIMITS = {
   reflexFood: 2,
 } as const;
 
-/** The reply object's fields, as agent.ts reads them (caps from cleanText calls there). */
-export const REPLY_FIELDS: { name: string; meaning: string }[] = [
-  { name: "thought", meaning: "one short sentence; shown back to it next turn as its previous thought (max 400 chars)" },
-  { name: "goal", meaning: "optional: the long-term goal for this life (not this turn's step); kept and shown every turn with its age until it changes (max 200 chars)" },
-  { name: "say", meaning: "optional; spoken aloud now, before the action; digits are removed; a baby naming line ('YOU ARE X') waits for a pick_up_baby in the same reply (max 200 chars, cut further by age)" },
-  { name: "remember", meaning: `optional: something to keep; handed to the note-taker, who includes it in the next yearly notes unless what happened shows it is wrong (up to ${REMEMBER_EXTRA_LINES} extra lines; max ${REMEMBER_CHARS} chars). A name stated for one stranger in view ("the woman with the red rose is LIRA") becomes the agent's own name for them` },
-  { name: "action", meaning: "one action object (see the table)" },
-  { name: "actions", meaning: "instead of action: a list of steps run back to back" },
-];
+/** The reply object's fields, as agent.ts reads them (caps from cleanText calls there); keptMax = MEMORY_MAX_ENTRIES. */
+export function replyFields(keptMax: number): { name: string; meaning: string }[] {
+  return [
+    { name: "thought", meaning: "one short sentence; shown back to it next turn as its previous thought (max 400 chars)" },
+    { name: "goal", meaning: "optional: the long-term goal for this life (not this turn's step); kept and shown every turn with its age until it changes (max 200 chars)" },
+    { name: "say", meaning: "optional; spoken aloud now, before the action; digits are removed; a baby naming line ('YOU ARE X') waits for a pick_up_baby in the same reply (max 200 chars, cut further by age)" },
+    { name: "remember", meaning: `optional: anything the agent wants to remember, for any reason; kept verbatim with when it was made and listed every turn under THINGS YOU CHOSE TO REMEMBER, numbered, oldest first (up to ${keptMax} entries, the oldest dropped when full; an exact duplicate is not added; max ${REMEMBER_CHARS} chars). A name stated for one stranger in view ("the woman with the red rose is LIRA") becomes the agent's own name for them` },
+    { name: "forget", meaning: "optional: the number of a memory as listed (or its exact text) to let go; done before a remember in the same reply" },
+    { name: "action", meaning: "one action object (see the table)" },
+    { name: "actions", meaning: "instead of action: a list of steps run back to back" },
+  ];
+}
+export const REPLY_FIELDS = replyFields(KEPT_MAX);
 
 /** How the harness carries out an action, beyond the prompt's one line (shown next to it on the site). */
 export const ACTION_NOTES: Record<string, string> = {
@@ -187,6 +190,11 @@ export function specSettings(cfg: Config, env: NodeJS.ProcessEnv = process.env):
   };
 }
 
+/** MEMORY_MAX_ENTRIES: entries in THINGS YOU CHOSE TO REMEMBER */
+function keptMaxOf(cfg: Config): number {
+  return cfg.memoryMaxEntries ?? KEPT_MAX;
+}
+
 /** The declared interventions (README "Interventions"), with on/off from the live config where it has a switch. */
 export function interventions(cfg: Config, s: AgentSpecSettings): AgentSpecIntervention[] {
   const L = OBSERVATION_LIMITS;
@@ -218,8 +226,9 @@ export function interventions(cfg: Config, s: AgentSpecSettings): AgentSpecInter
     { id: "events", name: "Event-driven turns", category: "beyond-human", on: true, detail: "hunger thresholds, births, deaths, being picked up, a hungry baby's \"F\" and nearby speech end a wait early and are listed under JUST HAPPENED" },
     { id: "wasted-turns", name: "Wasted-turn feedback", category: "beyond-human", on: true, detail: "a malformed reply or invalid action is explained next turn" },
     { id: "reasoning-cap", name: "Mild reasoning cap", category: "beyond-human", on: cfg.llmReasoningCap, detail: `about ${cfg.llmReasoningMaxTokens} reasoning tokens within ${cfg.llmDecisionMaxTokens} in total` },
-    { id: "memory-summary", name: "Yearly notes", category: "beyond-human", on: cfg.memorySummary, detail: `every ${cfg.memorySummaryTurns} turns a separate note-taker call (the agents' own model) rewrites this life's notes in the background from a transcript of the year (actions and results, what was seen nearby, notices, what people said as claims; not the agent's thoughts): at most ${L.memoryLines} lines of facts under headings, no plans, shown every turn; things the agent asked to remember are included, with up to ${L.rememberExtraLines} more lines; notes cut off by the length limit are discarded` },
-    { id: "memory", name: "Notes from past lives", category: "beyond-human", on: cfg.memoryMode === "persistent", detail: "MEMORY_MODE=persistent carries a slot's last yearly memory summary into its next life; off = each life starts fresh" },
+    { id: "kept-memory", name: "Agent-kept memory", category: "beyond-human", on: true, detail: `up to ${keptMaxOf(cfg)} entries the agent chooses, verbatim: each "remember" (max ${L.rememberChars} chars) is listed every turn under THINGS YOU CHOSE TO REMEMBER, numbered, oldest first, with its age in turns; "forget" lets one go by number or text; a new entry on a full list drops the oldest and the agent is told; no rewriting, filtering or summarising. Saved per life across restarts` },
+    { id: "memory-summary", name: "Yearly notes", category: "beyond-human", on: cfg.memorySummary, detail: `off by default (MEMORY_SUMMARY=1 turns it on): every ${cfg.memorySummaryTurns} turns a separate note-taker call (the agents' own model) rewrites this life's notes in the background from a transcript of the year (actions and results, what was seen nearby, notices, what people said as claims; not the agent's thoughts): at most ${L.memoryLines} lines of facts under headings, no plans, shown every turn; things the agent asked to remember are included, with up to ${REMEMBER_EXTRA_LINES} more lines; notes cut off by the length limit are discarded` },
+    { id: "memory", name: "Notes from past lives", category: "beyond-human", on: cfg.memoryMode === "persistent", detail: "MEMORY_MODE=persistent carries what a slot chose to remember (and its yearly notes, if on) into its next life; off = each life starts fresh" },
     // declared changes to the game
     { id: "food-bonus", name: "New-player food bonus", category: "game-setting", on: on(s.foodBonus), detail: `+${s.foodBonusSecondsPerPip.value ?? "?"} s on every food pip, every life (stock OHOL gives it to newcomers)` },
     { id: "turn-clock", name: "Turn clock", category: "game-setting", on: s.turnClock, detail: `the game world is paused while the agents think, then runs ${s.gameSecondsPerTurn} game seconds per turn` },
@@ -315,6 +324,8 @@ function cleanReply(v: Record<string, unknown>, steps: Action[]): AgentSpecExamp
   if (say) out.say = say;
   const remember = cleanText(v.remember, REMEMBER_CHARS);
   if (remember) out.remember = remember;
+  const forget = parseForget(v);
+  if (forget != null) out.forget = String(forget);
   const plain = steps.map((a) => Object.fromEntries(Object.entries(a).filter(([, x]) => x !== undefined)) as Record<string, unknown>);
   if (plain.length === 1 && !Array.isArray(v.actions)) out.action = plain[0];
   else out.actions = plain;
@@ -419,12 +430,12 @@ export function buildAgentSpec(cfg: Config, runDir: string | null, opts: { env?:
     runId: opts.runId ?? null,
     systemPrompt: systemPromptFor(cfg),
     userSuffix: USER_SUFFIX,
-    replyFields: REPLY_FIELDS,
+    replyFields: replyFields(keptMaxOf(cfg)),
     noteHeadings: [...NOTE_HEADINGS],
     actions: actionCatalogue(cfg),
     validActionTypes: validActionTypes(cfg.craftMacro),
     settings,
-    limits: { ...OBSERVATION_LIMITS, heardTurns: heardTurns(cfg) },
+    limits: { ...OBSERVATION_LIMITS, keptMax: keptMaxOf(cfg), heardTurns: heardTurns(cfg) },
     sayLimits: sayLimits(),
     interventions: interventions(cfg, settings),
     example,

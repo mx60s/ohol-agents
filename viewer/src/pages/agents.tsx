@@ -127,7 +127,7 @@ function TurnSteps({ spec }: { spec: AgentSpecResponse }) {
         </>
       ),
     },
-    { n: "3", title: "Reply", body: <>One JSON object: a thought, maybe a long-term goal, words to say or something to remember, and an action{st.actionListMax > 1 ? <> or up to {st.actionListMax} in a row</> : null}.</> },
+    { n: "3", title: "Reply", body: <>One JSON object: a thought, maybe a long-term goal, words to say, something to remember or forget, and an action{st.actionListMax > 1 ? <> or up to {st.actionListMax} in a row</> : null}.</> },
     {
       n: "4",
       title: "Act",
@@ -203,7 +203,6 @@ function TurnPanel({ spec }: { spec: AgentSpecResponse }) {
 function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
   const L = spec.limits;
   const st = spec.settings;
-  const yearly = st.turnClock && Math.abs(st.memorySummaryTurns - st.turnsPerYear) < 1;
   const rows: [string, ReactNode][] = [
     [
       "You",
@@ -217,7 +216,7 @@ function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
       "People",
       <>
         Up to {L.maxPeople} within {L.peopleRadius} tiles: sex, age, flower, relation (mother, child, sibling, family), what they hold, if they're carried, walking or hurt. Id and name only for people the
-        agent knows by name (see Names below); a stranger is "a woman, 30, with a red rose (name unknown to you)". Mothers: where each baby is. Where their children out of sight were last seen.
+        agent knows by name (see Names below); a stranger is "a woman, 30, with a red rose (you don't know their name)". Mothers: where each baby is. Where their children out of sight were last seen.
       </>,
     ],
     [
@@ -233,10 +232,11 @@ function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
     ...(st.recipeHints ? ([["You could", <>Up to {L.maxHints} things the held item (or bare hands) would do to what's in view.</>]] as [string, ReactNode][]) : []),
     ["Search", <>The steps of their latest search (up to {L.searchSteps}), until the next one.</>],
     ["Your last actions", <>Their previous thought, the last {L.historyShown} action results, and why a reply was wasted if it was.</>],
-    ...(st.memoryMode === "persistent" ? ([["Past lives", <>Notes from this seat's earlier lives.</>]] as [string, ReactNode][]) : []),
-    ...(st.memorySummary
-      ? ([["Your notes", <>Notes on this life: at most {L.memoryLines} lines of facts{spec.noteHeadings.length ? <> under {spec.noteHeadings.map((h) => `“${h}”`).join(", ")}</> : null}.</>]] as [string, ReactNode][])
-      : []),
+    ...(st.memoryMode === "persistent" ? ([["Past lives", <>What this seat chose to remember in its earlier lives.</>]] as [string, ReactNode][]) : []),
+    [
+      "Things you chose to remember",
+      <>Whatever they asked to remember this life, word for word, numbered and oldest first, each with how many turns ago they wrote it. Up to {L.keptMax} entries.</>,
+    ],
     ["Just happened", <>The events since the last turn that would have woken them.</>],
   ];
   return (
@@ -252,13 +252,10 @@ function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
           </div>
         ))}
       </dl>
-      {st.memorySummary && (
-        <p className="hw-p">
-          <b>The notes.</b> {yearly ? "Once a game year" : `Every ${plural(st.memorySummaryTurns, "turn")}`}, a separate call to the same model, as a note-taker writing about the player, rewrites
-          the notes in the background from the previous notes and a transcript of the year: their actions and results, what they saw, game notices, and what others said, labelled as claims. Never
-          their own thoughts. Things they asked to remember are included, with up to {L.rememberExtraLines} more lines. Notes cut off by the length limit are thrown away and the old ones kept.
-        </p>
-      )}
+      <p className="hw-p">
+        <b>Their memory.</b> They choose what to remember, for any reason: a "remember" in the reply is kept exactly as written (up to {L.rememberChars} characters), and nothing
+        rewrites, filters or summarises it. A "forget" lets one go by its number. When all {L.keptMax} are in use, a new one pushes out the oldest, and they are told which. It lasts until they die.
+      </p>
       <p className="hw-p">
         {st.promptBaseline === "playbook" ? (
           <>Before it, the same system prompt every turn: game facts a practised player knows, a ranked early-game playbook, our naming and flower rules, and the reply format.</>
@@ -290,11 +287,11 @@ function DontKnowPanel({ spec }: { spec: AgentSpecResponse }) {
   const st = spec.settings;
   const items: [string, ReactNode][] = [
     st.memoryMode === "per-life"
-      ? ["Their past lives", <>When a seat is reborn, its new character starts blank: no notes, goals or history carry over.</>]
-      : ["Their past lives (partly)", <>Memory is set to persistent: notes from a seat's earlier lives are shown, but nothing else carries over.</>],
-    ["Earlier turns", <>No conversation history. Only the previous thought, the goal, the notes, the latest search and the last {L.historyShown} results connect one turn to the next.</>],
+      ? ["Their past lives", <>When a seat is reborn, its new character starts blank: no memories, goals or history carry over.</>]
+      : ["Their past lives (partly)", <>Memory is set to persistent: what a seat chose to remember in earlier lives is shown, but nothing else carries over.</>],
+    ["Earlier turns", <>No conversation history. Only the recent thoughts, the goal, the things they chose to remember, the latest search and the last {L.historyShown} results connect one turn to the next.</>],
     ["Anything out of view", <>Things beyond {L.viewRadius} tiles, people beyond {L.peopleRadius}, speech beyond about {L.hearingRadius}. No map of the world, no idea where other camps are.</>],
-    ["Other minds", <>Never another agent's thoughts, goals or notes. Only what people say aloud and what they visibly hold.</>],
+    ["Other minds", <>Never another agent's thoughts, goals or memories. Only what people say aloud and what they visibly hold.</>],
     ["Recipes", <>The prompt has none. They find out by trying, from the YOU COULD lines and from search, which work like a human player's hint panel.</>],
     [
       "Their personality",
@@ -537,7 +534,7 @@ function SpeechPanel({ spec }: { spec: AgentSpecResponse }) {
         </li>
         <li>
           <b>Names.</b> An agent knows by name only itself, its family, anyone whose naming or introduction ("I AM …", "MY NAME IS …") it heard in words it could understand, and anyone it gave
-          a name to in a "remember" note ("the woman with the red rose is LIRA"; shown as its own name for them until it hears the real one). Everyone else appears without a number or name,
+          a name to in a "remember" ("the woman with the red rose is LIRA"; shown as its own name for them until it hears the real one). Everyone else appears without a number or name,
           described by what is visible, and is acted on by where they stand ("x","y"). A Fresh Grave says whose body it holds by the same rules. This page and the stream show everyone's true
           names.
         </li>

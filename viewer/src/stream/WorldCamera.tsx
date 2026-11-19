@@ -14,6 +14,7 @@ import { appearanceFor, drawGround, drawObject, drawPerson, getOholAssets, loadO
 import type { Appearance } from "../ohol/index.ts";
 import { cueLabel, displayName } from "../shared/format.ts";
 import { cameraStep, fanOut, focusTransition, occluderAlpha, parseHeld, retarget, sampleMotion, type Cam, type Motion, type ScreenBox, type SpeechBubble } from "./logic.ts";
+import { crowdMode, labelPriority, placeBoxes, planSpeech, shortName, type PlaceItem } from "./crowd.ts";
 
 /** screen px per world tile (the game uses 128) */
 export const CELL = 112;
@@ -43,8 +44,14 @@ export interface CameraProps {
   focusPlayerId: number | null;
   /** the focused character just died: draw the last known figure fading out */
   focusDead: boolean;
-  /** latest line per speaker, already filtered to the last few seconds */
+  /** latest line per speaker, already filtered to the last few seconds (newest first) */
   bubbles: Bubble[];
+  /** people who spoke recently (their labels win the collision pass) */
+  speakers?: ReadonlySet<number>;
+  /** a person's name colour (their hair colour), shared with the chat box */
+  colorOf?: (playerId: number) => string | null;
+  /** the set of people on screen changed (player ids, sorted) */
+  onInView?: (ids: number[]) => void;
   /** shown centred when nobody is alive */
   emptyCard?: React.ReactNode;
   /** shown over the focused character when they die */
@@ -60,6 +67,8 @@ export interface CameraProps {
 
 interface Figure {
   id: number;
+  lifeId: string | null;
+  motherLifeId: string | null;
   name: string;
   age: number;
   displayId: number;
@@ -91,6 +100,11 @@ function WorldCameraImpl(props: CameraProps) {
   const propsRef = useRef(props);
   propsRef.current = props;
   const [ready, setReady] = useState(() => getOholAssets() != null);
+  // many people on screen: compact speech (pips) and short labels; set from the render loop
+  const [crowd, setCrowd] = useState(false);
+  const crowdRef = useRef(false);
+  const inViewKey = useRef("");
+  const [inView, setInView] = useState<ReadonlySet<number>>(() => new Set());
 
   // ---- per-player motion (bounded to present players + the dying focus)
   const motions = useRef(new Map<number, Motion>());
@@ -159,6 +173,8 @@ function WorldCameraImpl(props: CameraProps) {
       if (carrying.length) heldObjectId = byId.get(carrying[0])?.displayId ?? null;
       out.set(p.id, {
         id: p.id,
+        lifeId: p.lifeId ?? null,
+        motherLifeId: life?.motherLifeId ?? null,
         name: displayName(p.name, p.age < 3 ? "Baby" : "Unnamed"),
         age: p.age,
         displayId: p.displayId,
@@ -203,7 +219,7 @@ function WorldCameraImpl(props: CameraProps) {
   };
   useEffect(() => {
     dirty.current = true;
-  }, [props.cells, props.bubbles, props.focusPlayerId, props.focusDead, figures, props.spot?.key, props.spot?.x, props.spot?.y]);
+  }, [props.cells, props.bubbles, props.speakers, crowd, inView, props.focusPlayerId, props.focusDead, figures, props.spot?.key, props.spot?.x, props.spot?.y]);
 
   // ---- focus changes: pan if near, crossfade if far
   const pendingSnap = useRef(false);
@@ -463,33 +479,51 @@ function WorldCameraImpl(props: CameraProps) {
       layout(screen, { W, H });
     };
 
-    /** position the DOM labels and bubbles (children of overlayRef carry data-pid / data-kind) */
+    /** who is on screen: drives crowd mode and the chat box */
+    const reportInView = (scr: Map<number, { x: number; y: number; head: number }>, size: { W: number; H: number } | null) => {
+      const ids: number[] = [];
+      if (size) for (const [id, a] of scr) if (id >= 0 && onScreen(a, size)) ids.push(id);
+      ids.sort((a, b) => a - b);
+      const key = ids.join(",");
+      if (key === inViewKey.current) return;
+      inViewKey.current = key;
+      setInView(new Set(ids));
+      const c = crowdMode(crowdRef.current, ids.length);
+      if (c !== crowdRef.current) {
+        crowdRef.current = c;
+        setCrowd(c);
+      }
+      propsRef.current.onInView?.(ids);
+    };
+
+    /** position the DOM labels, bubbles and pips (children of overlayRef carry data-pid / data-kind / data-prio) */
     const layout = (scr: Map<number, { x: number; y: number; head: number }>, size: { W: number; H: number } | null) => {
+      reportInView(scr, size);
       const ov = overlayRef.current;
       if (!ov) return;
-      // focus label first so it keeps its place; others step down around it
-      const els = (Array.from(ov.children) as HTMLElement[]).sort((a, b) => rank(a) - rank(b));
-      const placed: { x: number; y: number; w: number; h: number }[] = [];
-      const hits = (r: { x: number; y: number; w: number; h: number }) => placed.some((q) => r.x < q.x + q.w + 4 && q.x < r.x + r.w + 4 && r.y < q.y + q.h + 2 && q.y < r.y + r.h + 2);
-      for (const el of els) {
+      const els = Array.from(ov.children) as HTMLElement[];
+      const items: PlaceItem[] = [];
+      const byKey = new Map<string, HTMLElement>();
+      const fp = propsRef.current.focusPlayerId;
+      const focusA = (fp != null ? scr.get(fp) : undefined) ?? scr.get(-1);
+      els.forEach((el, i) => {
         const pid = Number(el.dataset.pid);
         const a = size ? scr.get(pid) : undefined;
         // people outside the view get no label (never pin a far-away name to the edge)
-        const off = !a || !size || a.x < -40 || a.x > size.W + 40 || a.y < 0 || a.y - a.head > size.H;
-        if (!a || !size || off) {
+        if (!a || !size || !onScreen(a, size)) {
           el.style.visibility = "hidden";
-          continue;
+          return;
         }
-        el.style.visibility = "visible";
         const kind = el.dataset.kind;
         const w = el.offsetWidth;
         const h = el.offsetHeight;
         let x: number;
         let y: number;
+        let dir: 1 | -1 = -1;
         if (kind === "bubble") {
           x = a.x - 26;
           y = a.y - a.head - h - 14;
-        } else if (kind === "emote") {
+        } else if (kind === "emote" || kind === "pip") {
           x = a.x - w / 2;
           y = a.y - a.head - h - 10;
         } else if (kind === "death") {
@@ -499,15 +533,30 @@ function WorldCameraImpl(props: CameraProps) {
           const stack = Number(el.dataset.stack ?? 0);
           x = a.x - w / 2;
           y = a.y + 10 + stack * (h + 4);
+          dir = 1;
         }
-        x = Math.max(8, Math.min(size.W - w - 8, x));
-        y = Math.max(8, Math.min(size.H - h - 8, y));
-        const r = { x, y, w, h };
-        const step = kind === "bubble" || kind === "emote" ? -(h + 6) : h + 4;
-        for (let i = 0; i < 4 && hits(r); i++) r.y += step;
-        placed.push(r);
-        y = r.y;
-        el.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+        // same priority: nearer the followed person first
+        const near = focusA ? Math.min(0.99, Math.hypot(a.x - focusA.x, a.y - focusA.y) / 1e4) : 0;
+        const key = String(i);
+        byKey.set(key, el);
+        items.push({ key, x, y, w, h, dir, prio: Number(el.dataset.prio ?? 6) + near, steps: kind === "label" ? (el.dataset.opt === "1" ? 2 : 4) : kind === "pip" ? 1 : 4, optional: el.dataset.opt === "1" });
+      });
+      if (!size) return;
+      // the chat box, minimap and HUD pills are in the way: labels go around them (or hide)
+      const wrapEl = wrapRef.current;
+      wrapEl?.querySelectorAll<HTMLElement>(".cam-chat, .minimap, .camhud").forEach((o, j) => {
+        if (o.offsetParent === wrapEl && o.offsetWidth) items.push({ key: `avoid${j}`, x: o.offsetLeft, y: o.offsetTop, w: o.offsetWidth, h: o.offsetHeight, prio: -1, dir: 1, steps: 0 });
+      });
+      const spots = placeBoxes(items, size.W, size.H);
+      for (const [key, r] of spots) {
+        const el = byKey.get(key);
+        if (!el) continue;
+        if (!r) {
+          el.style.visibility = "hidden";
+          continue;
+        }
+        el.style.visibility = "visible";
+        el.style.transform = `translate3d(${Math.round(r.x)}px, ${Math.round(r.y)}px, 0)`;
       }
     };
 
@@ -522,38 +571,82 @@ function WorldCameraImpl(props: CameraProps) {
   }, [ready]);
 
   // ---- DOM overlays (React re-renders them on data changes; the loop only moves them)
+  const focusId = props.focusDead ? null : props.focusPlayerId;
+  const focusLife = focusId != null ? (figures.get(focusId)?.lifeId ?? null) : null;
+  const colorOf = props.colorOf;
   const labels: React.ReactNode[] = [];
   for (const f of figures.values()) {
-    const isFocus = !props.focusDead && f.id === props.focusPlayerId;
+    const isFocus = f.id === focusId;
     const stack = f.carriedBy != null ? 1 : 0;
+    const speaking = !!props.speakers?.has(f.id);
+    const focusBaby = !!focusLife && f.motherLifeId === focusLife && f.age < 8;
+    const color = colorOf?.(f.id) ?? null;
+    // crowded: first names only (the followed person keeps their full name), and a label with no room hides
+    const short = crowd && !isFocus;
     labels.push(
-      <div key={`l${f.id}`} data-pid={f.carriedBy ?? f.id} data-kind="label" data-stack={stack} className={`cam-label${isFocus ? " is-focus" : ""}`}>
-        <span className="nm">{f.name}</span>
-        <span className="ag">{isFocus ? ` ${Math.floor(f.age)}` : ` · ${Math.floor(f.age)}`}</span>
+      <div
+        key={`l${f.id}`}
+        data-pid={f.carriedBy ?? f.id}
+        data-kind="label"
+        data-stack={stack}
+        data-prio={labelPriority({ focus: isFocus, speaking, focusBaby })}
+        data-opt={isFocus || !crowd ? "0" : "1"}
+        className={`cam-label ugc${isFocus ? " is-focus" : " is-minor"}${speaking ? " is-speaking" : ""}`}
+        style={color ? ({ "--who": color } as React.CSSProperties) : undefined}
+      >
+        {color && !isFocus && <span className="sw" aria-hidden="true" />}
+        <span className="nm">{short ? shortName(f.name) : f.name}</span>
+        <span className="ag">{isFocus || short ? ` ${Math.floor(f.age)}` : ` · ${Math.floor(f.age)}`}</span>
       </div>,
     );
   }
-  for (const b of props.bubbles) {
+  // crowded: the followed person's line and the newest other line in full, a "…" pip for the rest
+  const plan = planSpeech(props.bubbles, crowd, focusId, inView);
+  for (const b of plan.full) {
     const f = figures.get(b.playerId);
     if (!f) continue;
+    const mine = b.playerId === focusId;
     if (b.emote) {
       labels.push(
-        <div key={`e${b.key}`} data-pid={f.carriedBy ?? f.id} data-kind="emote" className="cam-emote" title={cueLabel(b.emote)}>
+        <div key={`e${b.key}`} data-pid={f.carriedBy ?? f.id} data-kind="emote" className="cam-emote" data-prio={mine ? 2 : 2.6} title={cueLabel(b.emote)}>
           {(b.emote === "HOMESICK" || b.emote === "HOME") && <HomeIcon tear={b.emote === "HOMESICK"} />}
           <span className="tx">{cueLabel(b.emote)}</span>
         </div>,
       );
       continue;
     }
+    const color = colorOf?.(f.id) ?? null;
+    const tagged = crowd && !mine;
     labels.push(
-      <div key={`b${b.key}`} data-pid={f.carriedBy ?? f.id} data-kind="bubble" className="cam-bubble speech">
+      <div
+        key={`b${b.key}`}
+        data-pid={f.carriedBy ?? f.id}
+        data-kind="bubble"
+        data-prio={mine ? 2 : 2.5}
+        data-opt={tagged ? "1" : "0"}
+        className={`cam-bubble speech${tagged ? " is-other" : ""}`}
+        style={color ? ({ "--who": color } as React.CSSProperties) : undefined}
+      >
+        {tagged && <span className="spk ugc">{shortName(f.name)}</span>}
         <span className="tx">{b.text}</span>
+      </div>,
+    );
+  }
+  for (const pid of plan.pips) {
+    const f = figures.get(pid);
+    if (!f) continue;
+    const color = colorOf?.(f.id) ?? null;
+    labels.push(
+      <div key={`p${pid}`} data-pid={f.carriedBy ?? f.id} data-kind="pip" data-prio={3} data-opt="1" className="cam-pip" style={color ? ({ "--who": color } as React.CSSProperties) : undefined} aria-hidden="true">
+        <i />
+        <i />
+        <i />
       </div>,
     );
   }
   if (props.focusDead && props.deathCard)
     labels.push(
-      <div key="death" data-pid={-1} data-kind="death" className="cam-death">
+      <div key="death" data-pid={-1} data-kind="death" data-prio={0} className="cam-death">
         {props.deathCard}
       </div>,
     );
@@ -572,12 +665,9 @@ function WorldCameraImpl(props: CameraProps) {
   );
 }
 
-/** layout order: death card, focus label, bubbles (newest first in DOM), other labels */
-function rank(el: HTMLElement): number {
-  if (el.dataset.kind === "death") return 0;
-  if (el.classList.contains("is-focus")) return 1;
-  if (el.dataset.kind === "bubble" || el.dataset.kind === "emote") return 2;
-  return 3;
+/** an anchor inside the view (with a little margin) */
+function onScreen(a: { x: number; y: number; head: number }, size: { W: number; H: number }): boolean {
+  return a.x >= -40 && a.x <= size.W + 40 && a.y >= 0 && a.y - a.head <= size.H;
 }
 
 /** the emote's icon: a little house (with a tear when homesick) */

@@ -370,12 +370,12 @@ test("agent: \"I FOLLOW YOU\" says whom the server made your leader (FW), and th
 
 // --- "remember": the reply asks for something to go into the next yearly notes
 
-test("remember: parsed and cleaned like say/goal (about 160 chars); \"note\" is not read as remember", () => {
+test("remember: parsed and cleaned like say/goal (about 200 chars); \"note\" is not read as remember", () => {
   const r = parseReply('{"thought":"x","remember":"  the pond\\nis at (5, 10)  ","action":{"type":"eat"}}');
   assert.ok(r.ok);
   assert.equal(parseRemember(r.value), "the pond is at (5, 10)");
   const long = parseRemember({ remember: "y".repeat(400) });
-  assert.ok(long.length <= 160 && long.startsWith("yyy"), String(long.length));
+  assert.ok(long.length <= 200 && long.length > 160 && long.startsWith("yyy"), String(long.length));
   assert.equal(parseRemember({ remember: 42 }), "");
   assert.equal(parseRemember({}), "");
   assert.equal(parseRemember({ note: "strike flint near tinder" }), "", "the old note field stays ignored");
@@ -384,7 +384,7 @@ test("remember: parsed and cleaned like say/goal (about 160 chars); \"note\" is 
 test("remember: in the reply format line of both baselines", () => {
   for (const baseline of ["new", "playbook"] as const) {
     const p = buildSystemPrompt(clock, { craft: true, actionListMax: 3, baseline });
-    assert.match(p, /"say":"optional: words to say now","remember":"optional: something you want to keep in your notes","action"/, baseline);
+    assert.ok(p.includes(`"say":"optional: words to say now","remember":"optional: anything you want to remember, for any reason","forget":"optional: the number of a memory to let go (as listed)","action"`), baseline);
   }
 });
 
@@ -463,7 +463,7 @@ test("YearMemory: a new life drops the remember items and restarts the turn coun
   assert.doesNotMatch(String(calls[0][1].content), /last life/);
 });
 
-test("agent: remember gets one history line and an action event, no pending list in the observation; \"note\" is ignored", async () => {
+test("agent with MEMORY_SUMMARY=1: remember gets one history line and an action event, is kept, and the note-taker gets it too; \"note\" is ignored", async () => {
   const replies = [
     '{"thought":"x","remember":"The pond is at (5, 10)","action":{"type":"wait","turns":1}}',
     '{"thought":"x","note":"strike flint near tinder","action":{"type":"wait","turns":1}}',
@@ -475,12 +475,13 @@ test("agent: remember gets one history line and an action event, no pending list
   await A.turn();
   await A.turn();
   const h = A.history.map((e: { action: string; result: string }) => `${e.action} -> ${e.result}`);
-  assert.deepEqual(h.filter((l: string) => /remember|note|flint/i.test(l)), ['remember "The pond is at (5, 10)" -> kept for your next notes'], "\"note\" leaves no trace");
+  assert.deepEqual(h.filter((l: string) => /remember|note|flint/i.test(l)), ['remember "The pond is at (5, 10)" -> kept'], "\"note\" leaves no trace");
   assert.deepEqual(A.mem.pendingRemember, ["The pond is at (5, 10)"]);
   const ev = events.filter((e) => e.kind === "action" && e.data?.remember);
-  assert.deepEqual(ev.map((e) => [e.text, e.data!.remember]), [['remember "The pond is at (5, 10)" -> kept for your next notes', "The pond is at (5, 10)"]]);
+  assert.deepEqual(ev.map((e) => [e.text, e.data!.remember]), [['remember "The pond is at (5, 10)" -> kept', "The pond is at (5, 10)"]]);
   const obs = seen[1];
-  assert.equal((obs.match(/pond is at/g) ?? []).length, 1, "only the history line shows it");
+  assert.equal((obs.match(/pond is at/g) ?? []).length, 2, "the history line and THINGS YOU CHOSE TO REMEMBER");
+  assert.match(obs, /== THINGS YOU CHOSE TO REMEMBER ==\n1\. \(1 turn ago\) The pond is at \(5, 10\)/);
   assert.doesNotMatch(obs, /flint/);
   await A.turn();
   await new Promise((r) => setTimeout(r, 10));
@@ -490,9 +491,16 @@ test("agent: remember gets one history line and an action event, no pending list
   assert.deepEqual(A.mem.pendingRemember, [], "cleared after the notes update");
 });
 
-test("agent: with MEMORY_SUMMARY=0 a remember says it was not kept", async () => {
-  const { A } = agent({ memorySummary: false }, async () => res(""), () => '{"remember":"x marks the spot","action":{"type":"wait","turns":1}}');
-  await A.turn();
-  assert.equal(A.history[0].result, "not kept: notes are off");
-  assert.deepEqual(A.mem.pendingRemember, []);
+test("agent by default: no note-taker call and no YOUR NOTES section; a remember is kept and shown", async () => {
+  const { config } = await import("../config.ts");
+  assert.equal(config.memorySummary, process.env.MEMORY_SUMMARY === "1", "MEMORY_SUMMARY is off unless set to 1");
+  const { A, seen, summaryCalls } = agent({ memorySummary: false, memorySummaryTurns: 1 }, async () => res("- a note"), () => '{"remember":"x marks the spot","action":{"type":"wait","turns":1}}');
+  for (let i = 0; i < 4; i++) await A.turn();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(summaryCalls.length, 0, "the note-taker is never called");
+  assert.equal(A.history[0].result, "kept");
+  assert.equal(A.history.filter((h: { result: string }) => h.result === "already remembered").length, 3, "exact duplicates are not added");
+  assert.ok(seen.every((o) => !/YOUR NOTES/.test(o)));
+  assert.match(seen[3], /== THINGS YOU CHOSE TO REMEMBER ==\n1\. \(\d+ turns? ago\) x marks the spot$/m);
+  assert.deepEqual(A.kept.texts, ["x marks the spot"]);
 });

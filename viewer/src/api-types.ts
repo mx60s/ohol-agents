@@ -680,7 +680,7 @@ export interface AgentSpecSettings {
   craftMacro: boolean;
   recipeHints: boolean;
   memoryMode: "per-life" | "persistent";
-  /** the note-taker's yearly notes are on, every memorySummaryTurns turns */
+  /** the old note-taker's yearly notes (off by default; MEMORY_SUMMARY=1), every memorySummaryTurns turns */
   memorySummary: boolean;
   memorySummaryTurns: number;
   traitSource: TraitSource;
@@ -716,11 +716,11 @@ export interface AgentSpecLimits {
   seenTurns: number;
   seenMax: number;
   seenPerPersonPerTurn: number;
-  /** the yearly notes: at most this many lines of this many chars */
+  /** the old note-taker's yearly notes (off by default): at most this many lines of this many chars */
   memoryLines: number;
   memoryLineChars: number;
-  /** extra note lines allowed for "remember" items, and one item's max length */
-  rememberExtraLines: number;
+  /** entries the agent can keep in THINGS YOU CHOSE TO REMEMBER, and one entry's max length */
+  keptMax: number;
   rememberChars: number;
   /** steps shown in the SEARCH section */
   searchSteps: number;
@@ -761,7 +761,7 @@ export interface AgentSpecExample {
   /** the reply as written */
   replyText: string;
   /** the reply as the harness read it: known fields only */
-  reply: { thought?: string; goal?: string; say?: string; remember?: string; action?: Record<string, unknown>; actions?: Record<string, unknown>[] };
+  reply: { thought?: string; goal?: string; say?: string; remember?: string; forget?: string; action?: Record<string, unknown>; actions?: Record<string, unknown>[] };
   /** each step's result, as the agent is told next turn */
   results: { action: string; result: string }[];
   /** what was actually said (cut to the age limit by the server) */

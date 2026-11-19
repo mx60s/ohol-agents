@@ -60,7 +60,29 @@ body.stream { background: var(--grain), var(--parchment); }
 .cam-label.is-focus { font-size: 24px; padding: 3px 15px 4px; opacity: 1; box-shadow: 0 2px 0 var(--ink); max-width: 420px; z-index: 2; }
 .cam-label.is-focus .ag { color: var(--ink-3); font-size: 18px; margin-left: 6px; }
 
+/* everyone but the followed person: a little smaller and dimmer, a dot in their name colour (chat box, pip) */
+.cam-label.is-minor { font-size: 16px; padding: 1px 9px 2px; border-width: 1.5px; opacity: .84; background: rgba(255,253,247,.9); }
+.cam-label.is-minor .ag { font-family: var(--font-body); font-weight: 800; font-size: 12px; color: var(--ink-3); margin-left: 3px; }
+.cam-label.is-minor.is-speaking { opacity: 1; }
+.cam-label .sw { flex: none; align-self: center; width: 10px; height: 10px; margin-right: 5px; border-radius: 50%; background: var(--who); border: 1.5px solid var(--ink); }
+
 .cam-bubble { max-width: 380px; font-size: 25px; z-index: 3; }
+/* in a crowd, the one other person whose line shows in full: their first name on a tab in their colour */
+.cam-bubble.is-other { font-size: 22px; max-width: 340px; }
+.cam-bubble.is-other .tx { -webkit-line-clamp: 3; }
+.cam-bubble .spk {
+  display: inline-block; margin: 0 0 3px -2px; padding: 0 8px 1px; border: 1.5px solid var(--ink); border-radius: var(--r-pill);
+  background: var(--who, var(--butter)); font-family: var(--font-display); font-size: 15px; line-height: 1.2; text-transform: uppercase;
+}
+/* in a crowd, everyone else who just spoke: a small "…" pip in their name colour (the line is in the chat box) */
+.cam-pip {
+  display: flex; gap: 3px; padding: 4px 6px; z-index: 3;
+  border: 2px solid var(--ink); border-radius: var(--r-pill); background: var(--who, var(--paper-white));
+  box-shadow: 0 2px 0 rgba(31,26,20,.35); animation: pip-in .25s ease both;
+}
+.cam-pip::after { content: ""; position: absolute; left: 50%; bottom: -7px; margin-left: -5px; border: 5px solid transparent; border-top: 6px solid var(--ink); border-bottom: 0; }
+.cam-pip i { display: block; width: 5px; height: 5px; border-radius: 50%; background: var(--ink); }
+@keyframes pip-in { from { opacity: 0; } }
 .cam-bubble .tx { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 /* an emote over a head (+HOMESICK+): small and quiet, not a speech bubble */
 .cam-emote {
@@ -108,6 +130,30 @@ body.stream { background: var(--grain), var(--parchment); }
   pointer-events: none; animation: lit-in 1.2s ease both;
 }
 @keyframes lit-in { from { opacity: 0; } }
+
+/* the chat box: what the people on screen said, newest at the bottom (bottom left of the camera) */
+.cam-chat {
+  position: absolute; left: 14px; bottom: 14px; z-index: 4; width: 400px; max-height: min(400px, calc(100% - 80px)); overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 34px); mask-image: linear-gradient(to bottom, transparent 0, #000 34px);
+  display: flex; flex-direction: column; justify-content: flex-end; pointer-events: none;
+  padding: 9px 14px 10px; border: 2px solid var(--ink); border-radius: 14px;
+  background: rgba(31,26,20,.76); color: var(--paper-white); box-shadow: 0 2px 0 rgba(31,26,20,.35);
+}
+.cam-chat ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cam-chat li { font-size: 17px; line-height: 1.28; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; animation: chat-in .35s ease both; transition: opacity .6s ease; }
+.cam-chat .spk { display: inline; }
+.cam-chat .spk .fl, .cam-chat .spk .sw { display: inline-block; vertical-align: -4px; margin-right: 5px; }
+.cam-chat .spk .sw { width: 11px; height: 11px; vertical-align: -1px; border-radius: 50%; background: var(--who, var(--butter)); border: 1.5px solid var(--paper-white); }
+.cam-chat .spk b { font-family: var(--font-display); font-weight: 400; font-size: 18px; color: var(--who, var(--butter)); text-transform: uppercase; letter-spacing: .01em; }
+.cam-chat li.is-focus .spk b { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+/* someone of another family than the followed person: their family name, small and muted, and a thin rule */
+.cam-chat .fam { margin-left: 5px; font-size: 13px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: rgba(255,253,247,.55); white-space: nowrap; }
+.cam-chat li.is-cross { padding-left: 8px; border-left: 2px solid rgba(255,253,247,.28); }
+.cam-chat .tx { font-weight: 500; }
+.cam-chat .tx.em { font-family: var(--font-hand); font-style: italic; color: rgba(255,253,247,.62); }
+@keyframes chat-in { from { opacity: 0; transform: translateY(8px); } }
+/* the model-down caption sits between the chat box and the minimap */
+.cam:has(.cam-chat) .lost-in-thought { left: calc(50% + 110px); max-width: 560px; overflow: hidden; text-overflow: ellipsis; }
 
 .cam-empty { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(235,225,200,.35); }
 .between {
@@ -196,7 +242,7 @@ body.stream { background: var(--grain), var(--parchment); }
 
 /* reduced motion: no crawl, no pulsing (the JS also turns the crawl off) */
 @media (prefers-reduced-motion: reduce) {
-  .crawl .track.run, .reconnect, .cam-death, .lost-in-thought { animation: none; }
+  .crawl .track.run, .reconnect, .cam-death, .lost-in-thought, .cam-pip, .cam-chat li { animation: none; }
   .crawl .tk-seg { overflow: hidden; }
   .cam-fade, .cam-fade.on { transition: none; }
 }
@@ -261,6 +307,19 @@ body.stream { background: var(--grain), var(--parchment); }
   .between h2 { font-size: 52px; }
   .between p { font-size: 32px; }
   .between .last { font-size: 30px; }
+
+  .cam-label.is-minor { font-size: 26px; padding: 2px 14px 4px; border-width: 2.5px; }
+  .cam-label.is-minor .ag { font-size: 20px; }
+  .cam-label .sw { width: 16px; height: 16px; border-width: 2.5px; margin-right: 8px; }
+  .cam-bubble.is-other { font-size: 30px; max-width: 560px; }
+  .cam-bubble .spk { font-size: 24px; padding: 0 12px 2px; border-width: 2.5px; }
+  .cam-pip { gap: 6px; padding: 8px 12px; border-width: 3px; }
+  .cam-pip i { width: 10px; height: 10px; }
+
+  /* the chat box sits under the camera */
+  .cam-chat.is-docked { position: static; width: auto; max-height: none; padding: 8px 12px 10px; border-width: 2.5px; border-radius: 14px; -webkit-mask-image: none; mask-image: none; }
+  .cam-chat li { font-size: 15px; }
+  .cam-chat .spk b { font-size: 15px; }
 
   /* the followed person */
   .side .panel, .newsbox .panel, .inventions .panel { flex: none; }
