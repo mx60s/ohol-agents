@@ -1,0 +1,305 @@
+MTS patch: scatter Eves around the living (setting mtsEveScatter, default
+0 = stock).
+
+Stock (and forceEveLocation) put every Eve near one spot, which gets eaten
+bare. With mtsEveScatter=1 each Eve (not cursed/Donkeytown ones, which
+stay stock) is placed like this, overriding getEvePosition, the
+birthlands y shift and forceEveLocation:
+
+- Nobody alive (non-tutorial, not dead, connected or not): at
+  forceEveLocationX/Y, within mtsForceEveSpread tiles if that is > 0.
+- Else: a random living player is the anchor. A spot at a random angle
+  and distance d, uniform in [mtsEveScatterMin, mtsEveScatterMax] tiles
+  (60, 300; mtsEveScatterStartMax=150 instead of the max until 3 Eves
+  were placed since server start), is taken if it is >= min tiles from
+  every living player and from every Eve spawn point of the last
+  mtsEveScatterRecentSeconds game seconds (7200; in memory), walkable
+  and without a deadly object. 200 tries; then 200 more without the
+  recent-spawn rule; then the candidate farthest from everyone alive.
+- Birthlands active (players >= minActivePlayersForBirthlands and
+  specialBiomeBandMode): an Eve outside her race's band can't have
+  babies, so y stays in her band (center getSpecialBiomeBandYCenterForRace
+  +- specialBiomeBandThickness/4) and only x follows the distance rule.
+
+Each placement is logged ("MTS Eve scatter: ...").
+
+diff --git a/server/server.cpp b/server/server.cpp
+index 2cc272b..5ee9828 100644
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -9552,6 +9552,246 @@ char isAccountSpecial( char *inEmail ) {
+     
+ 
+ 
++// MTS patch (scatter-eves.patch): scatter Eves around the living
++// (setting mtsEveScatter, default 0 = stock). See the patch header.
++static SimpleVector<GridPos> mtsEveScatterRecentPos;
++static SimpleVector<double> mtsEveScatterRecentTime;
++static int mtsEveScatterCount = 0;
++
++
++// Euclidean tiles from (inX,inY) to the nearest spot, -1 if none
++static double mtsNearestDist( int inX, int inY, SimpleVector<GridPos> *inSpots ) {
++    double best = -1;
++    for( int i=0; i<inSpots->size(); i++ ) {
++        GridPos p = inSpots->getElementDirect( i );
++        double dx = (double)inX - p.x;
++        double dy = (double)inY - p.y;
++        double d = sqrt( dx * dx + dy * dy );
++        if( best < 0 || d < best ) {
++            best = d;
++            }
++        }
++    return best;
++    }
++
++
++// walkable and no deadly object (same checks as force-eve-spread.patch)
++static char mtsEveSpotUsable( int inX, int inY ) {
++    if( isMapSpotBlocking( inX, inY ) ) {
++        return false;
++        }
++    int oID = getMapObject( inX, inY );
++    if( oID > 0 && getObject( oID ) != NULL &&
++        getObject( oID )->deadlyDistance > 0 ) {
++        return false;
++        }
++    return true;
++    }
++
++
++// Picks Eve inID's spot. With inBandMode her y stays within her race's
++// birthland band (center inBandY) and only x follows the distance rule.
++static void mtsScatterEve( int inID, char inBandMode, int inBandY,
++                           int *outX, int *outY ) {
++    int minD = SettingsManager::getIntSetting( "mtsEveScatterMin", 60 );
++    int maxD = SettingsManager::getIntSetting( "mtsEveScatterMax", 300 );
++    int startMax = 
++        SettingsManager::getIntSetting( "mtsEveScatterStartMax", 150 );
++    double recentSec = SettingsManager::getFloatSetting(
++        "mtsEveScatterRecentSeconds", 7200 );
++    
++    if( mtsEveScatterCount < 3 ) {
++        // the starting Eves end up a little closer than usual
++        maxD = startMax;
++        }
++    if( minD < 0 ) {
++        minD = 0;
++        }
++    if( maxD < minD ) {
++        maxD = minD;
++        }
++
++    // random y offset within the band: a quarter of its thickness
++    int bandOff = 0;
++    if( inBandMode ) {
++        bandOff = SettingsManager::getIntSetting( 
++            "specialBiomeBandThickness", 300 ) / 4;
++        if( bandOff < 0 ) {
++            bandOff = 0;
++            }
++        }
++    
++    // forget Eve spawn points older than recentSec (game seconds)
++    double now = Time::getCurrentTime();
++    for( int i=mtsEveScatterRecentPos.size() - 1; i>=0; i-- ) {
++        if( now - mtsEveScatterRecentTime.getElementDirect( i ) > 
++            recentSec ) {
++            mtsEveScatterRecentPos.deleteElement( i );
++            mtsEveScatterRecentTime.deleteElement( i );
++            }
++        }
++
++    // living players, connected or not (held babies at their holder)
++    SimpleVector<GridPos> living;
++    for( int i=0; i<players.size(); i++ ) {
++        LiveObject *o = players.getElement( i );
++        if( o->error || o->isTutorial || o->isGhost ||
++            o->curseStatus.curseLevel > 0 ) {
++            continue;
++            }
++        GridPos p = getPlayerPos( o );
++        if( o->heldByOther ) {
++            LiveObject *h = getLiveObject( o->heldByOtherID );
++            if( h != NULL ) {
++                p = getPlayerPos( h );
++                }
++            }
++        living.push_back( p );
++        }
++
++    int x, y;
++    GridPos anchor;
++    const char *how = "";
++    
++    if( living.size() == 0 ) {
++        // nobody alive: the forced location, small spread if set
++        anchor.x = SettingsManager::getIntSetting( "forceEveLocationX", 0 );
++        anchor.y = SettingsManager::getIntSetting( "forceEveLocationY", 0 );
++        if( inBandMode ) {
++            anchor.y = inBandY;
++            }
++        x = anchor.x;
++        y = anchor.y;
++        how = "nobody alive, forced location";
++        
++        int spread =
++            SettingsManager::getIntSetting( "mtsForceEveSpread", 0 );
++        if( spread > 0 ) {
++            for( int t=0; t<50; t++ ) {
++                int dx = randSource.getRandomBoundedInt( -spread, spread );
++                int dy = randSource.getRandomBoundedInt( -spread, spread );
++                if( dx * dx + dy * dy > spread * spread ) {
++                    continue;
++                    }
++                if( ! mtsEveSpotUsable( anchor.x + dx, anchor.y + dy ) ) {
++                    continue;
++                    }
++                x = anchor.x + dx;
++                y = anchor.y + dy;
++                break;
++                }
++            }
++        }
++    else {
++        anchor = living.getElementDirect(
++            randSource.getRandomBoundedInt( 0, living.size() - 1 ) );
++
++        char found = false;
++        // fallback: the candidate farthest from everyone alive,
++        // preferring usable tiles
++        char bestUsable = false;
++        double bestNear = -1;
++        int bestX = anchor.x;
++        int bestY = anchor.y;
++
++        // pass 0: all rules; pass 1: recent Eve spawns dropped
++        for( int pass=0; pass<2 && ! found; pass++ ) {
++            how = ( pass == 0 ) ? "all rules" : "recent spawns ignored";
++            
++            for( int t=0; t<200; t++ ) {
++                double d = randSource.getRandomBoundedDouble( minD, maxD );
++                int cx, cy;
++                
++                if( inBandMode ) {
++                    cy = inBandY + 
++                        randSource.getRandomBoundedInt( -bandOff, bandOff );
++                    double dy = (double)cy - anchor.y;
++                    double h;
++                    if( d > fabs( dy ) ) {
++                        h = sqrt( d * d - dy * dy );
++                        }
++                    else {
++                        // band farther than d: x near the anchor's
++                        h = randSource.getRandomBoundedDouble( 0, d );
++                        }
++                    if( randSource.getRandomBoolean() ) {
++                        h = -h;
++                        }
++                    cx = anchor.x + lrint( h );
++                    }
++                else {
++                    double a = 
++                        randSource.getRandomBoundedDouble( 0, 2 * M_PI );
++                    cx = anchor.x + lrint( d * cos( a ) );
++                    cy = anchor.y + lrint( d * sin( a ) );
++                    }
++                
++                double nearP = mtsNearestDist( cx, cy, &living );
++                char farFromLiving = ( nearP >= minD );
++                char farFromRecent = true;
++                if( pass == 0 ) {
++                    double nearR = mtsNearestDist( cx, cy, 
++                                                   &mtsEveScatterRecentPos );
++                    farFromRecent = ( nearR < 0 || nearR >= minD );
++                    }
++                
++                if( bestUsable && nearP <= bestNear ) {
++                    // can't improve the fallback or be accepted
++                    if( ! ( farFromLiving && farFromRecent ) ) {
++                        continue;
++                        }
++                    }
++                
++                char usable = mtsEveSpotUsable( cx, cy );
++                
++                if( usable && farFromLiving && farFromRecent ) {
++                    x = cx;
++                    y = cy;
++                    found = true;
++                    break;
++                    }
++                
++                if( ( usable && ! bestUsable ) ||
++                    ( usable == bestUsable && nearP > bestNear ) ) {
++                    bestUsable = usable;
++                    bestNear = nearP;
++                    bestX = cx;
++                    bestY = cy;
++                    }
++                }
++            }
++        
++        if( ! found ) {
++            x = bestX;
++            y = bestY;
++            how = bestUsable ? "fallback, farthest candidate" 
++                : "fallback, farthest candidate (unusable tile)";
++            }
++        }
++
++    double dist = sqrt( ( (double)x - anchor.x ) * ( x - anchor.x ) +
++                        ( (double)y - anchor.y ) * ( y - anchor.y ) );
++    
++    AppLog::infoF( 
++        "MTS Eve scatter: Eve %d at (%d,%d), anchor (%d,%d) of %d alive, "
++        "distance %.0f, nearest player %.0f, nearest recent Eve spawn %.0f, "
++        "band %s, d range %d-%d, %s",
++        inID, x, y, anchor.x, anchor.y, living.size(), dist,
++        mtsNearestDist( x, y, &living ),
++        mtsNearestDist( x, y, &mtsEveScatterRecentPos ),
++        inBandMode ? "yes" : "no", minD, maxD, how );
++    
++    GridPos s = { x, y };
++    mtsEveScatterRecentPos.push_back( s );
++    mtsEveScatterRecentTime.push_back( now );
++    mtsEveScatterCount++;
++    
++    *outX = x;
++    *outY = y;
++    }
++
++
++
+ // MTS patch: living players survive restarts (setting mtsPlayerSaves)
+ #include "mtsPlayerSaves.h"
+ 
+@@ -11451,6 +11691,28 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+                     }
+                 }
+             }
++
++        // MTS patch: scatter Eves around the living (mtsEveScatter);
++        // overrides the birthlands shift and forceEveLocation above but
++        // keeps her y in her birthland band when birthlands are on
++        if( SettingsManager::getIntSetting( "mtsEveScatter", 0 ) &&
++            ! special &&
++            newObject.curseStatus.curseLevel <= 0 ) {
++            
++            char bandMode = 
++                players.size() >= 
++                SettingsManager::getIntSetting( 
++                    "minActivePlayersForBirthlands", 15 )
++                &&
++                SettingsManager::getIntSetting( "specialBiomeBandMode", 0 );
++            int bandY = 0;
++            if( bandMode ) {
++                bandY = getSpecialBiomeBandYCenterForRace(
++                    getRace( &newObject ) );
++                }
++            mtsScatterEve( newObject.id, bandMode, bandY, 
++                           &startX, &startY );
++            }
+         
+         
+         newObject.xs = startX;
