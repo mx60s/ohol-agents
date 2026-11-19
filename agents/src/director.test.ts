@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DIRECTOR_SYSTEM, Director, JEV_FOCUS_INSTRUCTIONS, JEV_SWITCH_INSTRUCTIONS, blendVerdict, craftReport, jevVerdict, normaliseSalience, productsOf, validateReply, type ChatLlm, type DirectorEngine } from "./director.ts";
+import { CUTAWAY_GUIDANCE, CUTAWAY_SYSTEM, DIRECTOR_SYSTEM, Director, JEV_CUTAWAY_INSTRUCTIONS, trackAnimal, type DangerAnimal, JEV_FOCUS_INSTRUCTIONS, JEV_SWITCH_INSTRUCTIONS, blendVerdict, craftReport, jevVerdict, normaliseSalience, productsOf, validateReply, type ChatLlm, type DirectorEngine } from "./director.ts";
 import { JevClient, type DecisionsClient, type DecisionsRequest, type DecisionsResult } from "./jev.ts";
 import type { AgentView, PlayerView, RunEvent } from "./api-types.ts";
 import type { ChatMessage, LlmResult } from "./agent/llm.ts";
@@ -716,4 +716,212 @@ test("instructions and prompt mention big changes, briefly", () => {
   const s = setup([agent("a01", { generation: 2 }), agent("a02", { generation: 2, age: 56 })]);
   const p = s.d.buildPrompt(s.world, s.d.score(s.world, s.world.agents), 0);
   assert.match(p, /MAJOR DEVELOPMENT: near the end of their life \(age 56/);
+});
+
+// ------------------------------------------------------------------ cutaways
+
+function setupCut(agents: AgentView[], o: { engine?: DirectorEngine; jev?: FakeJev | null; llm?: FakeLlm | null; players?: PlayerView[]; animals?: DangerAnimal[]; isFood?: (h: string) => boolean } = {}) {
+  const clock = { t: 1_000_000 };
+  const world = { agents, players: o.players ?? [] };
+  const animals = { list: o.animals ?? [] };
+  const jev = o.jev === undefined ? new FakeJev() : o.jev;
+  const llm = o.llm === undefined ? new FakeLlm() : o.llm;
+  const events: { agentId: string | null; text: string; data: Record<string, unknown> }[] = [];
+  const records: Record<string, unknown>[] = [];
+  let seq = 0;
+  const d = new Director(
+    { state: () => world, llm, jev, emitFocus: (e) => events.push(e), record: (r) => records.push(r), now: () => clock.t, animals: () => animals.list, isFood: o.isFood },
+    { engine: o.engine ?? "heuristic", intervalMs: 10_000, minDwellMs: 30_000, deathHoldMs: 8_000, cutawayMs: 10_000, cutawayMinGapMs: 30_000, cutawayMinScore: 7, cutawayHeuristicScore: 9, cutawayP: 0.85 },
+  );
+  const ev = (kind: RunEvent["kind"], agentId: string | null, text = "", data?: Record<string, unknown>) => d.observe({ seq: ++seq, t: clock.t, kind, agentId, playerId: null, name: null, text, data });
+  const at = async (ms: number) => {
+    clock.t += ms;
+    await d.tick();
+  };
+  return { d, clock, world, animals, jev, llm, events, records, ev, at };
+}
+
+const cutOf = (d: Director) => d.focus.cutaway;
+const bear = (x: number, y: number, objectId = 630): DangerAnimal => ({ objectId, x, y, name: "Grizzly Bear" });
+
+test("dwell: a 30s shot, no switch decision before", async () => {
+  const s = setup([agent("a01"), agent("a02")]);
+  // the shared setup uses 45s; build one with 30s
+  const clock = { t: 0 };
+  const llm = new FakeLlm();
+  const events: { data: Record<string, unknown> }[] = [];
+  const d = new Director({ state: () => s.world, llm, emitFocus: (e) => events.push(e), now: () => clock.t }, { engine: "llm", intervalMs: 10_000, minDwellMs: 30_000, deathHoldMs: 8_000 });
+  llm.replies.push('{"focus":"a01"}');
+  await d.tick();
+  for (const t of [10_000, 20_000, 29_000]) {
+    clock.t = t;
+    await d.tick();
+  }
+  assert.equal(llm.calls.length, 1);
+  llm.replies.push('{"focus":"a02"}');
+  clock.t = 31_000;
+  await d.tick();
+  assert.equal(llm.calls.length, 2);
+  assert.equal(d.focus.agentId, "a02");
+});
+
+test("cutaway (heuristic): a bear next to someone elsewhere; the camera follows it for 10s, then returns", async () => {
+  const s = setupCut([agent("a01", { name: "MAIN ONE" }), agent("a02", { name: "LIRA TIDEWICK", x: 50 })], { animals: [bear(52, 0)] });
+  await s.at(0);
+  assert.equal(s.d.focus.agentId, "a01");
+  await s.at(5_000); // too early in the shot
+  assert.equal(cutOf(s.d), undefined);
+  await s.at(5_000);
+  const cut = cutOf(s.d)!;
+  assert.ok(cut, "cutaway started");
+  assert.equal(s.d.focus.agentId, "a01", "the main subject stays the focus");
+  assert.deepEqual(cut.target, { type: "animal", objectId: 630, x: 52, y: 0, name: "Grizzly Bear" });
+  assert.equal(cut.label, "Grizzly Bear near LIRA TIDEWICK");
+  assert.equal(cut.returnTo, "a01");
+  assert.equal(cut.until - cut.since, 10_000);
+  assert.equal(s.events.at(-1)!.data.cause, "cutaway");
+  assert.equal(s.events.at(-1)!.agentId, "a01");
+  const rec = s.records.find((r) => r.kind === "cutaway")!;
+  assert.equal(rec.reason, "animal");
+  assert.match(String(rec.detail), /2 tiles from/);
+  // the bear moves: the target follows its latest tile
+  s.animals.list = [bear(53, 1)];
+  await s.at(1_000);
+  assert.deepEqual([cutOf(s.d)!.target.type, (cutOf(s.d)!.target as { x: number }).x], ["animal", 53]);
+  await s.at(9_000); // 10s after the start
+  assert.equal(cutOf(s.d), undefined);
+  assert.equal(s.d.focus.agentId, "a01");
+  assert.equal(s.events.at(-1)!.data.cause, "cutaway-end");
+  assert.equal(s.records.at(-1)!.kind, "cutaway-end");
+  assert.equal(s.records.at(-1)!.why, "return");
+});
+
+test("cutaway: a safety gap after one ends, and the same candidate is not offered again", async () => {
+  const s = setupCut([agent("a01"), agent("a02", { x: 50 }), agent("a03", { x: -50 })], { animals: [bear(52, 0)] });
+  await s.at(0);
+  await s.at(10_000);
+  assert.ok(cutOf(s.d));
+  await s.at(10_000); // ends
+  assert.equal(cutOf(s.d), undefined);
+  // a different bear near someone else, inside the 30s gap: nothing
+  s.animals.list = [bear(52, 0), bear(-52, 0, 631)];
+  for (let i = 0; i < 2; i++) await s.at(10_000);
+  assert.equal(cutOf(s.d), undefined);
+  await s.at(11_000); // 31s after the end
+  assert.equal((cutOf(s.d)?.target as { objectId?: number } | undefined)?.objectId, 631);
+  await s.at(10_000);
+  // the first bear is still there, but it was already shown
+  for (let i = 0; i < 6; i++) await s.at(10_000);
+  assert.equal(s.records.filter((r) => r.kind === "cutaway").length, 2);
+});
+
+test("cutaway (heuristic): needs the high heuristic score; nothing on screen counts", async () => {
+  // bear 5 tiles from an adult: score 8 < 9
+  const s = setupCut([agent("a01"), agent("a02", { x: 50 })], { animals: [bear(55, 0)] });
+  await s.at(0);
+  for (let i = 0; i < 6; i++) await s.at(10_000);
+  assert.equal(s.records.filter((r) => r.kind === "cutaway").length, 0);
+  // a bear right next to the subject is already on screen
+  const t = setupCut([agent("a01"), agent("a02", { x: 50 })], { animals: [bear(2, 0)] });
+  await t.at(0);
+  for (let i = 0; i < 3; i++) await t.at(10_000);
+  assert.equal(cutOf(t.d), undefined);
+});
+
+test("cutaway (jev): asked with the sparing-use guidance; taken only at P >= cutawayP", async () => {
+  const jev = new FakeJev();
+  const s = setupCut([agent("a01"), agent("a02", { x: 50 }), agent("a03", { x: -50 })], { engine: "jev", jev, animals: [bear(55, 0)] });
+  jev.replies.push(jevAnswers("a01", { a01: 0.6, a02: 0.2, a03: 0.2 }));
+  await s.at(0);
+  jev.replies.push({ cutaway: { type: "noul", noul: 0.8 } });
+  await s.at(10_000);
+  const req = jev.calls.at(-1)!;
+  assert.deepEqual(Object.keys(req.questions), ["cutaway"]);
+  assert.equal(req.questions.cutaway.instructions, JEV_CUTAWAY_INSTRUCTIONS);
+  assert.ok(JEV_CUTAWAY_INSTRUCTIONS.includes(CUTAWAY_GUIDANCE));
+  assert.ok(CUTAWAY_SYSTEM.includes(CUTAWAY_GUIDANCE));
+  assert.equal((req.state as { seconds_since_last_cutaway: unknown }).seconds_since_last_cutaway, null);
+  assert.equal(cutOf(s.d), undefined, "0.8 < 0.85");
+  assert.equal(s.records.at(-1)!.kind, "cutaway-decision");
+  assert.equal(s.records.at(-1)!.take, false);
+  // another candidate: yes
+  s.animals.list = [bear(55, 0), bear(-55, 0, 631)];
+  jev.replies.push({ cutaway: { type: "noul", noul: 0.9 } });
+  await s.at(10_000);
+  assert.equal(cutOf(s.d)?.reason, "animal");
+  assert.equal((cutOf(s.d)!.target as { objectId: number }).objectId, 631);
+});
+
+test("cutaway (llm): the model must say yes", async () => {
+  const llm = new FakeLlm();
+  const s = setupCut([agent("a01"), agent("a02", { x: 50 })], { engine: "llm", llm, animals: [bear(55, 0)] });
+  llm.replies.push('{"focus":"a01"}');
+  await s.at(0);
+  llm.replies.push('{"cutaway": true}');
+  await s.at(10_000);
+  assert.equal(llm.calls.at(-1)![0].content, CUTAWAY_SYSTEM);
+  assert.ok(cutOf(s.d));
+});
+
+test("cutaway: subject dies during it -> back for the death hold; disconnects -> normal pick", async () => {
+  const s = setupCut([agent("a01"), agent("a02", { x: 50 })], { animals: [bear(52, 0)] });
+  await s.at(0);
+  await s.at(10_000);
+  assert.ok(cutOf(s.d));
+  s.ev("death", "a01", "", { age: 30 });
+  assert.equal(cutOf(s.d), undefined);
+  assert.equal(s.d.focus.agentId, "a01");
+  assert.equal(s.records.find((r) => r.kind === "cutaway-end")!.why, "death");
+
+  const t = setupCut([agent("a01"), agent("a02", { x: 50 })], { animals: [bear(52, 0)] });
+  await t.at(0);
+  await t.at(10_000);
+  assert.ok(cutOf(t.d));
+  t.world.agents[0] = agent("a01", { status: "waiting", playerId: null });
+  await t.at(1_000);
+  assert.equal(t.d.focus.agentId, "a02");
+  assert.equal(cutOf(t.d), undefined);
+  assert.equal(t.events.at(-1)!.data.cause, "disconnect");
+});
+
+test("cutaway candidates: birth, baby handover, starving next to food, alarmed speech", async () => {
+  const s = setupCut([agent("a01"), agent("a02", { x: 50, name: "MOM ROSE", held: "baby #103" }), agent("a03", { x: 50, age: 0, motherId: 102 })], {
+    isFood: (h) => h === "Bowl of Gooseberries",
+  });
+  await s.at(0);
+  assert.equal(s.d.focus.agentId, "a01");
+  s.ev("birth", "a03", "", { playerId: 103, motherId: 102 });
+  let c = s.d.cutawayCandidates(s.world, s.world.agents, s.clock.t);
+  assert.equal(c[0].reason, "birth");
+  assert.deepEqual(c[0].target, { type: "person", id: "a02", lifeId: "a02:1", playerId: 102, name: "MOM ROSE" });
+
+  // handover: a02 carries the baby, puts it down, a04 picks it up
+  s.world.agents.push(agent("a04", { x: 51, name: "AUNT IVY" }));
+  s.world.agents[1] = { ...s.world.agents[1], held: "nothing" };
+  await s.at(1_000);
+  s.world.agents[3] = { ...s.world.agents[3], held: "baby #103" };
+  await s.at(1_000);
+  c = s.d.cutawayCandidates(s.world, s.world.agents, s.clock.t);
+  const h = c.find((x) => x.reason === "handover")!;
+  assert.equal(h.label, "MOM ROSE hands a baby to AUNT IVY");
+  assert.equal((h.target as { id: string }).id, "a04");
+
+  // starving next to someone holding food
+  s.world.agents.push(agent("a05", { x: -40, food: 1, name: "HUNGRY HAL" }));
+  s.world.players = [{ id: 106, x: -41, y: 0, held: "Bowl of Gooseberries" } as PlayerView];
+  c = s.d.cutawayCandidates(s.world, s.world.agents, s.clock.t);
+  assert.ok(c.some((x) => x.reason === "starving" && (x.target as { id: string }).id === "a05"));
+
+  // an alarmed shout about a bear, with a bear near the speaker: the bear
+  s.animals.list = [bear(-45, 3)];
+  s.ev("say", "a05", "A bear! Run!", { heardBy: [] });
+  c = s.d.cutawayCandidates(s.world, s.world.agents, s.clock.t);
+  const sp = c.find((x) => x.reason === "speech")!;
+  assert.equal(sp.target.type, "animal");
+});
+
+test("trackAnimal: same id or kind nearby, nearest first", () => {
+  assert.deepEqual(trackAnimal([bear(10, 10), bear(3, 1, 631)], { objectId: 630, x: 1, y: 1, name: "Grizzly Bear" }), bear(3, 1, 631));
+  assert.equal(trackAnimal([bear(20, 20)], { objectId: 630, x: 1, y: 1, name: "Grizzly Bear" }), null);
+  assert.equal(trackAnimal([{ objectId: 700, x: 1, y: 2, name: "Wolf" }], { objectId: 630, x: 1, y: 1, name: "Grizzly Bear" }), null);
 });

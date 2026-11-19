@@ -16,10 +16,12 @@ export interface Action {
   turns?: number;
   /** craft: the item to make */
   item?: string;
+  /** search: the words to look up ("" clears the last search) */
+  what?: string;
 }
 
 /** Required fields per action type (must match prompt.ts actionList). */
-const SPECS: Record<string, { need?: ("xy" | "person" | "item" | "slot")[]; craft?: boolean }> = {
+const SPECS: Record<string, { need?: ("xy" | "person" | "item" | "slot" | "what")[]; craft?: boolean }> = {
   use: { need: ["xy"] },
   drop: {},
   swap: { need: ["xy"] },
@@ -34,6 +36,7 @@ const SPECS: Record<string, { need?: ("xy" | "person" | "item" | "slot")[]; craf
   give: { need: ["person"] },
   jump: {},
   wait: {},
+  search: { need: ["what"] },
 };
 
 /**
@@ -56,10 +59,23 @@ const ALIASES: Record<string, string> = {
   use_on_person: "feed", feed_baby: "feed",
   wiggle: "jump",
   idle: "wait",
+  lookup: "search", look_up: "search", how: "search", how_to: "search", how_to_make: "search", recipe: "search", hint: "search", hints: "search", find_recipe: "search",
 };
 
 export function validActionTypes(craft: boolean): string[] {
   return Object.keys(SPECS).filter((k) => craft || !SPECS[k].craft);
+}
+
+/** max length of a "remember" item (like a notes line) */
+export const REMEMBER_CHARS = 160;
+
+/**
+ * The reply's optional "remember" text for the next yearly notes, cleaned like
+ * say/goal; "" when absent. The old per-turn "note" field stays ignored: it is
+ * not read as "remember" (the notebook was removed on purpose).
+ */
+export function parseRemember(reply: Record<string, unknown>): string {
+  return cleanText(reply.remember, REMEMBER_CHARS);
 }
 
 const FORMAT = `Reply with one JSON object like {"thought":"...","action":{"type":"go","x":3,"y":4}}`;
@@ -305,6 +321,13 @@ export function sanitizeAction(v: unknown): Action | null {
     if (text) out.text = text;
   }
   let type = n;
+  if (ALIASES[n] === "search" || n === "search") {
+    // the words to look up: "what" (also "item", "query", "thing", "text"); "" clears
+    const raw = [a.what, a.item, a.query, a.thing, a.name, a.text].find((v) => typeof v === "string");
+    if (typeof raw === "string") out.what = cleanText(raw, 60).replace(/[^A-Za-z0-9 '\-]/g, " ").replace(/\s+/g, " ").trim();
+    delete out.text;
+    delete out.item;
+  }
   if (n === "pick_up" || n === "pickup" || n === "take") type = out.person !== undefined && !xy ? "pick_up_baby" : "use";
   else if (ALIASES[n]) type = ALIASES[n];
   if (/^[a-z_]{1,24}$/.test(type) && (SPECS[type] || type === "say")) out.type = type;
@@ -327,6 +350,7 @@ function keyedType(v: Record<string, unknown>): Record<string, unknown> | null {
   // {"wait":1}, {"say":"F"}: the one argument as a plain value
   if (n === "wait" && typeof val === "number") return { type: k, turns: val };
   if (n === "say" && typeof val === "string") return { type: "say", text: val };
+  if ((n === "search" || ALIASES[n] === "search") && typeof val === "string") return { type: k, what: val };
   return null;
 }
 
@@ -339,6 +363,8 @@ function keyedType(v: Record<string, unknown>): Record<string, unknown> | null {
 export function checkAction(reply: Record<string, unknown>, craft: boolean): { action: Action } | { error: string } {
   let raw: unknown = reply.action;
   if (raw == null && typeof reply.type === "string") raw = reply;
+  // speaking was the whole turn: not an invalid reply
+  if (raw == null && hasSay(reply)) return { action: { type: "say" } as Action };
   if (raw == null) return { error: `your reply had no "action", so you did nothing. ${FORMAT}` };
   return checkOne(raw, craft, hasSay(reply));
 }
@@ -406,6 +432,7 @@ function checkOne(raw: unknown, craft: boolean, topSay = false): { action: Actio
     if (need === "xy" && !(Number.isFinite(a.x) && Number.isFinite(a.y))) return { error: `"${a.type}" needs numeric "x" and "y" (copy them from your observation); you did nothing` };
     if (need === "person" && !(Number.isFinite(a.person) && a.person! > 0)) return { error: `"${a.type}" needs "person": the number after # in the people list; you did nothing` };
     if (need === "item" && !a.item) return { error: `"craft" needs "item": the name of the thing to make, e.g. "Sharp Stone"; you did nothing` };
+    if (need === "what" && a.what === undefined) return { error: `"search" needs "what": the name of a thing, e.g. "Fire" ("" clears the last search); you did nothing` };
     if (need === "slot" && !(Number.isInteger(a.slot) && a.slot! >= 0 && a.slot! <= 5)) return { error: `"undress" needs "slot" 0-5; you did nothing` };
   }
   return { action: a };

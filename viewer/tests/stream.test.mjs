@@ -7,6 +7,7 @@ import {
   SNAP_TILES,
   biomeName,
   cameraStep,
+  cutawayShot,
   fanOut,
   focusTransition,
   headlineNumbers,
@@ -20,6 +21,7 @@ import {
   selectTicker,
   shortAgo,
   tickerItem,
+  trackAnimal,
   traitTags,
   warmthLabel,
 } from "../src/stream/logic.ts";
@@ -351,4 +353,27 @@ test("minimap: dots for players plus agents not among them; the focus last", () 
   assert.equal(d.find((x) => x.key === "p2").agent, false);
   assert.deepEqual(minimapDots([], [], null), []);
   assert.ok(minimapDots(players, agents, null).every((x) => !x.focus));
+});
+
+test("cutawayShot: person, animal (followed on the map), tile; none when over or absent", () => {
+  const players = [{ id: 7, lifeId: "r:7", x: 3, y: 4 }];
+  const base = { kind: "cutaway", label: "L", reason: "animal", since: 100, until: 1000, returnTo: "a01" };
+  assert.equal(cutawayShot(null, 0, players, [], {}), null);
+  assert.equal(cutawayShot(undefined, 0, players, [], {}), null);
+  assert.equal(cutawayShot({ ...base, target: { type: "tile", x: 1, y: 2 } }, 1000, players, [], {}), null, "over");
+  assert.deepEqual(cutawayShot({ ...base, target: { type: "tile", x: 1, y: 2 } }, 500, players, [], {}), { key: "cut:100", label: "L", playerId: null, spot: { x: 1, y: 2 } });
+  assert.equal(cutawayShot({ ...base, target: { type: "person", id: "a02", lifeId: "r:7", playerId: null, name: null } }, 500, players, [], {}).playerId, 7);
+  assert.equal(cutawayShot({ ...base, target: { type: "person", id: "a03", lifeId: "r:9", playerId: 9, name: null } }, 500, players, [], {}), null, "not in view");
+  const animal = { ...base, target: { type: "animal", objectId: 630, x: 10, y: 10, name: "Grizzly Bear" } };
+  // the bear moved two tiles: the newest map cell wins over the director's last known tile
+  assert.deepEqual(cutawayShot(animal, 500, players, [[12, 11, 0, 0, 630]], { 630: "Grizzly Bear" }).spot, { x: 12, y: 11 });
+  assert.deepEqual(cutawayShot(animal, 500, players, [], {}).spot, { x: 10, y: 10 }, "not on the map: last known tile");
+});
+
+test("trackAnimal: same id or kind, nearest within reach", () => {
+  const names = { 630: "Grizzly Bear", 631: "Attacking Grizzly Bear", 700: "Wolf" };
+  const t = { objectId: 630, x: 0, y: 0, name: "Grizzly Bear" };
+  assert.deepEqual(trackAnimal([[5, 0, 0, 0, 630], [1, 1, 0, 0, 631]], names, t), { x: 1, y: 1 });
+  assert.equal(trackAnimal([[1, 0, 0, 0, 700]], names, t), null);
+  assert.equal(trackAnimal([[20, 0, 0, 0, 630]], names, t), null);
 });

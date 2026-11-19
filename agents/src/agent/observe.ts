@@ -4,18 +4,18 @@
 // Order: what changes rarely first (identity, home), what changes every turn
 // last, so consecutive prompts share a long prefix. Durations are in turns.
 
-import type { World, Player, Since } from "../game/world.ts";
-import type { GameData } from "../game/gameData.ts";
+import { VIEW_RADIUS, type World, type Player, type Since, type SeenEvent } from "../game/world.ts";
+import { withArticle, type GameData } from "../game/gameData.ts";
 import { DEFAULT_FOOD_BONUS_S, drainSecondsPerPip, newbornWindowSeconds } from "./prompt.ts";
 import { sayLimit } from "../game/body.ts";
 import { takenList } from "./naming.ts";
+import { NOTE_HEADINGS } from "./memory.ts";
 import { turnsAgo, turnsForWall, turnsText, turnsTextWall, type TurnClock } from "./turns.ts";
 
 export const BIOMES: Record<number, string> = {
   0: "grassland", 1: "swamp", 2: "yellow prairie", 3: "badlands", 4: "snowy tundra", 5: "desert", 6: "jungle",
 };
 
-const VIEW_RADIUS = 12;
 const RESOURCE_RADIUS = 20;
 const MAX_KINDS = 20;
 const MAX_HINTS = 8;
@@ -41,8 +41,10 @@ export interface ObservationOptions {
   recipeHints: boolean;
   /** recent action results, newest last */
   history: { t: number; action: string; result: string }[];
+  /** the latest hint search's steps (search.ts searchSection), shown until the next search */
+  search?: { title: string; lines: string[] } | null;
   pastLifeNotes: string[];
-  /** this life's yearly memory summary (see memory.ts), one fact per line; empty = no section */
+  /** this life's notes from the note-taker (see memory.ts): heading lines and facts; empty = no section */
   memory?: string[];
   goal: string | null;
   /** when the goal was last set or changed (the clock of `now`); shown as its age in turns */
@@ -69,26 +71,34 @@ export interface ObservationOptions {
 
 const DEFAULT_CLOCK: TurnClock = { cycleMs: 8000, timeScale: 1 };
 /**
- * How long deaths and heard lines stay in the observation: 300 s / 90 s of
- * wall time, or with the turn clock (where wall time includes everyone's
- * thinking) the same number of 8 s turns: 37 and 12 turns.
+ * How long heard lines stay in the observation: 90 s of wall time, or with
+ * the turn clock (where wall time includes everyone's thinking) the same
+ * number of 8 s turns: 12 turns.
  */
-const DEATHS_SHOWN_MS = 300_000;
 const HEARD_SHOWN_MS = 90_000;
+/** WHAT YOU SAW NEARBY: events from about the last this many turns, at most SEEN_SHOWN lines */
+export const SEEN_TURNS = 5;
+export const SEEN_SHOWN = 20;
 const shownMs = (wallMs: number, clock: TurnClock) => (clock.lockstep ? Math.round(wallMs / DEFAULT_CLOCK.cycleMs) * clock.cycleMs : wallMs);
+
+/**
+ * An age as shown: one decimal under 3 (else whole years), rounded down so a label never passes a
+ * threshold early ("baby girl, 2.9", not "baby girl, 3.0"; "girl, 13", not "girl, 14").
+ */
+export function ageText(age: number, decimals = age < 3 ? 1 : 0): string {
+  const f = 10 ** decimals;
+  return (Math.floor(age * f + 1e-9) / f).toFixed(decimals);
+}
 
 export function playerLabel(w: World, gd: GameData, p: Player, flower?: string | null): string {
   const age = w.currentAge(p);
   const sex = p.female == null ? "person" : age < 3 ? (p.female ? "baby girl" : "baby boy") : age < 14 ? (p.female ? "girl" : "boy") : p.female ? "woman" : "man";
   // no name: say so inside the parentheses; a bare "unnamed" in name position got copied as a name ("I AM UNNAMED THORN")
   const name = p.name ? `${p.name} ` : "";
-  return `#${p.id} ${name}(${p.name ? "" : "no name, "}${sex}, ${age.toFixed(age < 3 ? 1 : 0)}${flower ? `, ${flower}` : ""})`;
+  return `#${p.id} ${name}(${p.name ? "" : "no name, "}${sex}, ${ageText(age)}${flower ? `, ${flower}` : ""})`;
 }
 
-/** "a red rose", "an orange tulip" */
-export function withArticle(s: string): string {
-  return `${/^[aeiou]/i.test(s) ? "an" : "a"} ${s}`;
-}
+export { withArticle };
 
 function relation(w: World, p: Player): string | null {
   return relationTo(w, p.id, p.ancestors, p.eveId);
@@ -169,6 +179,12 @@ export function foodLine(w: World, clock: TurnClock): string {
   // the cause, without a comparison number: the heat line already gives the temperature (the number kept pulling thoughts to warmth over food)
   void ideal;
   const why = w.heat < 0.35 ? ` (faster because you are cold)` : w.heat > 0.65 ? ` (faster because you are too hot)` : "";
+  if (w.food <= 0) {
+    // server.cpp food decrement: a drain at 0 food (yum bonus used up first) takes it below 0, and that kills (reason hunger)
+    const since = w.foodDropAt != null ? Math.max(0, (w.now() - w.foodDropAt) / 1000) : 0;
+    const left = Math.max(0, per * (w.yumBonus + 1) - since);
+    return `Food: 0/${w.foodCapacity}${label}: empty; you starve to death in ${turnsTextWall(left, clock)} unless you eat (at the next drain; it drains ${rate}${why}).`;
+  }
   return `Food: ${w.food}/${w.foodCapacity}${label}. Drains ${rate}${why}; it runs out in ${turnsTextWall(per * w.food, clock)}.`;
 }
 
@@ -200,13 +216,13 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   if (myFollowers.length) L.push(`Your followers: ${myFollowers.slice(0, 8).map(nameOf).join(", ")}${myFollowers.length > 8 ? `, and ${myFollowers.length - 8} more` : ""}.`);
   if (me.name) L.push(`Your name is ${me.name}.`);
   if (!me.name) L.push(isEve ? `You have no name yet, and neither does your family: name yourself and your family now, this turn, by saying "I AM <FIRST NAME> <FAMILY NAME>" (once only; your children carry the family name).${o.takenSurnames?.length ? ` Family names already taken (pick a new one): ${takenList(o.takenSurnames)}.` : ""}` : `No name yet; usually your mother names you.`);
-  if (o.goal) L.push(`Your goal${goalAge(o.goalSetAt, now, clock)}: ${o.goal}`);
+  if (o.goal) L.push(`Your long-term goal${goalAge(o.goalSetAt, now, clock)}: ${o.goal}`);
   L.push(homeLine(w, pos, isEve));
 
   // --- body state
   if (age < 3) L.push(`You are a baby: you can't feed yourself or walk far, and can barely talk. A woman must carry you.`);
   const carrier = w.carrierOf(me);
-  L.push(`Age ${age.toFixed(1)} of at most 60. At (${pos[0]}, ${pos[1]})${carrier ? `, carried by #${carrier.id}` : ""}, ${here ? BIOMES[here.biome] ?? `biome ${here.biome}` : "unknown biome"}${here && here.floor ? `, on ${gd.name(here.floor)}` : ""}.`);
+  L.push(`Age ${ageText(age, 1)} of at most 60. At (${pos[0]}, ${pos[1]})${carrier ? `, carried by #${carrier.id}` : ""}, ${here ? BIOMES[here.biome] ?? `biome ${here.biome}` : "unknown biome"}${here && here.floor ? `, on ${gd.name(here.floor)}` : ""}.`);
   L.push(foodLine(w, clock));
   L.push(`Heat ${w.heat.toFixed(2)} (0.5 ideal; ${w.heat < 0.35 ? "too cold" : w.heat > 0.65 ? "too hot" : "ok"}).`);
   const worn = me.clothing.map((c, i) => (c.id ? `${["hat", "tunic", "front shoe", "back shoe", "bottom", "backpack"][i]}: ${gd.describeStack(c)}` : null)).filter(Boolean);
@@ -249,18 +265,25 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
       const c = w.carrierOf(b);
       return `#${b.id} ${c ? (c.id === me.id ? "in your arms" : `held by #${c.id}`) : `on the ground at (${w.posOf(b)[0]}, ${w.posOf(b)[1]})`}`;
     });
-    L.push(`Your babies: ${parts.join("; ")}. Unheld, a newborn dies within ~${turnsText(newbornWindowSeconds(o.foodBonusS ?? DEFAULT_FOOD_BONUS_S), clock).replace("about ", "")}; a fed baby lasts a bit longer.`);
+    L.push(`Your babies: ${parts.join("; ")}. Unheld, a newborn dies within ~${turnsText(newbornWindowSeconds(o.foodBonusS ?? DEFAULT_FOOD_BONUS_S), clock).replace("about ", "")}; held by a woman aged 14-40, a baby is nursed and its food doesn't drain.`);
+  }
+  // our children out of range: where we last saw them (World.children)
+  const gone = [...w.children.values()].filter((c) => !w.players.has(c.id)).sort((a, b) => b.t - a.t);
+  if (gone.length) {
+    const parts = gone.slice(0, 6).map((c) => {
+      const a = w.childAge(c);
+      const sex = c.female == null ? "child" : a < 3 ? (c.female ? "baby girl" : "baby boy") : c.female ? "girl" : "boy";
+      return `#${c.id}${c.name ? ` ${c.name}` : ""} (${sex}, ${ageText(a)}) last seen at (${c.x},${c.y}), ${dist(pos, [c.x, c.y])} tiles away, ${turnsAgo(c.t, now, clock)}`;
+    });
+    L.push(`Your children out of sight: ${parts.join("; ")}${gone.length > 6 ? `; and ${gone.length - 6} more` : ""}.`);
   }
 
-  // --- deaths we witnessed
-  const deaths = w.deaths.filter((d) => now - d.t < shownMs(DEATHS_SHOWN_MS, clock));
-  if (deaths.length) {
+  // --- what we saw happen nearby (World.seen): people, others' doings, dangerous animals, deaths
+  const seen = w.seen.filter((e) => now - e.t < (SEEN_TURNS + 0.5) * clock.cycleMs).slice(-SEEN_SHOWN);
+  if (seen.length) {
     L.push(``);
-    L.push(`== DEATHS YOU SAW ==`);
-    for (const d of deaths.slice(-5)) {
-      const rel = relationTo(w, d.id, d.ancestors, d.eveId);
-      L.push(`- ${turnsAgo(d.t, now, clock)}: ${d.name ?? `#${d.id} (no name)`}${rel ? ` [${rel}]` : ""}, age ${d.age.toFixed(d.age < 3 ? 1 : 0)}, at (${d.x}, ${d.y})`);
-    }
+    L.push(`== WHAT YOU SAW NEARBY ==`);
+    for (const e of seen) L.push(`- ${turnsAgo(e.t, now, clock)}: ${seenText(w, gd, e)}`);
   }
 
   // --- speech
@@ -275,7 +298,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
     }
     const who = h.speakerId == null ? `written words at (${h.x}, ${h.y})` : h.speakerId === me.id ? "you" : (() => {
       const p = w.players.get(h.speakerId!);
-      const other = p && relation(w, p) === "other family" && speechLooksScrambled(w, h.speakerId!, h.text, o.speechScrambled) ? " [other family: their language differs from yours]" : "";
+      const other = p && relation(w, p) === "other family" && speechLooksScrambled(w, h.speakerId!, h.spoken ?? h.text, o.speechScrambled) ? " [other family: their language differs from yours]" : "";
       return p ? `${playerLabel(w, gd, p)}${other}` : `#${h.speakerId}`;
     })();
     L.push(`- ${turnsAgo(h.t, now, clock)}, ${who}: "${h.text}"`);
@@ -314,6 +337,12 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
     }
   }
 
+  if (o.search) {
+    L.push(``);
+    L.push(`== SEARCH: ${o.search.title} ==`);
+    L.push(...o.search.lines);
+  }
+
   if (o.history.length || o.lastThought) {
     L.push(``);
     L.push(`== YOUR LAST ACTIONS ==`);
@@ -328,10 +357,33 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   }
   if (o.memory?.length) {
     L.push(``);
-    L.push(`== WHAT YOU REMEMBER (this life) ==`);
-    L.push(...o.memory.map((n) => `- ${n}`));
+    L.push(`== YOUR NOTES (this life) ==`);
+    L.push(...notesLines(o.memory));
   }
   return L.join("\n");
+}
+
+/** One WHAT YOU SAW NEARBY line: {0}, {1}... become the people as labelled elsewhere ("you" for ourselves). */
+export function seenText(w: World, gd: GameData, e: SeenEvent): string {
+  const line = e.text.replace(/\{(\d+)\}/g, (_m, i: string) => {
+    const p = e.people[Number(i)];
+    if (!p) return "someone";
+    if (p.id === w.selfId) return "you";
+    if (!("age" in p)) {
+      const n = w.names.get(p.id);
+      return `#${p.id}${n ? ` ${n}` : ""}`;
+    }
+    const lin = w.players.get(p.id) ?? w.lineage.get(p.id);
+    const q: Player = { ...p, name: w.names.get(p.id) ?? p.name, ancestors: lin?.ancestors ?? p.ancestors, eveId: lin?.eveId ?? p.eveId };
+    const rel = relation(w, q);
+    return `${playerLabel(w, gd, q)}${rel ? ` [${rel}]` : ""}`;
+  });
+  return e.more ? `${line} (and ${e.more} more change${e.more === 1 ? "" : "s"} by them)` : line;
+}
+
+/** The notes as shown: heading lines ("What worked:") as they are, facts as "- fact". */
+export function notesLines(notes: string[]): string[] {
+  return notes.map((n) => (/:$/.test(n) && NOTE_HEADINGS.some((h) => `${h}:` === n) ? n : `- ${n}`));
 }
 
 /** " (set 3 turns ago)", " (just set)", or "" when unknown */
@@ -446,11 +498,12 @@ const WOUND_DEATH_SECONDS = 20;
 export function conditionLine(w: World, gd: GameData, me: Player, clock: TurnClock): string | null {
   const c = gd.condition(me.held.id);
   const name = gd.name(me.held.id);
-  const from = c?.from.length ? ` from a ${c.from[0]}` : "";
+  const src = c?.kind === "wound" ? w.woundSource() : null;
+  const from = src ? ` from ${src}` : "";
   if (c?.kind === "sickness") return `You are SICK: ${name}. It passes with time if you survive; until then it fills your hands (it can't be dropped).`;
   if (c?.kind === "wound") {
     const h = gd.healers(me.held.id);
-    const heal = h.length ? ` heals you (only ${h.slice(0, 3).map((n) => `a ${n}`).join(" or ")} used on you treats a ${name})` : " heals you";
+    const heal = h.length ? ` heals you (only ${h.slice(0, 3).map(withArticle).join(" or ")} used on you treats ${withArticle(name)})` : " heals you";
     const dying = me.dying ? ` You are bleeding: you die within ~${turnsText(WOUND_DEATH_SECONDS, clock).replace("about ", "")} unless someone${heal}.` : "";
     return `You are WOUNDED: ${name}${from}. A wound fills your hands; it can't be dropped or eaten.${dying}`;
   }
@@ -463,7 +516,7 @@ function othersCondition(gd: GameData, p: Player): string {
   const c = gd.condition(p.held.id);
   if (c?.kind === "wound") {
     const h = gd.healers(p.held.id);
-    return `, WOUNDED (${gd.name(p.held.id)}; hands taken${h.length ? `; treated only by ${h.slice(0, 3).map((n) => `a ${n}`).join(" or ")}` : ""})${p.dying ? ", bleeding" : ""}`;
+    return `, WOUNDED (${gd.name(p.held.id)}; hands taken${h.length ? `; treated only by ${h.slice(0, 3).map(withArticle).join(" or ")}` : ""})${p.dying ? ", bleeding" : ""}`;
   }
   if (c?.kind === "sickness") return `, SICK (${gd.name(p.held.id)}; hands taken)`;
   return p.dying ? ", DYING" : "";
@@ -509,7 +562,7 @@ function recipeHints(w: World, gd: GameData, positions: [number, number][], now:
     const key = `${held},${target}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(`- ${held ? "use on" : "bare hands on"} ${gd.name(target)} (${pos[0]}, ${pos[1]}): ${useResult(gd, t, held, target)}`);
+    out.push(`- ${held ? "use on" : "bare hands on"} ${held && gd.name(held) === gd.name(target) ? "another " : ""}${gd.name(target)} (${pos[0]}, ${pos[1]}): ${useResult(gd, t, held, target)}`);
   }
 
   // the thing our last use just made, next to us (the client's hint follows it)
@@ -531,7 +584,7 @@ function recipeHints(w: World, gd: GameData, positions: [number, number][], now:
   if (made && made.id !== held && sameHand(made)) {
     const uses = gd.hints(made.id).filter((t) => t.target === made!.id && !(t.actor === held && seen.has(`${held},${made!.id}`)));
     for (const t of uses.slice(0, MADE_HINTS))
-      out.push(`- on the ${gd.name(made.id)} you just made (${made.x}, ${made.y}): ${t.actor ? `a ${gd.name(t.actor)}` : "bare hands"} -> ${useResult(gd, t, t.actor, made.id)}`);
+      out.push(`- on the ${gd.name(made.id)} you just made (${made.x}, ${made.y}): ${t.actor ? gd.articleName(t.actor, made.id) : "bare hands"} -> ${useResult(gd, t, t.actor, made.id)}`);
   }
 
   // the held object's hint list, minus what is shown above
@@ -541,10 +594,11 @@ function recipeHints(w: World, gd: GameData, positions: [number, number][], now:
       if (n >= HELD_HINTS) break;
       if (t.actor === held) {
         if (t.target > 0 && inView.has(t.target)) continue; // in view: shown above with its place, or not usable from here
-        const where = t.target === -1 ? "on empty ground" : `on a ${gd.name(t.target)} (none in view)`;
+        // a thing the world never places shows up only where someone made it
+        const where = t.target === -1 ? "on empty ground" : `on ${gd.articleName(t.target, held)} (${gd.madeOnly(t.target) ? "not found in the wild: it is made" : "none in view"})`;
         out.push(`- use it ${where}: ${useResult(gd, t, held, t.target)}`);
       } else {
-        out.push(`- ${t.actor ? `a ${gd.name(t.actor)} used` : "bare hands"} on it, once it is on the ground: ${useResult(gd, t, t.actor, held)}`);
+        out.push(`- ${t.actor ? `${gd.articleName(t.actor, held)} used` : "bare hands"} on it, once it is on the ground: ${useResult(gd, t, t.actor, held)}`);
       }
       n++;
     }

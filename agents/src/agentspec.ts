@@ -49,11 +49,11 @@ export const OBSERVATION_LIMITS = {
   /** observe.ts: heard lines kept for 90 s, last 10 */
   heardWindowS: 90,
   heardMax: 10,
-  /** observe.ts: deaths seen kept for 300 s, last 5 */
-  deathsWindowS: 300,
-  deathsMax: 5,
-  /** memory.ts: the yearly summary ("WHAT YOU REMEMBER") is at most this many lines of this many chars */
-  memoryLines: 8,
+  /** observe.ts WHAT YOU SAW NEARBY (deaths and other events seen): the last SEEN_TURNS = 5 turns (40 s of 8 s turns), last 10 */
+  deathsWindowS: 40,
+  deathsMax: 20,
+  /** memory.ts: the note-taker's yearly notes ("YOUR NOTES") are at most this many lines (plus headings) of this many chars */
+  memoryLines: 10,
   memoryLineChars: 160,
   /** salience.ts HEAR_RADIUS: speech this close wakes an agent early */
   wakeSpeechRadius: 10,
@@ -66,7 +66,7 @@ export const OBSERVATION_LIMITS = {
 /** The reply object's fields, as agent.ts reads them (caps from cleanText calls there). */
 export const REPLY_FIELDS: { name: string; meaning: string }[] = [
   { name: "thought", meaning: "one short sentence; shown back to it next turn as its previous thought (max 400 chars)" },
-  { name: "goal", meaning: "optional; kept and shown every turn until it changes (max 200 chars)" },
+  { name: "goal", meaning: "optional: the long-term goal for this life (not this turn's step); kept and shown every turn with its age until it changes (max 200 chars)" },
   { name: "say", meaning: "optional; spoken aloud now, before the action; a baby naming line ('YOU ARE X') waits for a pick_up_baby in the same reply (max 200 chars, cut further by age)" },
   { name: "action", meaning: "one action object (see the table)" },
   { name: "actions", meaning: "instead of action: a list of steps run back to back" },
@@ -166,7 +166,7 @@ export function interventions(cfg: Config, s: AgentSpecSettings): AgentSpecInter
     { id: "events", name: "Event-driven turns", category: "beyond-human", on: true, detail: "hunger thresholds, births, deaths, being picked up and nearby speech wake the agent early" },
     { id: "wasted-turns", name: "Wasted-turn feedback", category: "beyond-human", on: true, detail: "a malformed reply or invalid action is explained next turn" },
     { id: "reasoning-cap", name: "Mild reasoning cap", category: "beyond-human", on: cfg.llmReasoningCap, detail: `about ${cfg.llmReasoningMaxTokens} reasoning tokens within ${cfg.llmDecisionMaxTokens} in total` },
-    { id: "memory-summary", name: "Yearly memory summary", category: "beyond-human", on: cfg.memorySummary, detail: `every ${cfg.memorySummaryTurns} turns the agent's own model rewrites its memory of this life in the background (at most ${L.memoryLines} lines of facts, no plans), shown every turn` },
+    { id: "memory-summary", name: "Yearly notes", category: "beyond-human", on: cfg.memorySummary, detail: `every ${cfg.memorySummaryTurns} turns a separate note-taker call (the agents' own model) rewrites this life's notes in the background from a transcript of the year (actions and results, what was seen nearby, notices, what people said as claims; not the agent's thoughts): at most ${L.memoryLines} lines of facts under headings, no plans, shown every turn` },
     { id: "memory", name: "Notes from past lives", category: "beyond-human", on: cfg.memoryMode === "persistent", detail: "MEMORY_MODE=persistent carries a slot's last yearly memory summary into its next life; off = each life starts fresh" },
     // declared changes to the game
     { id: "food-bonus", name: "New-player food bonus", category: "game-setting", on: on(s.foodBonus), detail: `+${s.foodBonusSecondsPerPip.value ?? "?"} s on every food pip, every life (stock OHOL gives it to newcomers)` },

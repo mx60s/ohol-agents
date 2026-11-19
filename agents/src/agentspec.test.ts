@@ -108,7 +108,7 @@ test("server settings: OHOL_SETTING_ wins, then the shipped .ini, else unknown",
 test("mirrored constants match observe.ts, salience.ts, agent.ts and prompt.ts", () => {
   const o = src("agent/observe.ts");
   const L = OBSERVATION_LIMITS;
-  assert.match(o, new RegExp(`const VIEW_RADIUS = ${L.viewRadius};`));
+  assert.match(src("game/world.ts"), new RegExp(`const VIEW_RADIUS = ${L.viewRadius};`));
   assert.match(o, new RegExp(`const RESOURCE_RADIUS = ${L.resourceRadius};`));
   assert.match(o, new RegExp(`const MAX_KINDS = ${L.maxThingKinds};`));
   assert.match(o, new RegExp(`const MAX_HINTS = ${L.maxHints};`));
@@ -119,9 +119,9 @@ test("mirrored constants match observe.ts, salience.ts, agent.ts and prompt.ts",
   // windows in wall s (turn clock: the same number of 8 s turns, see observe.ts shownMs)
   assert.match(o, new RegExp(`const HEARD_SHOWN_MS = ${L.heardWindowS}_000;`));
   assert.match(o, new RegExp(`now - h\\.t < shownMs\\(HEARD_SHOWN_MS, clock\\)\\)\\.slice\\(-${L.heardMax}\\)`));
-  assert.match(o, new RegExp(`const DEATHS_SHOWN_MS = ${L.deathsWindowS}_000;`));
-  assert.match(o, /now - d\.t < shownMs\(DEATHS_SHOWN_MS, clock\)\)/);
-  assert.match(o, new RegExp(`deaths\\.slice\\(-${L.deathsMax}\\)`));
+  assert.match(o, new RegExp(`const SEEN_TURNS = ${L.deathsWindowS / 8};`));
+  assert.match(o, new RegExp(`const SEEN_SHOWN = ${L.deathsMax};`));
+  assert.match(o, /now - e\.t < \(SEEN_TURNS \+ 0\.5\) \* clock\.cycleMs\)\.slice\(-SEEN_SHOWN\)/);
   const m = src("agent/memory.ts");
   assert.match(m, new RegExp(`MEMORY_MAX_LINES = ${L.memoryLines};`));
   assert.match(m, new RegExp(`MEMORY_LINE_CHARS = ${L.memoryLineChars};`));

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type {
   AgentSpecResponse,
   DeathsResponse,
+  FieldNote,
   Invention,
   LifeRecord,
   LineagesResponse,
@@ -260,6 +261,12 @@ export function useInventions(limit = 6): { inventions: Invention[]; loading: bo
   return { inventions: r.data?.inventions ?? EMPTY_INVENTIONS, loading: r.loading, error: r.error };
 }
 const EMPTY_INVENTIONS: Invention[] = [];
+/** The current run's field notes (fieldnotes.ts on the agents service), newest first. Polled every 60 s; a new one comes every ~20 min. */
+export function useFieldNotes(limit = 200): { notes: FieldNote[]; loading: boolean; error: Error | null } {
+  const r = useResource(poller(`fieldnotes:${limit}`, (c) => c.fieldNotes({ limit }), 60_000));
+  return { notes: r.data?.notes ?? EMPTY_NOTES, loading: r.loading, error: r.error };
+}
+const EMPTY_NOTES: FieldNote[] = [];
 /** What agents are told and can do (GET /api/agent-spec), polled every 60 s; data null if the service doesn't have it. */
 export function useAgentSpec(): Resource<AgentSpecResponse | null> & { refresh: () => void } {
   return useResource(poller("agent-spec", async (c) => (c.agentSpec ? c.agentSpec() : null), 60_000));

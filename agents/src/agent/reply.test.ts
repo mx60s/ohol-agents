@@ -88,7 +88,7 @@ test("every way an action can be wasted gets an explanation", () => {
 
 test("the prompt's action list names exactly the types the checker accepts", () => {
   for (const craft of [true, false]) {
-    const listed = [...actionList({ craft }).matchAll(/"type":"([a-z_]+)"/g)].map((m) => m[1]);
+    const listed = [...actionList({ craft }).matchAll(/^- \{"type":"([a-z_]+)"/gm)].map((m) => m[1]);
     assert.deepEqual(listed.sort(), validActionTypes(craft).sort());
   }
 });
@@ -228,4 +228,38 @@ test("give: needs a person; hand/pass are aliases", () => {
   const alias = checkAction({ action: { type: "hand", person: 4 } }, false);
   assert.ok(!("error" in alias) && alias.action.type === "give");
   assert.ok("error" in checkAction({ action: { type: "give" } }, false));
+});
+
+test("a reply with a say and no action is a say turn, not an invalid reply", () => {
+  const c = checkActions({ thought: "x", say: "HELLO" }, false, 4);
+  assert.ok("steps" in c && c.steps.length === 1 && c.steps[0].type === "say" && !c.steps[0].text, JSON.stringify(c));
+  assert.ok("error" in checkActions({ thought: "x", say: "  " }, false, 4), "no words and no action: did nothing");
+});
+
+test("a refused far target counts as a failed step", () => {
+  assert.ok(stepFailed("drop at (0,0): not done: (0,0) is 130 tiles from you at (-130,57); drop works on tiles up to 24 away"));
+  assert.ok(!stepFailed("spoke; no other action this turn"));
+});
+
+test("search: parsed with its aliases and shapes; \"\" clears; no words is an error", () => {
+  const act = (a: unknown) => {
+    const c = checkAction({ action: a }, false);
+    assert.ok("action" in c, JSON.stringify(c));
+    return c.action;
+  };
+  assert.deepEqual(act({ type: "search", what: "Fire" }), { type: "search", what: "Fire" });
+  for (const t of ["lookup", "look up", "how", "how_to_make", "recipe"]) assert.equal(act({ type: t, what: "Reed Skirt" }).type, "search", t);
+  assert.deepEqual(act({ type: "search", item: "Sharp Stone" }), { type: "search", what: "Sharp Stone" });
+  assert.deepEqual(act({ type: "lookup", query: "fire!!" }), { type: "search", what: "fire" });
+  assert.deepEqual(act({ search: "basket" }), { type: "search", what: "basket" });
+  assert.deepEqual(act({ type: "search", what: "" }), { type: "search", what: "" });
+  const bad = checkAction({ action: { type: "search" } }, false);
+  assert.ok("error" in bad && /"search" needs "what"/.test(bad.error));
+});
+
+test("the action list's search line describes it and nothing more", () => {
+  for (const craft of [true, false])
+    assert.ok(actionList({ craft }).includes(`- {"type":"search","what":"<thing>"}  look up how a thing is made, step by step (the game's hint search)`));
+  const clock = { cycleMs: 8000, timeScale: 1 };
+  for (const baseline of ["new", "playbook"] as const) assert.match(buildSystemPrompt(clock, { craft: false, baseline }), /"type":"search"/);
 });

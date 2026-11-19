@@ -136,14 +136,29 @@ export const config = {
   /** jev: combined = w * P_jev + (1 - w) * normalised heuristic salience */
   directorJevWeight: num("DIRECTOR_JEV_WEIGHT", 0.5),
   /** min ms on one character before switching (not applied on death/disconnect) */
-  directorMinDwellMs: num("DIRECTOR_MIN_DWELL_MS", 45000),
+  directorMinDwellMs: num("DIRECTOR_MIN_DWELL_MS", 30000),
   /** ms to stay on a character after they die, so viewers see it */
   directorDeathHoldMs: num("DIRECTOR_DEATH_HOLD_MS", 8000),
+  /** length of a cutaway (a short look at something critical elsewhere, then back to the subject); 0 disables cutaways */
+  directorCutawayMs: num("DIRECTOR_CUTAWAY_MS", 10000),
+  /** safety floor: min ms from the end of one cutaway to the start of the next (frequency is otherwise the model's judgement) */
+  directorCutawayMinGapMs: num("DIRECTOR_CUTAWAY_MIN_GAP_MS", 30000),
+  /** min heuristic score of a cutaway candidate before jev/llm are asked about it */
+  directorCutawayMinScore: num("DIRECTOR_CUTAWAY_MIN_SCORE", 7),
+  /** heuristic engine (no model judgement): min score to take a cutaway on its own */
+  directorCutawayHeuristicScore: num("DIRECTOR_CUTAWAY_HEURISTIC_SCORE", 9),
+  /** jev: min P(cutaway) to take one (stricter than DIRECTOR_SWITCH_P) */
+  directorCutawayP: num("DIRECTOR_CUTAWAY_P", 0.85),
   // --- "story so far" (rolling world summary, persisted in LOG_DIR/story.jsonl); see story.ts
   /** ms between story refreshes; 0 disables */
   storyIntervalMs: num("STORY_INTERVAL_MS", 900000),
   /** model for the story; default NARRATOR_MODEL, then OVERHEAD_MODEL */
   storyModel: env.STORY_MODEL || env.NARRATOR_MODEL || overheadModel,
+  // --- field notes (a researcher's write-up every 20 min, per run; LOG_DIR/<run dir>/fieldnotes.jsonl); see fieldnotes.ts
+  /** ms between field notes; 0 disables */
+  fieldNotesIntervalMs: num("FIELD_NOTES_INTERVAL_MS", 1_200_000),
+  /** model for the field notes; default the story's model */
+  fieldNotesModel: env.FIELD_NOTES_MODEL || env.STORY_MODEL || env.NARRATOR_MODEL || overheadModel,
   /** 0 = process starts idle; begin the run with POST /api/start?token=... */
   autostart: env.AUTOSTART !== "0",
   /** 1 = anyone can start/stop runs from the dashboard (no password) */
@@ -156,8 +171,14 @@ export const config = {
   /** max concurrent SSE (/api/stream) clients; more get 503 */
   sseMaxClients: num("SSE_MAX_CLIENTS", 200),
   logDir: env.LOG_DIR ?? path.join(root, "agents/logs"),
-  /** raw per-run log files (llm.jsonl, events.jsonl, ...) rotate to <file>.1 past this many MB; 0 = never */
+  /** raw per-run log files (llm.jsonl, events.jsonl, ...) rotate to <file>.1 (older ones to .2, .3, ...) past this many MB; 0 = never */
   logMaxFileMb: num("LOG_MAX_FILE_MB", 32),
+  /**
+   * cap on all run dirs under LOG_DIR together (MB): past it the oldest rotated
+   * generations are deleted, live files never. /data is a 3 GB volume shared
+   * with the world (fly.toml), so 2 GB. 0 = no cap
+   */
+  logMaxTotalMb: num("LOG_MAX_TOTAL_MB", 2048),
   // --- starting setup and rejoins (see logins.ts and README "Run setup")
   /** Eves to start the run with: logins go in one at a time until this many have appeared as Eves */
   initialEves: num("INITIAL_EVES", 2),

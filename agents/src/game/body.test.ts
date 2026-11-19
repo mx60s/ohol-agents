@@ -1,7 +1,7 @@
 // Body skills against the in-process fake server (real game data, no network).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { GameData } from "./gameData.ts";
+import { GameData, withArticle } from "./gameData.ts";
 import { ANIMAL_JUMP_TILES, Body, sayLimit } from "./body.ts";
 import { FakeGame } from "./fakeGame.ts";
 
@@ -147,7 +147,7 @@ test("a use the game has no transition for says so; a real one doesn't", async (
   g.setTile(0, 1, FIRE);
   g.start();
   const body = new Body(g.conn, g.world, gd);
-  assert.equal(await body.use(1, 0), "use at (1,0): nothing happened (a Kindling does nothing on a Large Fast Fire; what works on it: a Long Straight Shaft (you get Firebrand); a Skewered Goose (you get Burnt Goose); a Skewered Rabbit (you get Burnt Rabbit))");
+  assert.equal(await body.use(1, 0), "use at (1,0): nothing happened (a Kindling does nothing on a Large Fast Fire; what works on it: a Long Straight Shaft (not found in the wild: it is made; you get Firebrand); a Skewered Goose (not found in the wild: it is made; you get Burnt Goose); a Skewered Rabbit (not found in the wild: it is made; you get Burnt Rabbit))");
   assert.doesNotMatch(await body.use(0, 1), /does nothing/);
 });
 
@@ -159,10 +159,19 @@ test("a click that does nothing names what works on the clicked thing, as the cl
   g.setTile(-1, 0, id("Big Hard Rock"));
   g.start();
   const body = new Body(g.conn, g.world, gd);
-  assert.equal(await body.use(1, 0), "use at (1,0): nothing happened (a Leaf does nothing on a Burning Tinder; what works on it: a Kindling (uses up the Kindling, it becomes Fire))");
+  assert.equal(await body.use(1, 0), "use at (1,0): nothing happened (a Leaf does nothing on a Burning Tinder; what works on it: a Kindling (not found in the wild: it is made; uses up the Kindling, it becomes Fire))");
   assert.equal(await body.use(0, 1), "use at (0,1): nothing happened (a Leaf does nothing on a Smoldering Tinder)", "nothing works on it: it changes on its own");
   await body.drop(0, -1);
-  assert.equal(await body.use(-1, 0), "use at (-1,0): nothing happened (bare hands do nothing on a Big Hard Rock; what works on it: a Stone (you get Sharp Stone); a Shovel (you get Shovel (4/5 left), it becomes Dug Big Rock))");
+  assert.equal(await body.use(-1, 0), "use at (-1,0): nothing happened (bare hands do nothing on a Big Hard Rock; it's fixed in place and can't be carried; what works on it: a Stone (you get Sharp Stone); a Shovel (not found in the wild: it is made; you get Shovel (4/5 left), it becomes Dug Big Rock))");
+});
+
+test("what works on it: another of the same kind says 'another'", async () => {
+  const id = (n: string) => gd.idByName(n)!;
+  const g = setup(id("Stone"), [9, 9]);
+  g.setTile(1, 0, id("Milkweed Stalk"));
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.match(await body.use(1, 0), /what works on it: .*another Milkweed Stalk \(not found in the wild: it is made; uses up the Milkweed Stalk, it becomes Thread\)/);
 });
 
 test("drop with a baby in arms sets it down on your own tile even when every tile around is taken", async () => {
@@ -218,7 +227,7 @@ test("pick_up_baby under age 10 says why and sends nothing (server minPickupBaby
   g.addPlayer({ id: 2, x: 1, y: 0, age: 0.5, held: 0, female: false, motherId: 3 });
   g.start();
   const body = new Body(g.conn, g.world, gd);
-  assert.equal(await body.pickUpBaby(2), "tried to pick up #2: you can't carry a baby until you are 10");
+  assert.equal(await body.pickUpBaby(2), "tried to pick up #2: you're 7: you can carry a baby from 10");
   assert.equal(g.sent.filter((c) => c.startsWith("BABY")).length, 0, "nothing sent");
 });
 
@@ -287,6 +296,20 @@ test("say: numbers are left out as the game does, and the result says so; a sick
   assert.equal(body.say("hello"), `said "HELLO"`);
 });
 
+test("say: \"ORDER,\" without followers says it was plain speech; with a follower (FW) no note", () => {
+  const g = setup(0, [99, 99]);
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  const note = " (you have no followers: it was heard as plain speech, not as an order)";
+  assert.equal(body.say("  order, dig here"), `said "ORDER, DIG HERE"${note}`);
+  assert.equal(body.say("my order, dig"), `said "MY ORDER, DIG"`, "only at the start");
+  const me = g.world.selfId!;
+  g.world.handle({ type: "FW", follows: [{ followerId: 7, leaderId: me, colorIndex: 0 }] });
+  assert.equal(body.say("ORDER, DIG HERE"), `said "ORDER, DIG HERE"`);
+  g.world.handle({ type: "FW", follows: [{ followerId: 7, leaderId: -1, colorIndex: 0 }] });
+  assert.equal(body.say("Order, dig"), `said "ORDER, DIG"${note}`, "the follower left");
+});
+
 test("drop aimed at a loose item puts it on the nearest empty tile instead of swapping", async () => {
   const PEEL = gd.idByName("Banana Peel")!, BANANA = gd.idByName("Banana")!;
   const g = setup(PEEL, [99, 99]);
@@ -332,6 +355,42 @@ test("give puts the held item on an empty tile next to the person and says where
   assert.equal((await body.give(2)).text, "not holding anything to give");
 });
 
+test("give: an item that lands on someone else's just-dropped item is reported as a swap, not a failure; a refused drop as a failure", async () => {
+  const FLINT = gd.idByName("Flint Chip")!;
+  const g = setup(SHARP_STONE, [99, 99]);
+  g.addPlayer({ id: 2, x: 4, y: 0, age: 12, held: 0, female: true });
+  g.addPlayer({ id: 3, x: 6, y: 0, age: 30, held: 0, female: false });
+  g.dropSwaps = true;
+  g.start();
+  // #3 puts a Flint Chip on the chosen tile just before our drop lands
+  let mode: "swap" | "refuse" = "swap";
+  const conn = {
+    send: (cmd: string) => {
+      if (cmd.startsWith("DROP ")) {
+        const [, x, y] = cmd.split(" ").map(Number);
+        g.setTile(x, y, mode === "swap" ? FLINT : 0);
+        g.world.handle({ type: "MX", changes: [{ x, y, floor: 0, obj: { id: mode === "swap" ? FLINT : 0, contained: [] }, responsibleId: 3 }] });
+        // refuse: the fake server sees a fixed rock there and answers with an unchanged hand
+        if (mode === "refuse") g.setTile(x, y, gd.idByName("Big Hard Rock")!);
+      }
+      g.conn.send(cmd);
+    },
+  };
+  const body = new Body(conn, g.world, gd);
+  const r = await body.give(2);
+  assert.equal(g.world.self!.held.id, FLINT, r.text);
+  assert.match(r.text, /^swapped next to #2 at \(\d+,\d+\): you put down the Sharp Stone and picked up the Flint Chip that was lying there \(dropping onto an item swaps them\); they can pick up the Sharp Stone$/);
+  assert.doesNotMatch(r.text, /couldn't/);
+  assert.equal(g.world.objAt(r.at![0], r.at![1]).id, SHARP_STONE);
+  assert.equal(r.item, "Sharp Stone");
+  // the server refuses the drop (the tile is unchanged as far as we see, the Flint Chip still in hand)
+  mode = "refuse";
+  const r2 = await body.give(2);
+  assert.equal(g.world.self!.held.id, FLINT);
+  assert.match(r2.text, /^couldn't put the Flint Chip down next to #2: drop at .*nothing happened/);
+  assert.equal(r2.at, null);
+});
+
 test("forage aimed at something that isn't food names it and points to real food", async () => {
   const g = setup(0, [6, 0]);
   const CABBAGE = gd.idByName("Dug Wild Cabbage")!;
@@ -349,11 +408,80 @@ test("an unexplained 'nothing happened' says what the tile has now, and who just
   g.start();
   const body = new Body(g.conn, g.world, gd);
   // empty hands on an empty tile: nothing to use
-  assert.equal(await body.use(1, 0), "use at (1,0): nothing happened (the tile at (1,0) is now empty)");
+  assert.equal(await body.use(1, 0), "use at (1,0): nothing happened (the tile at (1,0) is empty)");
   // someone else grabs the thing first: our click lands on an empty tile
   const SEED = gd.idByName("Carrot Seed Head")!;
   g.world.handle({ type: "MX", changes: [{ x: 1, y: 0, floor: 0, obj: { id: SEED, contained: [] }, responsibleId: -1 }] } as never);
   g.world.handle({ type: "MX", changes: [{ x: 1, y: 0, floor: 0, obj: { id: 0, contained: [] }, responsibleId: 2 }] } as never);
   const r = await body.use(1, 0);
-  assert.match(r, /^use at \(1,0\): nothing happened \(the tile at \(1,0\) is now empty; #2 (LIRA THORNE )?changed it just now, it had Carrot Seed Head\)$/);
+  assert.match(r, /^use at \(1,0\): nothing happened \(the tile at \(1,0\) is empty; #2 (LIRA THORNE )?changed it just now, it had Carrot Seed Head\)$/);
+});
+
+test("drop, use, swap and take_out refuse a target more than 24 tiles away without moving; go has no limit", async () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: -130, y: 57, age: 30, held: SHARP_STONE, female: true });
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.equal(await body.drop(0, 0), "drop at (0,0): not done: (0,0) is 130 tiles from you at (-130,57); drop works on tiles up to 24 away; drop without x,y puts it down next to you; go there first to act on a far tile");
+  assert.match(await body.use(0, 0), /^use at \(0,0\): not done: \(0,0\) is 130 tiles from you at \(-130,57\); use works on tiles up to 24 away; go there first/);
+  assert.match(await body.swap(0, 0), /^swap at \(0,0\): not done: /);
+  assert.match(await body.takeOut(0, 0), /^take out at \(0,0\): not done: /);
+  assert.deepEqual(g.sent, [], "nothing sent, no step taken");
+  assert.equal(g.world.self!.held.id, SHARP_STONE);
+  // 24 tiles is still in reach
+  assert.doesNotMatch(await body.drop(-106, 57), /not done/);
+});
+
+test("a walk too long for one action says where you are now and how far you got", async () => {
+  const g = setup(0, [999, 999]);
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  const r = await body.go(300, 0);
+  const me = g.world.self!;
+  assert.equal(r, `still on the way (trip too long): you're now at (${me.x},${me.y}), ${Math.max(Math.abs(me.x), Math.abs(me.y))} tiles from where you started`);
+  assert.ok(me.x > 24, "go itself is not limited");
+});
+
+test("swap and take_out that do nothing say why: empty hands, full hands, not a container, nothing in it, fixed in place", async () => {
+  const id = (n: string) => gd.idByName(n)!;
+  const g = setup(0, [9, 9]);
+  g.setTile(1, 0, id("Big Hard Rock"));
+  g.setTile(-1, 0, id("Basket"));
+  g.setTile(0, 1, id("Stone"));
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.equal(await body.swap(0, 1), "swap at (0,1): nothing happened (your hands are empty; a swap trades what you hold for the item on the tile)");
+  assert.equal(await body.takeOut(1, 0), "take out at (1,0): nothing happened (the Big Hard Rock is not a container; it's fixed in place and can't be carried)");
+  assert.equal(await body.takeOut(-1, 0), "take out at (-1,0): nothing happened (the Basket has nothing in it)");
+  g.players.get(1)!.held = SHARP_STONE;
+  g.world.self!.held = { id: SHARP_STONE, contained: [] };
+  assert.equal(await body.swap(1, 0), "swap at (1,0): nothing happened (the Big Hard Rock is fixed in place and can't be carried)");
+  assert.equal(await body.swap(0, -1), "swap at (0,-1): nothing happened (the tile at (0,-1) is empty; nothing there to swap with)");
+  assert.equal(await body.takeOut(-1, 0), "take out at (-1,0): nothing happened (your hands are full: you're holding Sharp Stone; taking something out needs empty hands)");
+});
+
+test("drop onto a container that won't take the item (a Fresh Grave has slots) says so", async () => {
+  const g = setup(SHARP_STONE, [9, 9]);
+  g.setTile(1, 0, gd.idByName("Fresh Grave")!);
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.equal(await body.drop(1, 0), "drop at (1,0): nothing happened (the Fresh Grave can't take the Sharp Stone; an item can only be put on an empty tile or into a container that takes it)");
+});
+
+test("pick_up_baby that does nothing says why: too old to be carried, held by someone else, too far", async () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 30, held: 0, female: true });
+  g.addPlayer({ id: 2, x: 1, y: 0, age: 6.5, held: 0, female: false, motherId: 1 });
+  g.addPlayer({ id: 3, x: 2, y: 0, age: 25, held: -4, female: true });
+  g.addPlayer({ id: 4, x: 2, y: 0, age: 0.5, held: 0, female: true, motherId: 3 });
+  g.start();
+  const body = new Body(g.conn, g.world, gd);
+  assert.equal(await body.pickUpBaby(2), "tried to pick up #2: nothing happened (#2 is 6: only someone under 5 can be carried)");
+  assert.equal(await body.pickUpBaby(4), "tried to pick up #4: nothing happened (#4 is being carried by #3)");
+});
+
+test("names take a/an by their first letter", () => {
+  assert.equal(withArticle("Ember Leaf"), "an Ember Leaf");
+  assert.equal(withArticle("Stone"), "a Stone");
+  assert.equal(withArticle("orange tulip"), "an orange tulip");
 });

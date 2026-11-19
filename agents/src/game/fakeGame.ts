@@ -1,5 +1,5 @@
 // A tiny in-process stand-in for the OHOL server, for tests: it accepts the
-// commands Body sends (MOVE, USE, DROP, SELF, BABY) and answers with the
+// commands Body sends (MOVE, USE, DROP, SELF, BABY; SWAP and REMV change nothing) and answers with the
 // messages a real server would send (PU, MX, FX), applying transitions from
 // the real game data. Movement is instant; replies arrive after a few ms.
 // Not a faithful server: just enough to test skills end to end.
@@ -34,6 +34,8 @@ export class FakeGame {
   /** ms timeline of when each baby was set down / picked up: [t, babyId, "down"|"up"] */
   readonly babyLog: [number, number, "down" | "up"][] = [];
   private moveSeqDone = 0;
+  /** dropping onto a loose item swaps them, as the real server does (off by default: older tests expect a refusal) */
+  dropSwaps = false;
 
   constructor(private gd: GameData, readonly selfId = 1, private delayMs = 5, now?: () => number) {
     this.world = new World(gd, {}, now);
@@ -141,7 +143,14 @@ export class FakeGame {
       }
       case "DROP": {
         const [x, y] = n;
-        if (!this.near(me, x, y) || this.tile(x, y)) return this.later({ type: "PU", updates: [this.pu(me)] });
+        const there = this.tile(x, y);
+        if (this.dropSwaps && this.near(me, x, y) && me.held > 0 && there && !this.gd.isPermanent(there)) {
+          // server.cpp DROP onto a loose item: the two trade places
+          this.setTile(x, y, me.held);
+          me.held = there;
+          return this.later(this.mx(x, y), { type: "PU", updates: [this.pu(me)] });
+        }
+        if (!this.near(me, x, y) || there) return this.later({ type: "PU", updates: [this.pu(me)] });
         if (me.held < 0) {
           const b = this.players.get(-me.held)!;
           [b.x, b.y] = [x, y];
@@ -173,7 +182,8 @@ export class FakeGame {
       case "BABY": {
         const id = n[2];
         const b = this.players.get(id);
-        if (!b || me.held !== 0 || !this.near(me, b.x, b.y)) return this.later({ type: "PU", updates: [this.pu(me)] });
+        // server.cpp BABY: only someone under babyAge (5) whom nobody holds
+        if (!b || me.held !== 0 || !this.near(me, b.x, b.y) || b.age >= 5 || [...this.players.values()].some((q) => q.held === -id)) return this.later({ type: "PU", updates: [this.pu(me)] });
         me.held = -id;
         [b.x, b.y] = [me.x, me.y];
         this.food = Math.max(0, this.food - 1); // nursing pickup cost
@@ -181,6 +191,11 @@ export class FakeGame {
         this.later({ type: "PU", updates: [this.pu(me)] }, this.fx());
         break;
       }
+      case "SWAP":
+      case "REMV":
+        // not simulated: the server's answer when nothing changes
+        this.later({ type: "PU", updates: [this.pu(me)] });
+        break;
       default:
         break;
     }

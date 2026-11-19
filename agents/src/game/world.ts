@@ -3,9 +3,10 @@
 // connection received, so it's exactly what that character could perceive.
 
 import type { ServerMessage, ObjStack, PlayerUpdate } from "../protocol/types.ts";
-import type { GameData } from "./gameData.ts";
+import { withArticle, type Condition, type GameData } from "./gameData.ts";
 import { cleanText } from "../safety.ts";
 import { config } from "../config.ts";
+import { turnClock } from "../agent/turns.ts";
 
 /** names come from in-game speech; they reach the public API, the stream and prompts */
 const NAME_MAX = 60;
@@ -73,7 +74,26 @@ export interface Heard {
   notice?: boolean;
   /** this line named that player (see markNaming) */
   named?: number;
+  /** the words as spoken, when `text` has a tag added (markNaming) */
+  spoken?: string;
 }
+
+/** Our own child (we are the mother), as last seen: kept while they're out of range. */
+export interface ChildRecord {
+  id: number;
+  name: string | null;
+  female: boolean | null;
+  age: number;
+  ageAt: number;
+  ageRate: number;
+  /** where and when (World.now) we last saw them */
+  x: number;
+  y: number;
+  t: number;
+}
+
+/** a child's record is dropped once they would be this old (the labels say woman/man from 14) */
+export const CHILD_RECORD_MAX_AGE = 14;
 
 export interface SeenDeath {
   t: number;
@@ -87,6 +107,32 @@ export interface SeenDeath {
   eveId: number | null;
 }
 
+/** tiles: things (and animals) this close are in view (the observation's THINGS radius) */
+export const VIEW_RADIUS = 12;
+/** tiles: people this close are in view (the observation's PEOPLE radius) */
+export const PEOPLE_RADIUS = VIEW_RADIUS + 4;
+/** events kept in World.seen (the observation shows the last 10 of about 5 turns) */
+const SEEN_KEEP = 50;
+/** "did" lines kept per person per turn; more are counted on the last one */
+const SEEN_DID_PER_TURN = 4;
+
+/**
+ * Something this character saw happen nearby (World.seen): one line of the
+ * observation's WHAT YOU SAW NEARBY. `text` names people as {0}, {1}...
+ * (an entry of `people`: a snapshot when it happened, or just the id), so the
+ * line shows names learned later.
+ */
+export interface SeenEvent {
+  t: number;
+  kind: "view" | "born" | "died" | "baby" | "named" | "did" | "ate" | "animal_seen" | "animal_move" | "wounded";
+  text: string;
+  people: (Player | { id: number })[];
+  /** a later event with the same key within a turn replaces this one */
+  key?: string;
+  /** further changes by the same person this turn, folded into this line */
+  more?: number;
+}
+
 export interface WorldEvents {
   onSelfDied?(reason: string, age: number): void;
   onPlayerDied?(p: Player, reason: string): void;
@@ -95,6 +141,8 @@ export interface WorldEvents {
   onMapChange?(x: number, y: number, before: ObjStack | null, after: ObjStack, responsibleId: number): void;
   onSelfUpdate?(u: PlayerUpdate): void;
   onAte?(foodId: number): void;
+  /** a new line in World.seen (not called when one is merged into an earlier line) */
+  onSeen?(e: SeenEvent): void;
 }
 
 /** OHOL: everyone dies of old age at 60 */
@@ -119,6 +167,8 @@ export function walkMs(tiles: number, speed: number, timeScale = config.timeScal
 }
 
 const EMPTY: ObjStack = { id: 0, contained: [] };
+/** how long after a wound appears the attacker's map update is still taken as the attack (wall ms) */
+const WOUND_SOURCE_MS = 3000;
 
 export class World {
   cells = new Map<string, Cell>();
@@ -132,6 +182,10 @@ export class World {
   heat = 0.5;
   foodTime = 0;
   yumBonus = 0;
+  /** when (World.now) food or yum bonus last went down: the server's next drain is foodTime after it */
+  foodDropAt: number | null = null;
+  /** our own living children, last seen position and time (see ChildRecord) */
+  children = new Map<number, ChildRecord>();
   craving: number | null = null;
   learnedTools = new Set<number>();
   dead = false;
@@ -156,8 +210,25 @@ export class World {
   private firstChunk = true;
   /** when our held object became the one we hold (decay timers; a picked-up item keeps its timer) */
   heldSince: Since | null = null;
+  /**
+   * Our current wound: where we stood when it appeared and the attacker seen
+   * next to us then (null while none has been seen). Kept while the wound
+   * changes on the body (Hog Cut -> Clean Hog Cut).
+   */
+  private wound: { at: [number, number]; t: number; by: string | null } | null = null;
   /** objects that just left a cell or our hands, by id: their timers carry over when they turn up again */
   private handoff = new Map<number, Since & { at: number }>();
+  /** what this character saw happen nearby, oldest first (see SeenEvent); this World is one life */
+  seen: SeenEvent[] = [];
+  /** events with the same key within this many ms (one turn of the clock `now` runs on) are one line */
+  seenMergeMs = turnClock(config).cycleMs;
+  /** people within PEOPLE_RADIUS at the last check; null until our own first update */
+  private inView: Set<number> | null = null;
+  /** others' held object before their last change, for what a map change was done with */
+  private heldBefore = new Map<number, { id: number; t: number }>();
+  /** a dangerous animal's coalescing key, by the cell it is on */
+  private animalKeys = new Map<string, string>();
+  private animalSeq = 0;
 
   /**
    * @param now the clock timestamps and extrapolation run on: wall time, or with
@@ -193,6 +264,42 @@ export class World {
           if (c && c.obj.id === id && c.since != null) return { t: c.since, exact: !!c.sinceExact };
         }
     return { t: now, exact: true };
+  }
+
+  /**
+   * Who gave our current wound: the attacker that was next to us when it
+   * appeared ("a Wild Boar"); if none was seen, every animal or weapon that
+   * gives this wound ("a Wolf or a Grizzly Bear or ..."). Null if we have no
+   * wound or nothing is known to give it.
+   */
+  woundSource(): string | null {
+    const me = this.self;
+    const c = me ? this.gd.condition(me.held.id) : null;
+    if (!me || c?.kind !== "wound") return null;
+    if (!this.wound) this.wound = { at: [me.x, me.y], t: this.now(), by: null };
+    // the attacker's map update can arrive just after the wound
+    if (!this.wound.by && this.now() - this.wound.t <= WOUND_SOURCE_MS) this.wound.by = this.attackerNear(this.wound.at, c);
+    if (this.wound.by) return this.wound.by;
+    return c.from.length ? c.from.map(withArticle).join(" or ") : null;
+  }
+
+  /** attackers that give this condition on or next to `at`, as they are now or were just before their last change */
+  private attackerNear(at: [number, number], c: Condition): string | null {
+    const names: string[] = [];
+    const now = this.now();
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const cell = this.cell(at[0] + dx, at[1] + dy);
+        if (!cell) continue;
+        const ids = [cell.obj.id];
+        if (cell.prev && now - cell.t <= WOUND_SOURCE_MS) ids.push(cell.prev);
+        for (const id of ids) {
+          if (!(id > 0) || !c.attackers.has(this.gd.base(id))) continue;
+          const n = withArticle(this.gd.name(this.gd.base(id)));
+          if (!names.includes(n)) names.push(n);
+        }
+      }
+    return names.length ? names.join(" or ") : null;
   }
 
   /** When the object at x,y came to be (null if unknown). */
@@ -295,6 +402,7 @@ export class World {
             if (fc && fc.obj.id === ch.obj.id) this.cells.set(fk, { ...fc, obj: EMPTY, t: now, since: now, sinceExact: true });
           }
           this.trackPlacedHome(ch.x, ch.y, prev?.obj.id ?? 0, ch.obj.id, ch.responsibleId);
+          this.seeMapChange(ch.x, ch.y, prev?.obj ?? null, ch.obj, by, ch.from ?? null);
           this.ev.onMapChange?.(ch.x, ch.y, prev?.obj ?? null, ch.obj, ch.responsibleId);
         }
         break;
@@ -323,7 +431,10 @@ export class World {
         break;
       case "PO":
         for (const id of m.ids) {
-          if (id !== this.selfId) this.players.delete(id);
+          if (id === this.selfId) continue;
+          const p = this.players.get(id);
+          if (p && this.inView?.delete(id)) this.pushSeen("view", "{0} went out of view", [this.snap(p)], `view:${id}`);
+          this.players.delete(id);
         }
         break;
       case "PS":
@@ -339,7 +450,10 @@ export class World {
             this.pushHeard({ t: now, speakerId: null, x: 0, y: 0, text: cleanText(r.notice + where, SPEECH_MAX), notice: true });
             continue;
           }
-          const text = cleanText(r.text + (r.followerId != null && r.followerId === this.selfId && s.id !== this.selfId ? " [an order to you: you are their nearest follower]" : ""), SPEECH_MAX);
+          // "+FAMILY+" (server makeOffspringSayMarker) and other +WORD+ markers are client cues, not words
+          const words = s.id === this.selfId ? r.text : r.text.replace(/\+[A-Z]+\+/g, " ").replace(/\s+/g, " ").trim();
+          if (!words) continue;
+          const text = cleanText(words + (r.followerId != null && r.followerId === this.selfId && s.id !== this.selfId ? " [an order to you: you are their nearest follower]" : ""), SPEECH_MAX);
           const h: Heard = { t: now, speakerId: s.id, x: p?.x ?? 0, y: p?.y ?? 0, text };
           this.pushHeard(h);
         }
@@ -349,6 +463,7 @@ export class World {
         break;
       case "FX":
         if (m.food.lastAteId > 0 && this.food !== m.food.food) this.ev.onAte?.(m.food.lastAteId);
+        if (m.food.food + m.food.yumBonus < this.food + this.yumBonus) this.foodDropAt = now;
         this.food = m.food.food;
         this.foodCapacity = m.food.capacity;
         this.yumBonus = m.food.yumBonus;
@@ -362,8 +477,9 @@ export class World {
           const name = cleanText([n.first, n.last].filter(Boolean).join(" "), NAME_MAX) || null;
           const p = this.players.get(n.id);
           const wasNamed = !!(p?.name ?? this.names.get(n.id));
-          if (name && !wasNamed) this.markNaming(n.id, name, now);
+          const by = name && !wasNamed ? this.markNaming(n.id, name, now) : undefined;
           if (p) p.name = name;
+          if (name && !wasNamed && p && by !== undefined) this.seeNaming(p, name, by);
           if (name) this.names.set(n.id, name);
           else this.names.delete(n.id);
         }
@@ -409,6 +525,29 @@ export class World {
         this.pushHeard({ t: now, speakerId: null, x: 0, y: 0, text: cleanText(m.text.replace(/:?\s*\*\*\s*/g, ": "), SPEECH_MAX), notice: true });
         break;
     }
+    this.trackChildren(now);
+    this.updateView(now);
+  }
+
+  /** A child's age now, extrapolated from the record (as currentAge does for a player). */
+  childAge(c: ChildRecord): number {
+    return c.ageRate ? c.age + (this.now() - c.ageAt) / 1000 / c.ageRate : c.age;
+  }
+
+  /** Refresh our children's records from the players in range; drop those who would be adults now. */
+  private trackChildren(now: number) {
+    const me = this.selfId;
+    if (me == null) return;
+    for (const p of this.players.values()) {
+      if (p.id === me || p.ancestors[0] !== me) continue;
+      const [x, y] = this.posOf(p, now);
+      this.children.set(p.id, { id: p.id, name: p.name ?? this.names.get(p.id) ?? null, female: p.female, age: p.age, ageAt: p.ageAt, ageRate: p.ageRate, x, y, t: now });
+    }
+    for (const c of this.children.values()) {
+      const n = this.names.get(c.id);
+      if (n) c.name = n;
+      if (this.childAge(c) >= CHILD_RECORD_MAX_AGE) this.children.delete(c.id);
+    }
   }
 
   // LivingLifePage.cpp: "Found starting home marker" (closest to the birth chunk centre, dist^2 < 16*16)
@@ -446,16 +585,18 @@ export class World {
    * "[this named #7]", the text version of seeing the name appear over that
    * person in the client. Without it a bystander can't tell who was named.
    */
-  private markNaming(id: number, name: string, now: number) {
+  private markNaming(id: number, name: string, now: number): number | null {
     const first = name.split(" ")[0];
     for (let i = this.heard.length - 1; i >= 0; i--) {
       const h = this.heard[i];
       if (now - h.t > 15_000) break;
       if (h.notice || h.named || !NAMING_LINE.test(h.text) || !new RegExp(`\\b${first.replace(/[^A-Z0-9]/gi, "")}\\b`, "i").test(h.text)) continue;
       h.named = id;
+      h.spoken ??= h.text;
       h.text = `${h.text} [this named ${id === this.selfId ? "you" : `#${id}`}]`;
-      return;
+      return h.speakerId;
     }
+    return null;
   }
 
   private pushHeard(h: Heard) {
@@ -478,9 +619,15 @@ export class World {
         const [dx, dy] = this.posOf(p);
         this.deaths.push({ t: now, id: p.id, name: p.name ?? this.names.get(p.id) ?? null, female: p.female, age: this.currentAge(p), x: dx, y: dy, ancestors: p.ancestors, eveId: p.eveId });
         if (this.deaths.length > 20) this.deaths.shift();
+        this.inView?.delete(p.id);
+        if (this.inSight([dx, dy], PEOPLE_RADIUS)) {
+          const cause = deathCause(this.gd, reason);
+          this.pushSeen("died", `{0} died at (${dx}, ${dy})${cause ? `: ${cause}` : ""}`, [this.snap(p)]);
+        }
         this.ev.onPlayerDied?.(p, reason);
       }
       if (u.id !== this.selfId) this.players.delete(u.id);
+      this.children.delete(u.id);
       return;
     }
     let p = this.players.get(u.id);
@@ -510,6 +657,13 @@ export class World {
       if (!isNew && p.held.id > 0 && this.heldSince) this.handoff.set(p.held.id, { ...this.heldSince, at: now });
       this.heldSince = isNew && u.held.id > 0 ? { t: now, exact: false } : this.arrivalOf(u.held.id, now, [u.x, u.y]);
     }
+    if (u.id === this.selfId) {
+      const c = this.gd.condition?.(u.held.id);
+      if (c?.kind !== "wound") this.wound = null;
+      else if (!this.wound) this.wound = { at: [u.x, u.y], t: now, by: this.attackerNear([u.x, u.y], c) };
+    }
+    if (u.id !== this.selfId) this.seePlayerUpdate(p, u, isNew, now);
+    else if (!isNew) this.seeWound(p, u.held.id, now);
     p.held = u.held;
     p.clothing = u.clothing;
     p.heat = u.heat;
@@ -530,8 +684,191 @@ export class World {
       if (u.forced) this.forcedPos = [u.x, u.y];
       this.ev.onSelfUpdate?.(u);
     }
-    if (isNew && u.id !== this.selfId) this.ev.onPlayerAppeared?.(p);
+    if (isNew && u.id !== this.selfId) {
+      // a newborn: logged as born, not as coming into view
+      if (this.inView && u.age < 0.2 && this.inSight(this.posOf(p, now), PEOPLE_RADIUS)) {
+        this.inView.add(p.id);
+        this.pushSeen("born", `{0} was born at (${p.x}, ${p.y})`, [this.snap(p)]);
+      }
+      this.ev.onPlayerAppeared?.(p);
+    }
   }
+
+  // --- what we saw happen nearby (WHAT YOU SAW NEARBY)
+
+  private inSight(at: [number, number], radius: number): boolean {
+    const me = this.self;
+    if (!me) return false;
+    const [mx, my] = this.posOf(me);
+    return Math.max(Math.abs(at[0] - mx), Math.abs(at[1] - my)) <= radius;
+  }
+
+  private distToMe(at: [number, number]): number {
+    const [mx, my] = this.self ? this.posOf(this.self) : at;
+    return Math.max(Math.abs(at[0] - mx), Math.abs(at[1] - my));
+  }
+
+  /** a person as they are now, frozen (age stops at this moment) */
+  private snap(p: Player): Player {
+    return { ...p, age: this.currentAge(p), ageAt: this.now(), ageRate: 0, ancestors: [...p.ancestors], name: p.name ?? this.names.get(p.id) ?? null };
+  }
+
+  private who(id: number): Player | { id: number } {
+    const p = this.players.get(id);
+    return p ? this.snap(p) : { id };
+  }
+
+  private pushSeen(kind: SeenEvent["kind"], text: string, people: SeenEvent["people"], key?: string) {
+    const now = this.now();
+    const ids = people.map((p) => p.id).join(",");
+    const k = key ?? `${kind}|${ids}|${text}`;
+    let i = this.seen.length - 1;
+    while (i >= 0 && !((this.seen[i].key ?? `${this.seen[i].kind}|${this.seen[i].people.map((p) => p.id).join(",")}|${this.seen[i].text}`) === k && now - this.seen[i].t < this.seenMergeMs)) i--;
+    if (i >= 0) {
+      const [e] = this.seen.splice(i, 1);
+      // a dangerous animal that came into view this turn still did, wherever it went next
+      const appeared = e.kind === "animal_seen" && kind === "animal_move";
+      this.seen.push({ ...e, t: now, kind: appeared ? e.kind : kind, text: appeared ? text.replace(" moved to ", " came into view at ") : text, people });
+      return;
+    }
+    // a person busy with many things: at most SEEN_DID_PER_TURN lines a turn, the rest counted on the last
+    if (kind === "did") {
+      const mine = this.seen.filter((e) => e.kind === "did" && e.people[0]?.id === people[0]?.id && now - e.t < this.seenMergeMs);
+      if (mine.length >= SEEN_DID_PER_TURN) {
+        const last = mine[mine.length - 1];
+        last.more = (last.more ?? 0) + 1;
+        return;
+      }
+    }
+    const e: SeenEvent = { t: now, kind, text, people, ...(key ? { key } : {}) };
+    this.seen.push(e);
+    if (this.seen.length > SEEN_KEEP) this.seen.splice(0, this.seen.length - SEEN_KEEP);
+    try {
+      this.ev.onSeen?.(e);
+    } catch {
+      // a listener must not break message handling
+    }
+  }
+
+  /** people coming into and going out of view; the first check after we appear only notes who is there */
+  private updateView(now: number) {
+    const me = this.self;
+    if (!me || this.dead) return;
+    const seed = !this.inView;
+    const view = (this.inView ??= new Set());
+    for (const p of this.players.values()) {
+      if (p.id === me.id) continue;
+      const inR = this.inSight(this.posOf(p, now), PEOPLE_RADIUS);
+      if (inR && !view.has(p.id)) {
+        view.add(p.id);
+        if (!seed) {
+          const [x, y] = this.posOf(p, now);
+          this.pushSeen("view", `{0} came into view at (${x}, ${y})`, [this.snap(p)], `view:${p.id}`);
+        }
+      } else if (!inR && view.has(p.id)) {
+        view.delete(p.id);
+        if (!seed) this.pushSeen("view", "{0} went out of view", [this.snap(p)], `view:${p.id}`);
+      }
+    }
+  }
+
+  /** another person's update: a baby picked up or put down, a wound, something eaten */
+  private seePlayerUpdate(p: Player, u: PlayerUpdate, isNew: boolean, now: number) {
+    if (isNew) return;
+    const before = p.held.id, after = u.held.id;
+    if (before !== after) this.heldBefore.set(p.id, { id: before, t: now });
+    if (!this.inView?.has(p.id) && !this.inSight(this.posOf(p, now), PEOPLE_RADIUS)) return;
+    if (before !== after) {
+      if (after < 0) this.pushSeen("baby", "{0} picked up {1}", [this.snap(p), this.who(-after)]);
+      if (before < 0) this.pushSeen("baby", "{0} put down {1}", [this.snap(p), this.who(-before)]);
+    }
+    this.seeWound(p, after, now);
+    if (u.justAte && u.lastAteId > 0) this.pushSeen("ate", `{0} ate ${withArticle(this.gd.name(u.lastAteId))}`, [this.snap(p)]);
+  }
+
+  /** a wound appeared on someone in view (ourselves included): who or what gave it, when seen */
+  private seeWound(p: Player, after: number, now: number) {
+    const c = this.gd.condition?.(after);
+    if (c?.kind !== "wound" || this.gd.condition?.(p.held.id)?.kind === "wound") return;
+    const at = this.posOf(p, now);
+    if (!this.inSight(at, PEOPLE_RADIUS)) return;
+    const by = this.attackerNear(at, c);
+    const name = this.gd.name(after);
+    this.pushSeen("wounded", by ? `${by} attacked {0}: ${name}` : `{0} was wounded: ${name}`, [p.id === this.selfId ? { id: p.id } : this.snap(p)]);
+  }
+
+  private seeNaming(p: Player, name: string, by: number | null) {
+    // no naming line heard (names of people already named, sent as we arrive): nothing seen; ours: in YOUR LAST ACTIONS
+    if (by == null || by === this.selfId) return;
+    const speaker = by != null ? this.players.get(by) : undefined;
+    if (!this.inSight(this.posOf(p), PEOPLE_RADIUS) && !(speaker && this.inSight(this.posOf(speaker), PEOPLE_RADIUS))) return;
+    const target = p.id === this.selfId ? { id: p.id } : this.snap(p);
+    if (by === p.id) this.pushSeen("named", `{0} named themself ${name}`, [target]);
+    else this.pushSeen("named", `{0} named {1}`, [this.who(by), target]);
+  }
+
+  /** a map change in view: another person's doing, or a dangerous animal moving */
+  private seeMapChange(x: number, y: number, before: ObjStack | null, after: ObjStack, by: number, from: { x: number; y: number } | null) {
+    const gd = this.gd;
+    const a = before?.id ?? 0, b = after.id;
+    // dangerous animals
+    if (b > 0 && (gd.dangerRadius?.(b) ?? 0) > 0) {
+      const fk = from ? `${from.x},${from.y}` : null;
+      const key = (fk && this.animalKeys.get(fk)) || `animal:${++this.animalSeq}`;
+      if (fk) this.animalKeys.delete(fk);
+      this.animalKeys.set(`${x},${y}`, key);
+      if (this.animalKeys.size > 200) this.animalKeys.delete(this.animalKeys.keys().next().value!);
+      if (!this.inSight([x, y], VIEW_RADIUS)) return;
+      const d = this.distToMe([x, y]);
+      const what = withArticle(gd.name(b));
+      const there = `(${x}, ${y}), ${d} tile${d === 1 ? "" : "s"} from you`;
+      const wasInView = from ? this.inSight([from.x, from.y], VIEW_RADIUS) : a > 0 && gd.base(a) === gd.base(b);
+      if (!wasInView && !(a > 0 && (gd.dangerRadius?.(a) ?? 0) > 0)) return this.pushSeen("animal_seen", `${what} came into view at ${there}`, [], key);
+      if (!from) return;
+      const merged = this.seen.some((e) => e.key === key && this.now() - e.t < this.seenMergeMs);
+      // closer than it was (or already on this turn's line: the line keeps its latest position)
+      if (merged || d < this.distToMe([from.x, from.y])) this.pushSeen("animal_move", `${what} moved to ${there}`, [], key);
+      return;
+    }
+    if (!(by > 0) || by === this.selfId || from) return;
+    if (!this.inSight([x, y], VIEW_RADIUS)) return;
+    const actor = this.players.get(by);
+    const people = [actor ? this.snap(actor) : { id: by }];
+    const at = `(${x}, ${y})`;
+    const n = (id: number) => withArticle(gd.name(id));
+    let text: string | null = null;
+    if (!a && b) text = `put down ${n(b)} at ${at}`;
+    else if (a && !b) text = `picked up ${n(a)} from ${at}`;
+    else if (a && b && a !== b && gd.name(a) !== gd.name(b)) {
+      const hb = this.heldBefore.get(by);
+      const held = hb && this.now() - hb.t <= 1000 ? hb.id : actor?.held.id ?? 0;
+      const tool = held > 0 && !gd.condition?.(held) ? n(held) : null;
+      text = `used ${tool ?? "bare hands"} on ${n(a)} at ${at}: it became ${gd.name(b)}`;
+    } else if (a && a === b && before) {
+      const count = (s: ObjStack) => {
+        const m = new Map<number, number>();
+        for (const c of s.contained) m.set(c.id, (m.get(c.id) ?? 0) + 1);
+        return m;
+      };
+      const was = count(before), now = count(after);
+      const added = [...now].find(([id, k]) => k > (was.get(id) ?? 0))?.[0];
+      const removed = [...was].find(([id, k]) => k > (now.get(id) ?? 0))?.[0];
+      if (added && added > 0) text = `put ${n(added)} into ${n(a)} at ${at}`;
+      else if (removed && removed > 0) text = `took ${n(removed)} out of ${n(a)} at ${at}`;
+    }
+    if (text) this.pushSeen("did", `{0} ${text}`, people);
+  }
+}
+
+/** a death's cause as the server reports it: "starved", "old age", "killed by a Wolf"; null if unknown */
+export function deathCause(gd: GameData, reason: string): string | null {
+  const r = reason.replace(/^reason_/, "");
+  if (r === "hunger") return "starved";
+  if (r === "age") return "old age";
+  const k = /^killed_(\d+)$/.exec(r);
+  if (k) return `killed by ${withArticle(gd.name(Number(k[1])))}`;
+  if (!r || r === "unknown" || r === "disconnected") return null;
+  return r.replace(/_/g, " ");
 }
 
 

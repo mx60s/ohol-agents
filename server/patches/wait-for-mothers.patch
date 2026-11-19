@@ -1,0 +1,129 @@
+MTS patch: no baby for a mother on cooldown, and a readiness file for the
+agents (setting mtsNoCooldownBypass, default 0 = stock). Applies after
+time-scale.patch and turn-clock.patch (patches go in name order).
+
+The birth cooldown is already on the game clock: server.cpp's Time:: is
+MTSGameTime (time-scale.patch), so birthCoolDown = Time::timeSec() + the
+stock Kumaraswamy sample (0..300, mean ~2 min) is game seconds, frozen
+while the turn clock holds, and player saves shift it with the other game
+timestamps. What let babies come fast is the stock fallback: when every
+fertile mom is on cooldown the mother search runs again ignoring cooldowns.
+With mtsNoCooldownBypass=1 that retry keeps the cooldown, so with no mom
+ready the login gets the stock no-mother outcome (a new Eve). To let the
+agents avoid that, the server writes mtsBirthReady.txt in the run dir,
+"<readyCount> <soonestCooldownEndGameSeconds>" (fertile, not cursed, off
+cooldown, below maxLivingChildrenPerMother and the early-birth cap, in a
+place she may have babies; soonest = 0 if none on cooldown), checked every
+0.5 wall s and written on change and at least every 3 s.
+
+diff --git a/server/server.cpp b/server/server.cpp
+index 58322c4..c617c17 100644
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -10240,7 +10240,13 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+                 "SIDS blocked.  "
+                 "Trying again ignoring cooldowns.", newObject.email, numOfAge );
+             
+-            checkCooldown = false;
++            // MTS patch: with mtsNoCooldownBypass=1 a mom on cooldown
++            // never gets the baby; with no mom left the login is an Eve
++            // (the agents wait for mtsBirthReady.txt instead)
++            if( ! SettingsManager::getIntSetting( "mtsNoCooldownBypass",
++                                                  0 ) ) {
++                checkCooldown = false;
++                }
+             numBirthLocationsCurseBlocked = 0;
+             numBirthLocationsSidsBlocked = 0;
+             numOfAge = 0;
+@@ -20362,6 +20368,83 @@ static GridPos getAveragePopulationPos(
+ // MTS patch: game data dump hook (see mtsDumpGameData.h)
+ #include "mtsDumpGameData.h"
+ 
++
++
++// MTS patch (wait-for-mothers.patch): with mtsNoCooldownBypass=1, write
++// mtsBirthReady.txt in the run dir, "<readyCount> <soonestCooldownEnd>":
++// how many fertile women could take a baby right now (off cooldown, below
++// maxLivingChildrenPerMother and the early-birth cap, not cursed, in a
++// place where she may have babies), and the soonest game time (seconds,
++// 0 = none) a cooldown of an otherwise ready woman ends. Checked every
++// 0.5 wall s, written (temp + rename) on change and at least every 3 s.
++static void mtsStepBirthReady() {
++    static double lastCheck = -1;
++    static double lastWrite = -1;
++    static int lastReady = -1;
++    static double lastSoonest = -1;
++
++    if( ! SettingsManager::getIntSetting( "mtsNoCooldownBypass", 0 ) ) {
++        return;
++        }
++    double wall = MTSGameTime::bookkeepingTime();
++    if( lastCheck >= 0 && wall - lastCheck < 0.5 ) {
++        return;
++        }
++    lastCheck = wall;
++
++    int maxLiving =
++        SettingsManager::getIntSetting( "maxLivingChildrenPerMother", 4 );
++    int earlyMax = SettingsManager::getIntSetting( "mtsEarlyMaxBabies", 0 );
++    int earlyGens =
++        SettingsManager::getIntSetting( "mtsEarlyMaxGenerations", 5 );
++    timeSec_t now = Time::timeSec();
++
++    int ready = 0;
++    double soonest = 0;
++    for( int i=0; i<players.size(); i++ ) {
++        LiveObject *o = players.getElement( i );
++        if( o->error || o->isTutorial || o->vogMode ||
++            o->curseStatus.curseLevel > 0 || ! isFertileAge( o ) ) {
++            continue;
++            }
++        if( earlyMax > 0 && o->parentChainLength <= earlyGens &&
++            o->babyBirthTimes->size() >= earlyMax ) {
++            continue;
++            }
++        if( countLivingChildren( o->id ) >= maxLiving ) {
++            continue;
++            }
++        GridPos pos = getPlayerPos( o );
++        int home = isBirthland( pos.x, pos.y, o->lineageEveID, o->displayID );
++        if( home == -1 || ( home == 0 && o->everHomesick ) ) {
++            continue;
++            }
++        if( now < o->birthCoolDown ) {
++            if( soonest == 0 || o->birthCoolDown < soonest ) {
++                soonest = o->birthCoolDown;
++                }
++            continue;
++            }
++        ready++;
++        }
++
++    if( ready == lastReady && soonest == lastSoonest &&
++        wall - lastWrite < 3 ) {
++        return;
++        }
++    FILE *f = fopen( "mtsBirthReady.txt.tmp", "w" );
++    if( f == NULL ) {
++        return;
++        }
++    fprintf( f, "%d %.0f\n", ready, soonest );
++    fclose( f );
++    rename( "mtsBirthReady.txt.tmp", "mtsBirthReady.txt" );
++    lastReady = ready;
++    lastSoonest = soonest;
++    lastWrite = wall;
++    }
++
++
+ int main( int inNumArgs, const char **inArgs ) {
+     // use the serverSettings folder if it's available
+     setUseServerSettings();
+@@ -20921,6 +21004,7 @@ int main( int inNumArgs, const char **inArgs ) {
+ 
+         // MTS patch: turn clock (mtsTurnClock) target poll + report
+         MTSGameTime::turnStep();
++        mtsStepBirthReady(); // MTS patch
+ 
+         double curStepTime = Time::getCurrentTime();
+ 

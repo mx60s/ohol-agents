@@ -1,4 +1,4 @@
-// Site home (index.html): world status, the people, map, personality cloud, families, deaths, news, story.
+// Site home (index.html): field notes, world status, the people, map, personality cloud, families, deaths, news, story.
 import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useMemo, useState } from "react";
 import type { LifeRecord } from "../api-types.ts";
@@ -6,6 +6,7 @@ import { pageHref } from "../data/index.ts";
 import { deathReasonText, displayName, formatAge } from "../shared/index.ts";
 import { PersonalityCloud } from "../site/Cloud.tsx";
 import { RecentDeaths } from "../site/Deaths.tsx";
+import { FieldNotes } from "../site/FieldNotes.tsx";
 import { median, sortBy } from "../site/logic.ts";
 import { StorySoFar, WorldNews } from "../site/News.tsx";
 import { LifeFigure, LifePortrait, LivesState, Seg, Sex } from "../site/ui.tsx";
@@ -252,6 +253,9 @@ function Home() {
   return (
     <SiteLayout active="live">
       <Hero site={site} />
+      <Panel title="🔎 Field notes" sub="every 20 minutes, this run" variant="navy" id="field-notes" className="field-notes">
+        <FieldNotes />
+      </Panel>
       <div className="as grid home-grid">
         <div className="span-8 stack">
           <WorldStatus site={site} />

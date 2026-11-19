@@ -15,6 +15,7 @@ import type {
   StateResponse,
   StoryHistoryResponse,
   InventionsResponse,
+  FieldNotesResponse,
 } from "../api-types.ts";
 import { dataMode, type DataMode } from "./config.ts";
 import {
@@ -32,6 +33,7 @@ import {
   normState,
   normStoryHistory,
   normInventions,
+  normFieldNotes,
 } from "./normalize.ts";
 
 export class ApiError extends Error {
@@ -76,6 +78,8 @@ export interface ApiClient {
   storyHistory(q?: { limit?: number }): Promise<StoryHistoryResponse>;
   /** first time each technology item was made in the current run, newest first (empty from older servers) */
   inventions(q?: { limit?: number }): Promise<InventionsResponse>;
+  /** the current run's field notes, newest first (empty from older servers) */
+  fieldNotes(q?: { limit?: number }): Promise<FieldNotesResponse>;
   /** GET /api/agent-spec (what agents are told and can do); null if the service is older than it */
   agentSpec?(): Promise<AgentSpecResponse | null>;
 }
@@ -159,6 +163,7 @@ export class HttpClient implements ApiClient {
   async deaths(q: { limit?: number } = {}) { return normDeaths(await this.get(`/api/deaths${qs(q)}`)); }
   async storyHistory(q: { limit?: number } = {}) { return normStoryHistory(await this.get(`/api/story/history${qs(q)}`)); }
   async inventions(q: { limit?: number } = {}) { return normInventions(await this.get(`/api/inventions${qs(q)}`, true)); }
+  async fieldNotes(q: { limit?: number } = {}) { return normFieldNotes(await this.get(`/api/fieldnotes${qs(q)}`, true)); }
   async agentSpec() { return normAgentSpec(await this.get("/api/agent-spec", true)); }
 
   stream(h: StreamHandlers): () => void {
@@ -206,7 +211,7 @@ export class HttpClient implements ApiClient {
 /**
  * Files written by scripts/capture-fixture.mjs into viewer/fixtures/<name>/:
  *   state.json map.json events.json objects.json lives.json lineages.json deaths.json
- *   story-history.json inventions.json meta.json  life/<safeId>.json  log/<safeId>.json
+ *   story-history.json inventions.json fieldnotes.json meta.json  life/<safeId>.json  log/<safeId>.json
  *   story-history.json meta.json agent-spec.json  life/<safeId>.json  log/<safeId>.json
  * They are bundled as lazy chunks (import.meta.glob), so fixture mode makes no API calls.
  */
@@ -288,6 +293,10 @@ export class FixtureClient implements ApiClient {
   async inventions(q: { limit?: number } = {}) {
     const r = normInventions(await this.load("inventions.json", true));
     return { inventions: r.inventions.slice(0, q.limit ?? 20) };
+  }
+  async fieldNotes(q: { limit?: number } = {}) {
+    const r = normFieldNotes(await this.load("fieldnotes.json", true));
+    return { notes: r.notes.slice(0, q.limit ?? 50) };
   }
   async agentSpec() { return normAgentSpec(await this.load("agent-spec.json", true)); }
   stream(h: StreamHandlers): () => void {

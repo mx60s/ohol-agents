@@ -4,6 +4,8 @@
 // rely on arrays being arrays and numbers being numbers.
 
 import type {
+  Cutaway,
+  CutawayTarget,
   AgentSpecExample,
   AgentSpecIntervention,
   AgentSpecLimits,
@@ -30,6 +32,8 @@ import type {
   StoryHistoryResponse,
   Invention,
   InventionsResponse,
+  FieldNote,
+  FieldNotesResponse,
   StorySoFar,
   TraitSource,
   Traits,
@@ -155,6 +159,20 @@ function normPlayer(v: unknown): PlayerView | null {
   };
 }
 
+const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** A cutaway in Focus; null if absent or malformed (older servers never send one). */
+export function normCutaway(v: unknown): Cutaway | null {
+  if (!isObj(v) || !isObj(v.target) || !finite(v.until)) return null;
+  const t = v.target;
+  let target: CutawayTarget;
+  if (t.type === "person" && typeof t.id === "string") target = { type: "person", id: t.id, lifeId: strOrNull(t.lifeId), playerId: numOrNull(t.playerId), name: strOrNull(t.name) };
+  else if (t.type === "animal" && finite(t.objectId) && finite(t.x) && finite(t.y)) target = { type: "animal", objectId: t.objectId, x: t.x, y: t.y, name: typeof t.name === "string" ? t.name : "" };
+  else if (t.type === "tile" && finite(t.x) && finite(t.y)) target = { type: "tile", x: t.x, y: t.y };
+  else return null;
+  return { kind: "cutaway", target, label: typeof v.label === "string" ? v.label : "", reason: typeof v.reason === "string" ? v.reason : "", since: num(v.since), until: v.until, returnTo: strOrNull(v.returnTo) };
+}
+
 function normStory(v: unknown): StorySoFar | null {
   if (!isObj(v) || typeof v.text !== "string") return null;
   return { text: v.text, updatedAt: num(v.updatedAt) };
@@ -183,7 +201,7 @@ export function normState(v: unknown): StateResponse {
       llmCostUsd: num(st.llmCostUsd),
     },
     focus: f
-      ? { agentId: strOrNull(f.agentId), lifeId: strOrNull(f.lifeId), since: num(f.since), reason: strOrNull(f.reason) }
+      ? { agentId: strOrNull(f.agentId), lifeId: strOrNull(f.lifeId), since: num(f.since), reason: strOrNull(f.reason), cutaway: normCutaway(f.cutaway) }
       : { agentId: null, lifeId: null, since: 0, reason: null },
     story: normStory(s.story),
   };
@@ -364,6 +382,20 @@ export function normInventions(v: unknown): InventionsResponse {
     return { item, ...(objectId != null && objectId > 0 ? { objectId } : {}), lifeId: strOrNull(x.lifeId), name: strOrNull(x.name), t, runId: str(x.runId) };
   });
   return { inventions: rows.sort((a, b) => b.t - a.t) };
+}
+
+/** GET /api/fieldnotes: drop malformed rows (no text, bad times, an end before the start); newest first. */
+export function normFieldNotes(v: unknown): FieldNotesResponse {
+  const r = isObj(v) ? v : {};
+  const rows = arr(r.notes, (x): FieldNote | null => {
+    if (!isObj(x)) return null;
+    const text = str(x.text).replace(/\r\n?/g, "\n").trim();
+    const windowStart = num(x.windowStart, NaN);
+    const windowEnd = num(x.windowEnd, NaN);
+    if (!text || !Number.isFinite(windowStart) || !Number.isFinite(windowEnd) || windowEnd < windowStart) return null;
+    return { t: num(x.t, windowEnd), runId: str(x.runId), windowStart, windowEnd, text, model: str(x.model) };
+  });
+  return { notes: rows.sort((a, b) => b.windowEnd - a.windowEnd) };
 }
 
 // ------------------------------------------------------------------ /api/agent-spec

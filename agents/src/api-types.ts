@@ -9,6 +9,7 @@
 // GET  /api/story/history?limit=N -> StoryHistoryResponse (past "story so far" versions, newest first; default 20, max 200)
 // GET  /api/flowers          -> FlowersResponse       (the per-person flower catalogue: shapes and colours)
 // GET  /api/inventions?limit=N&run=<runId|all> -> InventionsResponse (first time each technology item was made; newest first; default 20, max 200; default run = the current one)
+// GET  /api/fieldnotes?limit=N -> FieldNotesResponse (the current run's field notes, newest first; default 50, max 500)
 //
 // Research endpoints (lives, lineages, traits; persisted across restarts and runs):
 // GET  /api/lives?since=<ms>&limit=<n>        -> LivesResponse    lives with updatedAt > since, oldest update first
@@ -207,6 +208,32 @@ export interface Focus {
   since: number; // ms epoch when this focus started
   /** @deprecated always null: the director no longer gives a reason (kept so older clients still parse) */
   reason: string | null;
+  /**
+   * A short cutaway in progress (DIRECTOR_CUTAWAY_MS, ~10s): the camera shows
+   * `target` instead, then returns to agentId (still the main subject, so
+   * clients that ignore this field keep showing the subject). Absent/null otherwise.
+   */
+  cutaway?: Cutaway | null;
+}
+
+/** What a cutaway shows: a character, a dangerous animal (its latest known tile; animals move) or a tile. */
+export type CutawayTarget =
+  | { type: "person"; id: string; lifeId: string | null; playerId: number | null; name: string | null }
+  | { type: "animal"; objectId: number; x: number; y: number; name: string }
+  | { type: "tile"; x: number; y: number };
+
+export interface Cutaway {
+  kind: "cutaway";
+  target: CutawayTarget;
+  /** short caption, e.g. "Grizzly Bear near LIRA TIDEWICK" (may contain character names) */
+  label: string;
+  /** why: which rule picked it ("animal", "birth", "handover", "starving", "speech") */
+  reason: string;
+  since: number; // ms epoch
+  /** ms epoch when the camera returns to the subject */
+  until: number;
+  /** the main subject's agentId (= Focus.agentId) */
+  returnTo: string | null;
 }
 
 /** Rolling summary of the world's history (<=150 words), refreshed every few minutes. */
@@ -246,6 +273,24 @@ export interface InventionsResponse {
   inventions: Invention[]; // newest first
 }
 
+/**
+ * A researcher-style field note on the current run (fieldnotes.ts): every FIELD_NOTES_INTERVAL_MS
+ * (20 min) one entry covering the time since the previous note; a run's first note covers the run
+ * from its start. Plain text: paragraphs separated by a blank line, bullet lines start with "- ".
+ */
+export interface FieldNote {
+  t: number; // ms epoch, when it was written
+  runId: string;
+  windowStart: number; // ms epoch
+  windowEnd: number; // ms epoch
+  text: string;
+  model: string;
+}
+
+export interface FieldNotesResponse {
+  notes: FieldNote[]; // the current run's, newest first
+}
+
 /** [x, y, biome, floorId, objectId] ; objectId/floorId 0 = empty */
 export type MapCellTuple = [number, number, number, number, number];
 
@@ -273,7 +318,7 @@ export type RunEventKind =
   | "thought" // text = the agent's private reasoning summary / goal
   | "craft" // text = "made X from Y + Z"; data: { actor, target, newActor, newTarget }
   | "narration" // text = omniscient narrator's summary of recent plot (every ~30s); not seen by agents
-  | "focus" // stream camera moved. agentId/playerId/name = new focus (all null if no one is alive); text = "camera follows <name>" (or "no one is alive"); data: { lifeId, previous: agentId | null, cause: "initial" | "switch" | "death" | "disconnect" | "empty" }
+  | "focus" // stream camera moved. agentId/playerId/name = new focus (all null if no one is alive); text = "camera follows <name>" (or "no one is alive"); data: { lifeId, previous: agentId | null, cause: "initial" | "switch" | "death" | "disconnect" | "empty" | "cutaway" | "cutaway-end", cutaway?: Cutaway (cause "cutaway"; agentId stays the main subject) }
   | "system"; // run start/stop, errors
 
 export interface RunEvent {

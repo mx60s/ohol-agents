@@ -126,6 +126,8 @@ export class StoryKeeper {
         this.push(`MADE: ${who ?? "someone"} ${cleanText(e.text, 120)}`);
         break;
       case "action":
+        // a "remember" is the model's own words, not a game result
+        if (typeof e.data?.remember === "string") break;
         for (const p of productsOf(e.text)) {
           if (this.seenItems.has(p)) continue;
           this.seenItems.add(p);

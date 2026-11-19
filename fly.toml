@@ -34,8 +34,8 @@ kill_timeout = "60s"
   INITIAL_EVES = "3"
   FAMILY_ROOM_MAX_HOLD_S = "0"
   # early birth cap (server mtsEarlyMaxBabies/mtsEarlyMaxGenerations, mirrored here so free slots wait
-  # for a mother who can still have a baby): at most 2 babies per woman in generations 1-5
-  EARLY_MAX_BABIES = "2"
+  # for a mother who can still have a baby): at most 3 babies per woman in generations 1-5
+  EARLY_MAX_BABIES = "3"
   EARLY_MAX_GENERATIONS = "5"
   # after a login unexpectedly comes out as an Eve, joins wait this long (no Eve floods)
   EVE_MIN_GAP_S = "300"
@@ -45,7 +45,7 @@ kill_timeout = "60s"
   # docs/research/selfhost-optimize.md). LLM_BASE_URL and LLM_API_KEY are secrets (pod URL changes per pod).
   # Narrator, story and director stay on OpenRouter (OPENROUTER_API_KEY): Gemini 3.1 Flash-Lite and Jev.
   LLM_MODEL = "m"
-  LLM_MODEL_NAME = "Qwen/Qwen3-32B"
+  LLM_MODEL_NAME = "Qwen/Qwen3.8-27B"
   # mild reasoning: thinking on, 400-token thinking budget inside 800 tokens (vLLM thinking_token_budget;
   # 400 removes Qwen3-32B's ~1% empty replies at 300, docs/research/selfhost-optimize.md)
   LLM_REASONING_MAX_TOKENS = "1200"
@@ -67,9 +67,16 @@ kill_timeout = "60s"
   # stream director + "story so far" (defaults from .env.example)
   DIRECTOR_ENGINE = "jev"
   DIRECTOR_INTERVAL_MS = "10000"
-  DIRECTOR_MIN_DWELL_MS = "45000"
+  DIRECTOR_MIN_DWELL_MS = "30000"
   DIRECTOR_DEATH_HOLD_MS = "8000"
+  DIRECTOR_CUTAWAY_MS = "10000"
+  DIRECTOR_CUTAWAY_MIN_GAP_MS = "30000"
+  DIRECTOR_CUTAWAY_MIN_SCORE = "7"
+  DIRECTOR_CUTAWAY_HEURISTIC_SCORE = "9"
+  DIRECTOR_CUTAWAY_P = "0.85"
   STORY_INTERVAL_MS = "900000"
+  # field notes on the home page (FIELD_NOTES_MODEL defaults to the story model)
+  FIELD_NOTES_INTERVAL_MS = "1200000"
   # spend guards: 0 = off. Set e.g. DAILY_COST_USD = "5" to pause LLM calls
   # once the rolling 24h spend reaches it (survives restarts, kept in LOG_DIR).
   DAILY_COST_USD = "0"

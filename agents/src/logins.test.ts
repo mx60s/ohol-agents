@@ -237,3 +237,21 @@ test("family-room hold: 10 min by default; FAMILY_ROOM_MAX_HOLD_S=0 waits until 
     sched.close();
   }
 });
+
+test("family-room hold: while the server says a mother is only on cooldown, the hold doesn't run out (no Eve instead)", async () => {
+  const clock = new Clock();
+  let room = false, coming = true;
+  const sched = new LoginScheduler(plan({ initialEves: 0, joinStaggerMs: 1000, joinJitter: 0 }), {
+    now: () => clock.now, sleep: clock.sleep, random: () => 0.5, familyRoom: () => room, motherComing: () => coming,
+  });
+  await Promise.all([sched.beforeLogin("a01", true), clock.advance(0)]);
+  let in1 = false;
+  void sched.beforeLogin("a02", true).then(() => (in1 = true));
+  await clock.advance(30 * 60_000);
+  assert.equal(in1, false, "still waiting after 30 min: a mother comes off cooldown later");
+  coming = false;
+  await clock.advance(60_000);
+  assert.equal(in1, true, "past the 10 min hold and no mother coming: logs in");
+  room = true;
+  sched.close();
+});

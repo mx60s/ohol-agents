@@ -70,10 +70,11 @@ export function actionList(o: PromptOptions): string {
     `{"type":"undress","slot":N}  take off clothing: 0 hat, 1 tunic, 2 front shoe, 3 back shoe, 4 bottom, 5 backpack`,
     `{"type":"go","x":X,"y":Y}  walk somewhere`,
     `{"type":"pick_up_baby","person":ID}  pick up and carry a baby or small child`,
-    `{"type":"feed","person":ID}  use what you hold on another person: feed them, clothe them`,
+    `{"type":"feed","person":ID}  use what you hold on another person: feed them (a baby only when starving), clothe them`,
     `{"type":"give","person":ID}  put what you hold down next to another person for them to pick up`,
     `{"type":"jump"}  as a baby: wriggle out of someone's arms`,
     `{"type":"wait","turns":N}  do nothing for 1-4 turns; you are woken early if something important happens`,
+    `{"type":"search","what":"<thing>"}  look up how a thing is made, step by step (the game's hint search)`,
   ].map((l) => `- ${l}`).join("\n");
 }
 
@@ -86,7 +87,7 @@ function replyFormat(o: PromptOptions, example: boolean): string {
       : `Instead of "action" you may give "actions": a list of up to ${listMax} actions done back to back at once. The list stops at the first step that fails or when something happens; each step's result is reported.\n`
     : "";
   return `Reply with ONE JSON object, nothing else:
-{"thought":"one short sentence","goal":"optional, only when it changes","say":"optional: words to say now","action":{"type":"...",...}}
+{"thought":"one short sentence","goal":"optional: your long-term goal for this life (not this turn's step); only when it changes","say":"optional: words to say now","remember":"optional: something you want to keep in your notes","action":{"type":"...",...}}
 ${list}
 Actions (x,y are world coordinates from ${example ? "your observation" : "what you see"}; y grows north):
 ${actionList(o)}`;
@@ -108,14 +109,14 @@ What you can do depends on your age:
 - Under 3: you can't feed yourself; you are fed only while a woman holds you. You can say 1 letter per year of age. From age 1 you can wriggle out of someone's arms.
 - From 3: you eat on your own, but your stomach holds only your age + 4 food. Children under 10 walk slower and can't carry a baby. Speech grows from a few letters at 8 to full sentences at 16.
 - From 10: you can carry a baby.
-- Women aged 14 to 40 have babies. After 44 your stomach shrinks again; at 60 you die.
+- Women aged 14 to 40 have babies, and nurse a baby just by holding it: a held baby's food doesn't drain, and a baby takes other food only when starving. After 44 your stomach shrinks again; at 60 you die.
 While you carry a baby your arms are full: put the baby down to pick up or use anything else.
 
 Heat and cold make your food run out faster. If your food runs out, you starve.
 
-Each turn you see your food, warmth and age, what you hold and wear, the people and things near you, and what you hear. You hold one thing at a time. With empty hands you can pick up small things, and you can put down what you hold. Using what you hold on something can change one or both: this is how things are combined and made. Food you hold can be eaten; clothing you hold can be worn. Trees and bushes can't be carried. You walk next to a target automatically.
+Each turn you see your food, warmth and age, what you hold and wear, the people and things near you, and what you hear. You hold one thing at a time. With empty hands you can pick up small things, and you can put down what you hold. Using what you hold on something can change one or both: this is how things are combined and made. Food you hold can be eaten; clothing you hold can be worn. Some things (trees, bushes, big rocks, deposits, piles) are fixed in place and can't be carried. You walk next to a target automatically.
 
-You can say whatever you want; people within ${SPEECH_RADIUS_TILES} tiles of you hear it. Numbers can't be spoken: they are removed. Some phrases also have specific consequences, whenever they are said:
+You can say whatever you want; people within ${SPEECH_RADIUS_TILES} tiles of you hear it. Numbers can't be spoken: they are removed. When giving directions to an area, name areas or describe landmarks instead. Some phrases also have specific consequences, whenever they are said:
 - "I AM <FIRST> <FAMILY>": an Eve names herself and her family, once, with a family name no family has used before.
 - "YOU ARE <FIRST>": names the nameless baby you hold, or a nameless baby within 3 tiles of you, or else the nearest nameless person aged 5 or older within 20 tiles; a first name already used in the family gets a number (AURORA II).
 - "I FOLLOW YOU": the nearest person becomes your leader. "ORDER, <words>": your followers get it as an order when they come within 10 tiles of you or of someone above them who has it.

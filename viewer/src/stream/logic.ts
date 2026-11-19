@@ -2,7 +2,7 @@
 // interpolation, camera smoothing, crowd fan-out, held-object lookup, ticker
 // selection. Tested in tests/stream.test.mjs.
 
-import type { RunEvent, Traits } from "../api-types.ts";
+import type { Cutaway, MapCellTuple, PlayerView, RunEvent, Traits } from "../api-types.ts";
 import { NAME_NUMERAL, cleanText, deathReasonText, displayName, truncate } from "../shared/format.ts";
 
 // ================================================================== trait tags
@@ -115,6 +115,53 @@ export function focusTransition(from: Cam | null, to: Cam, panMaxTiles = 12): "s
   if (!from) return "snap";
   const d = Math.hypot(to.x - from.x, to.y - from.y);
   return d <= 0.01 ? "snap" : d <= panMaxTiles ? "pan" : "fade";
+}
+
+// ================================================================== cutaways
+
+/** an animal on a tile this far (or less) from its last known one is the same animal */
+const ANIMAL_TRACK_TILES = 6;
+
+/**
+ * The animal's latest tile on the map: the nearest cell (within ANIMAL_TRACK_TILES of
+ * its last known tile) holding the same object, or the same kind of animal (a Wolf
+ * that became an Attacking Wolf). Null if none is in the map.
+ */
+export function trackAnimal(cells: readonly MapCellTuple[], names: Record<number, string>, t: { objectId: number; x: number; y: number; name?: string }): Cam | null {
+  const kind = (n: string | undefined) => { const w = (n ?? "").trim().toLowerCase().split(/\s+/); return w[w.length - 1] ?? ""; };
+  const want = kind(t.name || names[t.objectId]);
+  let best: Cam | null = null;
+  let bd = Infinity;
+  for (const c of cells) {
+    const id = c[4];
+    if (!id || (id !== t.objectId && (!want || kind(names[id]) !== want))) continue;
+    const d = Math.hypot(c[0] - t.x, c[1] - t.y) - (id === t.objectId ? 0.01 : 0);
+    if (d <= ANIMAL_TRACK_TILES && d < bd) {
+      bd = d;
+      best = { x: c[0], y: c[1] };
+    }
+  }
+  return best;
+}
+
+/** What the camera shows during a cutaway: a person (by player id) or a spot (animal, tile). */
+export type CutawayShot = { key: string; label: string; playerId: number | null; spot: Cam | null };
+
+/**
+ * The camera shot for focus.cutaway, or null (no cutaway, it is over, or its
+ * person is not in view: the camera stays on the main subject).
+ */
+export function cutawayShot(c: Cutaway | null | undefined, now: number, players: readonly PlayerView[], cells: readonly MapCellTuple[], names: Record<number, string>): CutawayShot | null {
+  if (!c || !(c.until > now)) return null;
+  const key = `cut:${c.since}`;
+  const label = c.label;
+  const t = c.target;
+  if (t.type === "person") {
+    const p = players.find((q) => (t.lifeId && q.lifeId === t.lifeId) || (t.playerId != null && q.id === t.playerId));
+    return p ? { key, label, playerId: p.id, spot: null } : null;
+  }
+  if (t.type === "animal") return { key, label, playerId: null, spot: trackAnimal(cells, names, t) ?? { x: t.x, y: t.y } };
+  return { key, label, playerId: null, spot: { x: t.x, y: t.y } };
 }
 
 // ================================================================== crowding
@@ -414,6 +461,12 @@ const clean = (s: string) => s.replace(/\s*\(\d+\/\d+ left\)/g, "").replace(/#\S
 export function describeAction(text: string): string | null {
   const t = text.replace(/^reflex /, "");
   if (ACTION_SKIP.test(t)) return null;
+  // a hint search (search "fire" -> MAKING FIRE: 21 steps (see SEARCH)); "" cleared it
+  const sq = /^search "(.*?)"(?: \[step \d+\/\d+\])? -> /.exec(t);
+  if (sq) return sq[1].trim() ? `looked up how to make ${sq[1].trim().toLowerCase()}` : null;
+  // something kept for the yearly notes (remember "pond at (5, 10)" -> kept for your next notes); not kept: nothing to show
+  const rm = /^remember "(.*)" -> (.*)$/.exec(t);
+  if (rm) return rm[1].trim() && /^kept\b/.test(rm[2]) ? `noted: ${rm[1].trim()}` : null;
   const verb = t.split(/[\s(]/)[0];
   const res = (t.split(" -> ").slice(1).join(" -> ") || "").replace(/\s*\(your path[^)]*\)\s*$/, "").trim();
   if (!res) return null;

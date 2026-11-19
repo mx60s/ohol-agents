@@ -229,6 +229,23 @@ export class GameData {
   private depthCache: Map<number, number> | null = null;
 
   /**
+   * Never placed on the map by the world generator (no mapChance, for it or
+   * its parent), but some transition from natural things produces it: it
+   * exists only where someone made it.
+   */
+  madeOnly(id: number): boolean {
+    if (!(id > 0)) return false;
+    const d = Math.min(this.depth(id), this.depth(this.base(id)));
+    return d > 0 && Number.isFinite(d);
+  }
+
+  /** "a Stone", or "another Stone" when it is the same kind as `other` (a Milkweed Stalk on a Milkweed Stalk) */
+  articleName(id: number, other: number): string {
+    const n = this.name(id);
+    return other > 0 && this.name(other) === n ? `another ${n}` : withArticle(n);
+  }
+
+  /**
    * The client's hint list for an object (LivingLifePage getNumHints): the
    * transitions it takes part in, as actor or target, that the hint pane
    * shows (getTransHintable: no last-use variants, no decay, no categories),
@@ -304,21 +321,22 @@ export class GameData {
    * ("sick" in the object's description, as server.cpp checks), and marks
    * like tattoos. The client draws these on the body; they can't be dropped.
    */
-  condition(id: number): { kind: "wound" | "sickness" | "mark"; from: string[] } | null {
+  condition(id: number): Condition | null {
     if (!(id > 0)) return null;
     if (!this.conditionCache) {
-      const m = new Map<number, { kind: "wound" | "sickness" | "mark"; from: string[] }>();
+      const m = new Map<number, Condition>();
       const kindOf = (o: GameObject) => (/#.*\bsick\b/i.test(o.name) ? "sickness" : /wound|bite|cut\b/i.test(cleanName(o.name)) ? "wound" : "mark");
       for (const t of this.allTransitions()) {
         if (t.target !== 0 || !(t.actor > 0) || !(t.newTarget > 0)) continue;
         const actor = this.objects.get(t.actor), o = this.objects.get(t.newTarget);
         if (!actor || !o || !(actor.deadlyDistance > 0) || !o.permanent || o.deathMarker || /grave/i.test(o.name)) continue;
-        const c = m.get(o.id) ?? { kind: kindOf(o), from: [] };
+        const c = m.get(o.id) ?? { kind: kindOf(o), from: [], attackers: new Set<number>() };
         const src = cleanName(actor.name);
         if (!c.from.includes(src)) c.from.push(src);
+        for (const a of [t.actor, t.newActor]) if (a > 0) c.attackers.add(this.base(a));
         m.set(o.id, c);
       }
-      for (const o of this.objects.values()) if (o.permanent && !o.parent && /#.*\bsick\b/i.test(o.name) && !m.has(o.id)) m.set(o.id, { kind: "sickness", from: [] });
+      for (const o of this.objects.values()) if (o.permanent && !o.parent && /#.*\bsick\b/i.test(o.name) && !m.has(o.id)) m.set(o.id, { kind: "sickness", from: [], attackers: new Set() });
       // what a condition turns into while still on the body (Gushing -> Stable Knife Wound, Hog Cut -> Clean Hog Cut)
       for (let changed = true; changed; ) {
         changed = false;
@@ -326,7 +344,7 @@ export class GameData {
           for (const t of this.usesAsTarget(id)) {
             const o = this.objects.get(t.newTarget);
             if (!o || !o.permanent || m.has(o.id) || o.deathMarker) continue;
-            m.set(o.id, { kind: c.kind, from: c.from });
+            m.set(o.id, { kind: c.kind, from: c.from, attackers: c.attackers });
             changed = true;
           }
         }
@@ -335,7 +353,7 @@ export class GameData {
     }
     return this.conditionCache.get(this.base(id)) ?? null;
   }
-  private conditionCache: Map<number, { kind: "wound" | "sickness" | "mark"; from: string[] }> | null = null;
+  private conditionCache: Map<number, Condition> | null = null;
 
   /**
    * Animals that attack people who come close (Wild Boar, Wolf, Grizzly
@@ -396,4 +414,20 @@ export function cleanName(raw: string): string {
   let n = raw.split("#")[0];
   n = n.replace(/\$\S*/g, "").replace(/\s+/g, " ").trim();
   return n || raw.trim();
+}
+
+/**
+ * A body condition: `from` names every animal or weapon whose attack gives
+ * it (in load order, not likelihood); `attackers` are their object ids,
+ * before and after the attack (Wolf, Attacking Wolf).
+ */
+export interface Condition {
+  kind: "wound" | "sickness" | "mark";
+  from: string[];
+  attackers: Set<number>;
+}
+
+/** "a Stone", "an Ember Leaf", "an orange tulip": the indefinite article by the first letter */
+export function withArticle(s: string): string {
+  return `${/^[aeiou]/i.test(s) ? "an" : "a"} ${s}`;
 }

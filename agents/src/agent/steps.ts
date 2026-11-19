@@ -38,6 +38,7 @@ const FAIL: RegExp[] = [
   /changed since you looked|is gone since you looked/i,
   /didn't wait/i,
   /did nothing/i,
+  /: not done:/i,
   /wounded you/i,
   /tried to (get|pick)/i,
 ];

@@ -14,7 +14,7 @@ import { FakeEvents } from "./test-helpers.ts";
 import type { RunController } from "./runs.ts";
 import { GameData } from "./game/gameData.ts";
 import { InventionLog } from "./inventions.ts";
-import type { DeathsResponse, FlowersResponse, InventionsResponse, LifeLogResponse, LifeRecord, LineagesResponse, LivesResponse } from "./api-types.ts";
+import type { DeathsResponse, FieldNotesResponse, FlowersResponse, InventionsResponse, LifeLogResponse, LifeRecord, LineagesResponse, LivesResponse } from "./api-types.ts";
 import { FLOWER_COLORS, FLOWER_SHAPES } from "./flowers.ts";
 
 let dir: string;
@@ -53,6 +53,10 @@ before(async () => {
     totalCost: 0,
     focus: () => ({ agentId: null, lifeId: null, since: 0, reason: null }),
     story: { current: () => null, history: () => [] },
+    fieldNotes: {
+      list: (limit: number) =>
+        [3, 2, 1].map((i) => ({ t: i * 1000, runId: "run1", windowStart: (i - 1) * 1000, windowEnd: i * 1000, text: `note ${i}`, model: "m" })).slice(0, Math.max(1, Math.min(500, Math.floor(limit) || 50))),
+    },
   }) as unknown as RunController;
   const gd = { allNames: () => ({ 1: "Stone" }) } as unknown as GameData;
   server = startApi(0, runs, gd, "secret");
@@ -83,6 +87,16 @@ test("existing endpoints still work", async () => {
   assert.equal((await get("/api/objects")).body.names[1], "Stone");
   assert.equal((await get("/api/halt", { method: "POST" })).status, 403);
   assert.equal((await get("/api/nope")).status, 404);
+});
+
+test("GET /api/fieldnotes: the current run's notes, newest first, limit", async () => {
+  const r = await get("/api/fieldnotes");
+  assert.equal(r.status, 200);
+  const body = r.body as FieldNotesResponse;
+  assert.deepEqual(body.notes.map((n) => n.text), ["note 3", "note 2", "note 1"]);
+  assert.equal(body.notes[0].windowStart, 2000);
+  assert.deepEqual((await get("/api/fieldnotes?limit=1")).body.notes.map((n: { text: string }) => n.text), ["note 3"]);
+  assert.equal((await get("/api/fieldnotes?limit=junk")).body.notes.length, 3);
 });
 
 test("GET /api/flowers: the flower catalogue", async () => {

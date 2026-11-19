@@ -1,6 +1,6 @@
 // Keeps N agent slots running, and assembles the run-wide view for the API.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Agent, type SpeechSink } from "./agent/agent.ts";
 import { Llm, type LlmHealth, type SpendGate } from "./agent/llm.ts";
@@ -40,6 +40,30 @@ export interface PopulationExtras {
   holdLogins?: () => boolean;
   /** TURN_CLOCK=1: the game server's clock files (default: FileClockPort in cfg.clockDir) */
   clockPort?: ClockPort;
+  /** the server's mtsBirthReady.txt (default: read from cfg.clockDir); null = not available */
+  birthReady?: () => BirthReady | null;
+}
+
+/** mtsBirthReady.txt (server/patches/wait-for-mothers.patch): women who could take a baby now, soonest cooldown end (game s, 0 = none) */
+export interface BirthReady {
+  ready: number;
+  soonest: number;
+}
+
+/** the server rewrites it at least every 3 s; older than this = the server isn't writing it (setting off, or down) */
+export const BIRTH_READY_STALE_MS = 30_000;
+
+/** Reads `<dir>/mtsBirthReady.txt`; null when missing, unreadable or stale. */
+export function readBirthReady(dir: string, nowMs = Date.now()): BirthReady | null {
+  try {
+    const f = path.join(dir, "mtsBirthReady.txt");
+    if (nowMs - statSync(f).mtimeMs > BIRTH_READY_STALE_MS) return null;
+    const [r, s] = readFileSync(f, "utf8").trim().split(/\s+/).map(Number);
+    if (!Number.isFinite(r)) return null;
+    return { ready: r, soonest: Number.isFinite(s) ? s : 0 };
+  } catch {
+    return null;
+  }
 }
 
 /** An LLM outage that paused the run (see checkOutage). */
@@ -127,7 +151,7 @@ export class Population implements SpeechSink {
         : new Llm({ ...cfg, llmBaseUrl: cfg.overheadBaseUrl, llmApiKey: cfg.overheadApiKey }, extras.spend);
     this.logins = new LoginScheduler(
       cfg,
-      { paused: () => this.outage != null || (extras.holdLogins?.() ?? false), familyRoom: () => this.familyRoom(), ...extras.loginDeps },
+      { paused: () => this.outage != null || (extras.holdLogins?.() ?? false), familyRoom: () => this.familyRoom(), motherComing: () => this.motherComing(), ...extras.loginDeps },
       extras.resume?.slots ?? [],
     );
     log.on("event", (e) => {
@@ -264,7 +288,10 @@ export class Population implements SpeechSink {
    * True when no fertile woman (14-40) is alive, or helpless babies (< 3)
    * are fewer than fertile women and fewer than everyone else (the server's
    * maxBabyMomRatio / maxBabyAdultRatio of 1.0; see logins.ts). Counts our
-   * living characters, with ages from the game.
+   * living characters, with ages from the game. When the server writes
+   * mtsBirthReady.txt (wait-for-mothers.patch) and no woman can take a baby
+   * now: false while one is only on cooldown (a login would be an Eve), true
+   * when none is coming (then an Eve is what the server would make anyway).
    */
   familyRoom(): boolean {
     // a login just came out as an Eve: hold joins for a while (we can't see cooldowns; no Eve floods)
@@ -278,7 +305,21 @@ export class Population implements SpeechSink {
       if (age < 3) babies++;
       else if (me.female && age >= 14 && age <= 40 && !this.atBirthCap(me.id)) moms++;
     }
+    // the server's readiness file (mtsNoCooldownBypass=1): it knows cooldowns. No woman ready but one coming
+    // off cooldown: wait for her (a login now would be an Eve). No woman ready or coming: an Eve is right.
+    const br = this.birthReady();
+    if (br && br.ready <= 0) return br.soonest <= 0;
     return moms === 0 || (babies < moms && babies < total - babies);
+  }
+
+  /** the server's readiness file says no woman can take a baby now, but one comes off cooldown later */
+  motherComing(): boolean {
+    const br = this.birthReady();
+    return !!br && br.ready <= 0 && br.soonest > 0;
+  }
+
+  private birthReady(): BirthReady | null {
+    return (this.extras.birthReady ?? (() => readBirthReady(this.cfg.clockDir)))();
   }
 
   /** the server's early birth cap: generation <= earlyMaxGenerations and earlyMaxBabies children already */

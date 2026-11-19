@@ -96,7 +96,7 @@ function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
     ...(st.recipeHints ? ([["Recipe hints", <>Up to {L.maxHints} things the held item (or bare hands) would do to what's in view.</>]] as [string, ReactNode][]) : []),
     ["Deaths seen", <>Who died in view in the last {Math.round(L.deathsWindowS / 60)} minutes: name, relation, age, place.</>],
     ["Their last turns", <>Their previous thought, their goal, the last {L.historyShown} action results, and why a reply was wasted if it was.</>],
-    ["What they remember", <>A summary of this life so far (at most {L.memoryLines} lines of facts), which their own model rewrites in the background about once a year.</>],
+    ["What they remember", <>Notes on this life so far (at most {L.memoryLines} lines of facts under headings), which a separate note-taker call to their own model rewrites in the background about once a year from what they did, saw and heard.</>],
     ["Just happened", <>The events that woke them since the last turn.</>],
   ];
   return (

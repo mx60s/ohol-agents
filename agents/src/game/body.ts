@@ -4,7 +4,7 @@
 
 import type { Connection } from "../protocol/connection.ts";
 import type { World } from "./world.ts";
-import type { GameData } from "./gameData.ts";
+import { withArticle, type GameData } from "./gameData.ts";
 
 type Pos = [number, number];
 
@@ -13,6 +13,10 @@ const DIRS4: Pos[] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const CLOTHING_SLOTS = ["hat", "tunic", "front shoe", "back shoe", "bottom", "backpack"];
 /** server.cpp minPickupBabyAge */
 const MIN_PICKUP_BABY_AGE = 10;
+/** server.cpp babyAge: only someone younger than this can be picked up */
+const BABY_AGE = 5;
+/** use, drop, swap and take out refuse a target tile farther than this (Chebyshev); "go" has no limit */
+export const MAX_ACT_DIST = 24;
 /** how far drop() looks for an empty tile when none is next to you */
 const DROP_SEARCH_RADIUS = 3;
 const MAX_STEP_RANGE = 15; // server rejects deltas beyond +/-16
@@ -156,6 +160,7 @@ export class Body {
 
   /** Walk until standing on one of `goals`. Handles long trips in legs. */
   async walkTo(goals: Pos[], maxLegs = 8): Promise<string> {
+    const start = this.pos;
     for (let leg = 0; leg < maxLegs; leg++) {
       const p = this.pos;
       if (!p) return "can't move: no body";
@@ -190,7 +195,7 @@ export class Body {
         if (!closest.has(k) || closest.get(k)!.d > d) closest.set(k, { ...a, d });
       }
       for (const a of closest.values())
-        this.notes.push(`your path passed ${a.d === 0 ? "through" : `within ${a.d} tile${a.d === 1 ? "" : "s"} of`} a ${this.gd.name(a.id)} at (${a.x},${a.y}); no safer way around`);
+        this.notes.push(`your path passed ${a.d === 0 ? "through" : `within ${a.d} tile${a.d === 1 ? "" : "s"} of`} ${withArticle(this.gd.name(a.id))} at (${a.x},${a.y}); no safer way around`);
       const heldBefore = this.world.self?.held.id ?? 0;
       const ok = await this.move(p, legPath);
       const wound = this.newWound(heldBefore);
@@ -198,16 +203,18 @@ export class Body {
       if (!ok) return "movement interrupted";
     }
     const p = this.pos!;
-    return goals.some((g) => g[0] === p[0] && g[1] === p[1]) ? "arrived" : "still on the way (trip too long)";
+    if (goals.some((g) => g[0] === p[0] && g[1] === p[1])) return "arrived";
+    const went = start ? Math.max(Math.abs(p[0] - start[0]), Math.abs(p[1] - start[1])) : 0;
+    return `still on the way (trip too long): you're now at (${p[0]},${p[1]}), ${went} tile${went === 1 ? "" : "s"} from where you started`;
   }
 
-  /** "a Wild Boar wounded you at (3,4) (Hog Cut)" if we now hold a wound we didn't before */
+  /** "a Wild Boar wounded you at (3,4) (Hog Cut)" (every possible attacker if none was seen next to us) if we now hold a wound we didn't before */
   private newWound(heldBefore: number): string | null {
     const s = this.world.self;
     if (!s || s.held.id === heldBefore) return null;
     const c = this.gd.condition(s.held.id);
     if (!c || c.kind !== "wound") return null;
-    return `stopped: ${c.from.length ? `a ${c.from[0]}` : "something"} wounded you at (${s.x},${s.y}) (${this.gd.name(s.held.id)})`;
+    return `stopped: ${this.world.woundSource() ?? "something"} wounded you at (${s.x},${s.y}) (${this.gd.name(s.held.id)})`;
   }
 
   private async move(start: Pos, path: Pos[]): Promise<boolean> {
@@ -245,7 +252,7 @@ export class Body {
   }
 
   /** Send an action and wait for the server to update us or the tile. */
-  private async act(cmd: string, x: number, y: number): Promise<{ before: string; after: string; heldBefore: string; heldAfter: string }> {
+  private async act(cmd: string, x: number, y: number): Promise<{ before: string; after: string; heldBefore: string; heldAfter: string; t0: number }> {
     this.syncForce();
     const before = this.gd.describeStack(this.world.objAt(x, y));
     const heldBefore = this.heldName();
@@ -263,7 +270,7 @@ export class Body {
         break;
       }
     }
-    return { before, after: this.gd.describeStack(this.world.objAt(x, y)), heldBefore, heldAfter: this.heldName() };
+    return { before, after: this.gd.describeStack(this.world.objAt(x, y)), heldBefore, heldAfter: this.heldName(), t0 };
   }
 
   heldName(): string {
@@ -294,8 +301,23 @@ export class Body {
     return `${verb}: ${parts.join("; ")}`;
   }
 
+  /**
+   * A target tile more than MAX_ACT_DIST from us: refused without moving. A model wrote (0,0) meaning
+   * "next to me" and walked 130 tiles away from its baby.
+   */
+  private tooFar(verb: string, x: number, y: number): string | null {
+    const p = this.pos;
+    if (!p) return null;
+    const d = Math.max(Math.abs(x - p[0]), Math.abs(y - p[1]));
+    if (d <= MAX_ACT_DIST) return null;
+    const near = verb === "drop" ? "drop without x,y puts it down next to you; " : "";
+    return `${verb} at (${x},${y}): not done: (${x},${y}) is ${d} tiles from you at (${p[0]},${p[1]}); ${verb} works on tiles up to ${MAX_ACT_DIST} away; ${near}go there first to act on a far tile`;
+  }
+
   /** Use held item (or bare hand) on target tile; also picks things up. */
   async use(x: number, y: number): Promise<string> {
+    const far = this.tooFar("use", x, y);
+    if (far) return far;
     const a = await this.approach(x, y);
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
     const target = this.world.objAt(x, y).id;
@@ -315,18 +337,20 @@ export class Body {
     // the client then shows its hint for the clicked thing (what works on it); we say the first few
     const held = heldId;
     if (/nothing happened$/.test(out) && held > 0 && o && !(o.numSlots > 0) && !this.gd.transition(held, target) && !this.gd.transition(this.gd.base(held), this.gd.base(target)))
-      return `${out} (a ${this.gd.name(held).replace(/ \(\d+\/\d+ left\)$/, "")} does nothing on a ${this.gd.name(target)}${this.worksOn(target, held)})`;
+      return `${out} (${withArticle(this.gd.name(held).replace(/ \(\d+\/\d+ left\)$/, ""))} does nothing on ${withArticle(this.gd.name(target))}${this.worksOn(target, held)})`;
     if (/nothing happened$/.test(out) && held === 0 && o && o.permanent && !(o.numSlots > 0) && !this.gd.transition(0, target))
-      return `${out} (bare hands do nothing on a ${this.gd.name(target)}${this.worksOn(target, 0)})`;
-    return /nothing happened$/.test(out) ? out + this.tileNow(x, y) : out;
+      return `${out} (bare hands do nothing on ${withArticle(this.gd.name(target))}; it's fixed in place and can't be carried${this.worksOn(target, 0)})`;
+    return /nothing happened$/.test(out) ? out + this.tileNow(x, y, r.t0) : out;
   }
 
   /** For an unexplained "nothing happened": what the tile has now, and who changed it just before (under the turn
    * clock everyone acts in the same window, so two people going for one tile is common: the second action was
    * planned on the old picture and quietly does nothing). */
-  private tileNow(x: number, y: number): string {
+  private tileNow(x: number, y: number, since: number): string {
     const c = this.world.cell(x, y);
-    const now = c && c.obj.id > 0 ? `the tile at (${x},${y}) now has ${this.gd.describeStack(c.obj)}` : `the tile at (${x},${y}) is now empty`;
+    // "now" only when the cell changed while the action ran
+    const n = c && c.t > since ? " now" : "";
+    const now = c && c.obj.id > 0 ? `the tile at (${x},${y})${n} has ${this.gd.describeStack(c.obj)}` : `the tile at (${x},${y}) is${n} empty`;
     const me = this.world.self?.id;
     if (c?.by && c.by !== me && this.world.now() - c.t < TILE_JUST_CHANGED_MS) {
       const who = this.world.players.get(c.by);
@@ -335,7 +359,7 @@ export class Body {
     return ` (${now})`;
   }
 
-  /** "; what works on it: a Kindling (it becomes Fire)", from the client's hint list for the target */
+  /** "; what works on it: a Kindling (not found in the wild: it is made; it becomes Fire)", from the client's hint list for the target */
   private worksOn(target: number, held: number): string {
     const name = (id: number) => this.gd.name(id);
     const uses = this.gd.hints(target).filter((t) => t.target === target && t.actor !== held).slice(0, 3);
@@ -344,7 +368,9 @@ export class Body {
       const r: string[] = [];
       if (t.newActor !== t.actor) r.push(t.newActor ? `you get ${name(t.newActor)}` : `uses up the ${name(t.actor)}`);
       if (t.newTarget !== target && name(t.newTarget) !== name(target)) r.push(t.newTarget ? `it becomes ${name(t.newTarget)}` : "it's gone");
-      return `${t.actor ? `a ${name(t.actor)}` : "bare hands"}${r.length ? ` (${r.join(", ")})` : ""}`;
+      const made = t.actor > 0 && this.gd.madeOnly(t.actor) ? "not found in the wild: it is made" : "";
+      const note = [made, r.join(", ")].filter(Boolean).join("; ");
+      return `${t.actor ? this.gd.articleName(t.actor, target) : "bare hands"}${note ? ` (${note})` : ""}`;
     };
     return `; what works on it: ${uses.map(one).join("; ")}`;
   }
@@ -362,6 +388,9 @@ export class Body {
     return `the ${what} at (${x},${y}) blocks walking; you're next to it at (${p[0]},${p[1]})`;
   }
 
+  /** the tile the last drop was sent to and what was on it just before (give reads it) */
+  private lastDrop: { at: Pos; there: number } | null = null;
+
   /** Drop held item onto a tile (or into a container there). */
   async drop(x?: number, y?: number): Promise<string> {
     const p = this.pos;
@@ -369,6 +398,10 @@ export class Body {
     if (this.world.self?.held.id === 0) return "not holding anything";
     const blocked = this.conditionBlock();
     if (blocked) return `can't drop: ${blocked}`;
+    if (x != null && y != null) {
+      const far = this.tooFar("drop", x, y);
+      if (far) return far;
+    }
     if ((x == null || y == null) && (this.world.self?.held.id ?? 0) < 0) {
       // server.cpp DROP: a baby can be set down on any tile that doesn't block walking, so on your own tile
       [x, y] = p;
@@ -389,7 +422,7 @@ export class Body {
     if (heldNow > 0 && occupant && !(occupant.numSlots > 0)) {
       const spot = this.nearestEmpty([x, y], DROP_SEARCH_RADIUS);
       if (spot) {
-        moved = ` (the tile at (${x},${y}) has a ${this.gd.name(occupant.id)}, so you put it on the empty tile at (${spot[0]},${spot[1]}))`;
+        moved = ` (the tile at (${x},${y}) has ${withArticle(this.gd.name(occupant.id))}, so you put it on the empty tile at (${spot[0]},${spot[1]}))`;
         [x, y] = spot;
       }
     }
@@ -397,17 +430,25 @@ export class Body {
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
     const heldId = this.world.self?.held.id ?? 0;
     const there = this.world.objAt(x, y).id;
+    this.lastDrop = { at: [x, y], there };
     const r = await this.act(`DROP ${x} ${y} -1`, x, y);
     const out = this.summarize("drop", x, y, r) + moved;
     // server.cpp DROP: an item goes only onto an empty tile or into a container with room
     const o = this.gd.get(there);
-    if (/nothing happened$/.test(out) && heldId > 0 && o && !(o.numSlots > 0)) return `${out} (the tile has a ${this.gd.name(there)}; an item can only be put on an empty tile)`;
+    if (/nothing happened$/.test(out) && heldId > 0 && o && !(o.numSlots > 0)) return `${out} (the tile has ${withArticle(this.gd.name(there))}; an item can only be put on an empty tile)`;
+    // a container-like thing that won't take this item (a Fresh Grave has slots, but nothing can be put in it)
+    if (/nothing happened$/.test(out) && heldId > 0 && o && o.numSlots > 0) {
+      const n = this.world.objAt(x, y).contained.length;
+      return n >= o.numSlots
+        ? `${out} (the ${this.gd.name(there)} is full: ${n} of ${o.numSlots})`
+        : `${out} (the ${this.gd.name(there)} can't take the ${this.gd.name(heldId)}; an item can only be put on an empty tile or into a container that takes it)`;
+    }
     if (/nothing happened$/.test(out) && heldId < 0 && o) return `${out} (the baby wasn't set down on the ${this.gd.name(there)}; drop without x,y sets it down where you stand)`;
     // dropping onto a loose item swaps them (the game's rule): say it plainly, the raw "tile A -> B; holding B -> A" was missed
     const nowHeld = this.world.self?.held.id ?? 0;
     if (heldId > 0 && there > 0 && nowHeld > 0 && nowHeld !== heldId && this.world.objAt(x, y).id === heldId)
       return `swapped at (${x},${y}): you put down the ${this.gd.name(heldId)} and picked up the ${this.gd.name(nowHeld)} that was lying there (dropping onto an item swaps them; drop without x,y finds an empty tile)`;
-    return /nothing happened$/.test(out) ? out + this.tileNow(x, y) : out;
+    return /nothing happened$/.test(out) ? out + this.tileNow(x, y, r.t0) : out;
   }
 
   /** Nearest empty tile that doesn't block walking, within r (by steps), or null. */
@@ -434,24 +475,49 @@ export class Body {
   }
 
   async swap(x: number, y: number): Promise<string> {
+    const far = this.tooFar("swap", x, y);
+    if (far) return far;
     const blocked = this.conditionBlock();
     if (blocked) return `can't swap: ${blocked}`;
     const person = this.personInsteadOfItem(x, y);
     if (person) return `swap at (${x},${y}): nothing happened (${person})`;
     const a = await this.approach(x, y);
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
+    const heldId = this.world.self?.held.id ?? 0;
+    const there = this.world.objAt(x, y).id;
     const r = await this.act(`SWAP ${x} ${y}`, x, y);
-    return this.summarize("swap", x, y, r);
+    const out = this.summarize("swap", x, y, r);
+    if (!/nothing happened$/.test(out)) return out;
+    // server.cpp SWAP: the held item and a loose item on the tile trade places
+    const o = this.gd.get(there);
+    if (heldId === 0) return `${out} (your hands are empty; a swap trades what you hold for the item on the tile)`;
+    if (there === 0) return `${out} (the tile at (${x},${y}) is empty; nothing there to swap with)`;
+    if (o?.permanent) return `${out} (the ${this.gd.name(there)} is fixed in place and can't be carried)`;
+    return out + this.tileNow(x, y, r.t0);
   }
 
   /** Take an item out of a container on a tile. */
   async takeOut(x: number, y: number): Promise<string> {
+    const far = this.tooFar("take out", x, y);
+    if (far) return far;
     const person = this.personInsteadOfItem(x, y);
     if (person) return `take out at (${x},${y}): nothing happened (${person})`;
     const a = await this.approach(x, y);
     if (a !== "arrived") return `couldn't reach (${x},${y}): ${a}`;
+    const heldId = this.world.self?.held.id ?? 0;
+    const stack = this.world.objAt(x, y);
+    const there = stack.id;
     const r = await this.act(`REMV ${x} ${y} -1`, x, y);
-    return this.summarize("take out", x, y, r);
+    const out = this.summarize("take out", x, y, r);
+    if (!/nothing happened$/.test(out)) return out;
+    // server.cpp REMV: only with empty hands, from a container with something in it
+    const o = this.gd.get(there);
+    const fixed = o?.permanent ? `; it's fixed in place and can't be carried` : "";
+    if (heldId !== 0) return `${out} (your hands are full: you're holding ${this.heldName()}; taking something out needs empty hands)`;
+    if (there === 0) return `${out} (the tile at (${x},${y}) is empty)`;
+    if (o && !(o.numSlots > 0)) return `${out} (the ${this.gd.name(there)} is not a container${fixed})`;
+    if (o && !stack.contained.length) return `${out} (the ${this.gd.name(there)} has nothing in it${fixed})`;
+    return out + this.tileNow(x, y, r.t0);
   }
 
   /** Eat held food, or put on held clothing. */
@@ -511,9 +577,23 @@ export class Body {
     if (typeof n === "string") return { text: n, at: null, item: null };
     const spot = [n.p, ...DIRS8.map(([dx, dy]) => [n.p[0] + dx, n.p[1] + dy] as Pos)].find(([x, y]) => this.world.objAt(x, y).id === 0 && this.world.walkable(x, y)) ?? this.nearestEmpty(n.p, DROP_SEARCH_RADIUS);
     if (!spot) return { text: `no empty tile next to #${id} to put the ${item} down`, at: null, item: null };
+    this.lastDrop = null;
     const r = await this.drop(spot[0], spot[1]);
-    if ((this.world.self?.held.id ?? 0) !== 0) return { text: `couldn't put the ${item} down next to #${id}: ${r}`, at: null, item: null };
-    return { text: `put the ${item} down next to #${id} at (${spot[0]},${spot[1]}); they can pick it up`, at: spot, item };
+    // drop may have put it on another empty tile; the result says what happened to the tile and the hand
+    const d = this.lastDrop as { at: Pos; there: number } | null;
+    const at = d?.at ?? spot;
+    const nowHeld = this.world.self?.held.id ?? 0;
+    const onTile = this.world.objAt(at[0], at[1]).id;
+    if (nowHeld === 0) return { text: `put the ${item} down next to #${id} at (${at[0]},${at[1]}); they can pick it up`, at, item };
+    // the tile had a loose item by the time we dropped: the game swapped them
+    if (held > 0 && nowHeld !== held && onTile === held)
+      return {
+        text: `swapped next to #${id} at (${at[0]},${at[1]}): you put down the ${item} and picked up the ${this.gd.name(nowHeld)} that was lying there (dropping onto an item swaps them); they can pick up the ${item}`,
+        at,
+        item,
+      };
+    if (nowHeld === held && (!d || onTile === d.there)) return { text: `couldn't put the ${item} down next to #${id}: ${r}`, at: null, item: null };
+    return { text: `give to #${id}: ${r}`, at: null, item: null };
   }
 
   /** Hand-pickable food near us: loose food, or things that yield food by hand. */
@@ -579,7 +659,7 @@ export class Body {
     const got = await this.use(best.x, best.y);
     const held = this.world.self?.held.id ?? 0;
     // full: a click on the plant picks the food into your hands (as in the game); nothing is eaten
-    if (full) return held > 0 ? `you're full, so you didn't eat: you picked a ${this.gd.name(held)} and are holding it` : `you're full; ${got}`;
+    if (full) return held > 0 ? `you're full, so you didn't eat: you picked ${withArticle(this.gd.name(held))} and are holding it` : `you're full; ${got}`;
     if (held > 0 && this.gd.isFood(held)) parts.push(await this.self());
     else parts.push(`tried to get food at (${best.x},${best.y}): ${got}`);
     // leftovers in hand (Banana Peel, husks) would block picking the baby or tool back up
@@ -638,13 +718,30 @@ export class Body {
     if (held > 0) return `tried to pick up #${id}: your hands are full (holding ${this.heldName()}); drop it first`;
     // server.cpp minPickupBabyAge: the BABY message is ignored below age 10
     const me = this.world.self;
-    if (me && this.world.currentAge(me) < MIN_PICKUP_BABY_AGE) return `tried to pick up #${id}: you can't carry a baby until you are ${MIN_PICKUP_BABY_AGE}`;
+    if (me && this.world.currentAge(me) < MIN_PICKUP_BABY_AGE) return `tried to pick up #${id}: you're ${Math.floor(this.world.currentAge(me))}: you can carry a baby from ${MIN_PICKUP_BABY_AGE}`;
     const n = await this.nearPlayer(id);
     if (typeof n === "string") return n;
     const r = await this.act(`BABY ${n.p[0]} ${n.p[1]} ${id}`, n.p[0], n.p[1]);
     for (let i = 0; i < 10 && this.world.self?.held.id !== -id; i++) await sleep(100);
     if (this.world.self?.held.id === -id) return `picked up ${this.heldName()}`;
-    return r.heldBefore !== r.heldAfter ? `picked up ${r.heldAfter}` : `tried to pick up #${id}: nothing happened`;
+    if (r.heldBefore !== r.heldAfter) return `picked up ${r.heldAfter}`;
+    return `tried to pick up #${id}: nothing happened${this.babyPickupWhy(id)}`;
+  }
+
+  /** Why a BABY pickup did nothing, when the world shows it (server.cpp BABY: age under babyAge, not held, next to us). */
+  private babyPickupWhy(id: number): string {
+    const o = this.world.players.get(id);
+    const me = this.world.self;
+    if (!o || !me) return "";
+    const age = this.world.currentAge(o);
+    if (age >= BABY_AGE) return ` (#${id} is ${Math.floor(age)}: only someone under ${BABY_AGE} can be carried)`;
+    const c = this.world.carrierOf(o);
+    if (c && c.id !== me.id) return ` (#${id} is being carried by #${c.id})`;
+    if ((me.held.id ?? 0) > 0) return ` (your hands are full: you're holding ${this.heldName()})`;
+    const [ox, oy] = this.world.posOf(o);
+    const d = Math.max(Math.abs(ox - me.x), Math.abs(oy - me.y));
+    if (d > 1) return ` (#${id} is at (${ox},${oy}), ${d} tiles from you; a baby can be picked up only from your tile or next to it)`;
+    return "";
   }
 
   /** Use held item on another person: feed them food, clothe a baby, heal a wound. */
@@ -660,10 +757,10 @@ export class Body {
     if (r.heldBefore !== r.heldAfter) return `gave/used ${r.heldBefore} on #${id}; now holding ${r.heldAfter}`;
     // server.cpp: a baby under 3 (defaultActionAge) refuses food above babyFeedingLevel (2); the client shows the refusal
     const o = this.world.players.get(id);
-    if (o && heldId > 0 && this.gd.isFood(heldId) && this.world.currentAge(o) < 3) return `#${id} refused the ${this.gd.name(heldId)}: a baby under 3 only takes food when starving (2 food or less)`;
+    if (o && heldId > 0 && this.gd.isFood(heldId) && this.world.currentAge(o) < 3) return `#${id} refused the ${this.gd.name(heldId)}: a baby under 3 only takes food when starving (2 food or less); a woman aged 14-40 nurses a baby by holding it`;
     if (heldId === 0) return `used bare hands on #${id}: nothing happened (you're holding nothing)`;
     // server.cpp UBABY: on another person a held item can heal a wound, feed or clothe; nothing else
-    const kind = heldId > 0 && !this.gd.isFood(heldId) && this.gd.objects.get(heldId)?.clothing === "n" ? ` (a ${this.gd.name(heldId)} is not food or clothing, so it can't be fed to or put on #${id})` : "";
+    const kind = heldId > 0 && !this.gd.isFood(heldId) && this.gd.objects.get(heldId)?.clothing === "n" ? ` (${withArticle(this.gd.name(heldId))} is not food or clothing, so it can't be fed to or put on #${id})` : "";
     return `used held item on #${id}: nothing happened${kind}`;
   }
 
@@ -678,7 +775,10 @@ export class Body {
     const limit = s ? sayLimit(this.world.currentAge(s)) : 10;
     this.send(`SAY 0 0 ${clean}`);
     const nums = lostNumbers ? " (numbers can't be spoken: they were left out)" : "";
-    return clean.length > limit ? `said "${clean.slice(0, limit)}" (cut off: at your age you can only say ${limit} letters)${nums}` : `said "${clean}"${nums}`;
+    // server.cpp: "ORDER," is an order only from someone with followers (FW, as the observation's "Your followers")
+    const followers = s ? [...this.world.leaders.values()].filter((l) => l === s.id).length : 0;
+    const order = /^ORDER,/.test(clean) && !followers ? " (you have no followers: it was heard as plain speech, not as an order)" : "";
+    return clean.length > limit ? `said "${clean.slice(0, limit)}" (cut off: at your age you can only say ${limit} letters)${nums}${order}` : `said "${clean}"${nums}${order}`;
   }
 
   /** Baby: jump out of arms / wiggle. */

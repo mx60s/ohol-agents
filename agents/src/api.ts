@@ -10,7 +10,7 @@ import type { GameData } from "./game/gameData.ts";
 import { handleResearchApi } from "./research-api.ts";
 import { handleAgentSpecApi } from "./agentspec.ts";
 import { FLOWER_COLORS, FLOWER_SHAPES } from "./flowers.ts";
-import type { FlowersResponse, InventionsResponse } from "./api-types.ts";
+import type { FieldNotesResponse, FlowersResponse, InventionsResponse } from "./api-types.ts";
 
 // Built viewer (viewer/dist), served at / when present, so one Railway URL
 // is both the dashboard and its API.
@@ -92,6 +92,8 @@ export function startApi(port: number, runs: RunController, gd: GameData, cfgTok
           return json({ history: runs.story.history(Number(url.searchParams.get("limit") ?? 20)) });
         case "/api/inventions":
           return json({ inventions: runs.inventions.list(Number(url.searchParams.get("limit") ?? 20), url.searchParams.get("run") ?? undefined) } satisfies InventionsResponse);
+        case "/api/fieldnotes":
+          return json({ notes: runs.fieldNotes?.list(Number(url.searchParams.get("limit") ?? 50)) ?? [] } satisfies FieldNotesResponse);
         case "/api/flowers":
           return json({ shapes: [...FLOWER_SHAPES], colors: [...FLOWER_COLORS] } satisfies FlowersResponse);
         case "/api/map":

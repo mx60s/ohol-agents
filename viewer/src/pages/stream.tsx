@@ -8,7 +8,7 @@ import { getClient, useInventions, useLives, useMap, useMinimap, useNow, useObje
 import { ageStage, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait, withFamilyNames } from "../shared/index.ts";
 import { flowersForLives } from "../ohol/flower.ts";
 import { Sticker, Wordmark } from "../theme/index.ts";
-import { biomeName, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, describeAction, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
+import { biomeName, cutawayShot, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, describeAction, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
 import { CELL, FOCUS_DROP, WorldCamera, type Bubble } from "../stream/WorldCamera.tsx";
 import { MiniMap } from "../stream/MiniMap.tsx";
 import "../stream/stream.css";
@@ -173,6 +173,11 @@ function Stream() {
   const fy = agent?.y ?? life?.birthY ?? null;
   const fallback = useMemo(() => (fx != null && fy != null ? { x: fx, y: fy } : null), [fx, fy]);
 
+  // a short cutaway (focus.cutaway): the camera shows its target; the side panel stays on the main subject
+  const shot = nobody || focusDead ? null : cutawayShot(focus?.cutaway, serverNow, players, map.data?.cells ?? EMPTY_CELLS, names);
+  const camPlayerId = nobody ? null : (shot?.playerId ?? focusPlayerId);
+  const spot = shot?.spot ? { key: shot.key, x: shot.spot.x, y: shot.spot.y } : null;
+
   const offline = !isStatic && w.connection === "offline";
   // model provider down: a quiet banner (never the raw error); goes away by itself on recovery
   const thinking = !offline && lostInThought(state?.run, serverNow);
@@ -190,19 +195,23 @@ function Stream() {
             lives={lives.byId}
             traitDims={lives.traitDims.length ? lives.traitDims : (state?.traitDims ?? [])}
             lineageIds={lineageIds}
-            focusPlayerId={nobody ? null : focusPlayerId}
+            focusPlayerId={camPlayerId}
             focusDead={focusDead}
+            spot={spot}
             bubbles={bubbles}
             emptyCard={emptyCard}
             deathCard={deathCard}
             fallback={fallback}
             onCell={onCell}
           >
-            {cell && !nobody && (
+            {(cell || shot) && !nobody && (
               <div className="camhud">
-                <span className="pill">
-                  {biomeName(cell.biome)} · ({cell.x}, {cell.y})
-                </span>
+                {shot && shot.label && <span className="pill cutaway ugc">Cutaway: {shot.label}</span>}
+                {cell && (
+                  <span className="pill">
+                    {biomeName(cell.biome)} · ({cell.x}, {cell.y})
+                  </span>
+                )}
               </div>
             )}
             {thinking && (
@@ -488,7 +497,7 @@ function Following(p: FollowingProps) {
           <div className="sec doing-sec">
             <div className="label">Doing</div>
             <div className="thought">
-              <span className="t">{formatRelative(doing.t, p.now)}</span>
+              <span className="t">{formatRelative(doing.t, p.now)}</span>{" "}
               <span className="tx ugc">{doing.text}</span>
             </div>
           </div>

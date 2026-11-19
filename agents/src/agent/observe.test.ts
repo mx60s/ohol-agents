@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { GameData } from "../game/gameData.ts";
 import { FakeGame } from "../game/fakeGame.ts";
 import { Body } from "../game/body.ts";
-import { buildObservation, direction, foodLine } from "./observe.ts";
+import { ageText, buildObservation, direction, foodLine } from "./observe.ts";
 import { turnsFor, turnsForWall, turnsText, turnsTextWall, turnClock, turnsAgo } from "./turns.ts";
 import { buildSystemPrompt, drainSecondsPerPip, newbornWindowSeconds, systemPromptFor } from "./prompt.ts";
 
@@ -142,7 +142,8 @@ test("your own wound is a condition, not a held thing; others' wounds are shown 
   g.start();
   g.world.handle({ type: "DY", ids: [1] });
   const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], pastLifeNotes: [], goal: null, clock });
-  assert.match(obs, /You are WOUNDED: Hog Cut from a Wild Boar\. A wound fills your hands; it can't be dropped or eaten\. You are bleeding: you die within ~3 turns unless someone heals you \(only a Sterile Wool Pad used on you treats a Hog Cut\)\./);
+  // no boar was seen next to us: every animal that gives a Hog Cut, not one guess
+  assert.match(obs, /You are WOUNDED: Hog Cut from a Wild Boar or a Wild Boar with Piglet or a Domestic Boar or a Domestic Boar with Piglet\. A wound fills your hands; it can't be dropped or eaten\. You are bleeding: you die within ~3 turns unless someone heals you \(only a Sterile Wool Pad used on you treats a Hog Cut\)\./);
   assert.match(obs, /Holding: nothing \(hands taken by a wound: Hog Cut\)/);
   assert.doesNotMatch(obs, /eat the Hog Cut/);
   assert.match(obs, /#2 .*, SICK \(Yellow Fever; hands taken\)/);
@@ -150,6 +151,50 @@ test("your own wound is a condition, not a held thing; others' wounds are shown 
   assert.match(await body.drop(), /can't drop: your hands are taken by your wound \(Hog Cut\); it can't be put down/);
   assert.match(await body.self(), /can't: your hands are taken by your wound/);
   assert.equal(body.heldName(), "Hog Cut (wound)");
+});
+
+test("a wound names the attacker next to you when it appeared, not the first animal that gives it", () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: 0, female: true });
+  g.setTile(1, 1, id("Hungry Grizzly Bear"));
+  g.setTile(-3, 0, id("Wolf"));
+  g.start();
+  const obs = () => buildObservation(g.world, gd, { recipeHints: true, history: [], pastLifeNotes: [], goal: null, clock });
+  const self = { id: 1, displayId: 19, facing: 0, action: false, actionTarget: [0, 0] as [number, number], heldOriginValid: false, heldOrigin: [0, 0] as [number, number],
+    heldTransitionSourceId: 0, heat: 0.07, doneMovingSeq: 0, forced: false, x: 0, y: 0, age: 20, ageRate: 60, moveSpeed: 3.75, clothing: [],
+    justAte: false, lastAteId: 0, responsibleId: -1, heldYum: false, heldLearned: false };
+  g.world.handle({ type: "PU", updates: [{ ...self, held: { id: id("Bite Wound"), contained: [] } }] });
+  assert.match(obs(), /You are WOUNDED: Bite Wound from a Hungry Grizzly Bear\./);
+  // the bear walks off: the wound still names it
+  g.world.handle({ type: "MX", changes: [{ x: 1, y: 1, floor: 0, obj: { id: 0, contained: [] }, responsibleId: -1 }] });
+  assert.match(obs(), /Bite Wound from a Hungry Grizzly Bear\./);
+});
+
+test("a wound with no attacker seen lists every animal that gives it", () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: id("Bite Wound"), female: true });
+  g.start();
+  const obs = buildObservation(g.world, gd, { recipeHints: true, history: [], pastLifeNotes: [], goal: null, clock });
+  assert.match(obs, /Bite Wound from a Wolf or a Shot Wolf or a Grizzly Bear or a Hungry Grizzly Bear or .*a Sleepy Grizzly Bear\./);
+});
+
+test("hints: the same kind as the held thing is 'another'; a made-only thing is 'not found in the wild', a natural one 'none in view'", () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: id("Milkweed Stalk"), female: true });
+  g.start();
+  const obs = () => buildObservation(g.world, gd, { recipeHints: true, history: [], pastLifeNotes: [], goal: null, clock });
+  assert.match(obs(), /^- use it on another Milkweed Stalk \(not found in the wild: it is made\): .*Thread/m);
+  assert.doesNotMatch(obs(), /a Milkweed Stalk/);
+  g.world.handle({ type: "MX", changes: [{ x: 1, y: 0, floor: 0, obj: { id: id("Milkweed Stalk"), contained: [] }, responsibleId: -1 }] });
+  assert.match(obs(), /^- use on another Milkweed Stalk \(1, 0\): /m);
+  // a natural thing keeps "none in view"
+  assert.equal(gd.madeOnly(id("Stone")), false);
+  assert.equal(gd.madeOnly(id("Sharp Stone")), true);
+  const g2 = new FakeGame(gd);
+  g2.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: id("Sharp Stone"), female: true });
+  g2.start();
+  const o2 = buildObservation(g2.world, gd, { recipeHints: true, history: [], pastLifeNotes: [], goal: null, clock });
+  assert.match(o2, /\(none in view\)/, o2.split("YOU COULD")[1]);
 });
 
 test("a tree with its branch and without it have different names (the client draws the branch)", () => {
@@ -231,7 +276,7 @@ test("small observation fixes: notices, other families' language, baby hunger, b
   // a baby that died at 0.88 is not "age 1"
   g.world.handle({ type: "PU", updates: [{ id: 3, displayId: 347, facing: 0, action: false, actionTarget: [0, 0], held: { id: 0, contained: [] }, heldOriginValid: false, heldOrigin: [0, 0], heldTransitionSourceId: 0, heat: 0.5, doneMovingSeq: 0, forced: false, x: null as unknown as number, y: null as unknown as number, age: 0.88, ageRate: 60, moveSpeed: 3.75, clothing: [], justAte: false, lastAteId: 0, responsibleId: -1, heldYum: false, heldLearned: false, deathReason: "reason_hunger" }] });
   const obs2 = buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock });
-  assert.match(obs2, /DEATHS YOU SAW ==\n.*, age 0\.\d,/);
+  assert.match(obs2, /== WHAT YOU SAW NEARBY ==\n- just now: #3 \(no name, baby girl, 0\.8\) \[your sibling\] died at \(2, 0\): starved/);
 });
 
 test("rule failures say why: baby refuses food, not edible, too young to pick up, wearing, go onto a blocking tile", async () => {
@@ -403,7 +448,7 @@ test("new-player prompt (default): controls and our rules only; no game name, re
   assert.equal(p, systemPromptFor({ timeScale: 3, decisionCycleMs: 8000, promptBaseline: "new" } as object));
   assert.match(p, /^You are a person in a world\./);
   assert.match(p, /A year passes every 25 turns\./);
-  assert.match(p, /people within 16 tiles of you hear it\. Numbers can't be spoken: they are removed\. Some phrases also have specific consequences/);
+  assert.match(p, /people within 16 tiles of you hear it\. Numbers can't be spoken: they are removed\. When giving directions to an area, name areas or describe landmarks instead\. Some phrases also have specific consequences/);
   assert.match(p, /"I FOLLOW YOU": the nearest person becomes your leader/);
   assert.match(p, /Name yourself as soon as you appear as an Eve, and name each baby you have while you hold it or stand next to it\./);
   assert.match(p, /What you can do depends on your age:/);
@@ -460,13 +505,13 @@ test("hints: the ignition chain can be found one click at a time from the observ
   // no tinder in view: the held Ember Leaf's hint still names its one use
   o = obs();
   assert.match(o, /Holding: Ember Leaf \(becomes Leaf in about 4 turns\)/);
-  assert.match(o, /^- use it on a Juniper Tinder \(none in view\): get Leaf, it becomes Smoldering Tinder$/m);
+  assert.match(o, /^- use it on a Juniper Tinder \(not found in the wild: it is made\): get Leaf, it becomes Smoldering Tinder$/m);
   assert.doesNotMatch(o, /you just made/, "this use changed what we hold: the hint follows the Ember Leaf, not the shaft");
 
   set(-1, 0, "Juniper Tinder");
   o = obs();
   assert.match(o, /^- use on Juniper Tinder \(-1, 0\): get Leaf, it becomes Smoldering Tinder$/m);
-  assert.doesNotMatch(o, /none in view/, "shown once, with its place");
+  assert.doesNotMatch(o, /use it on a Juniper Tinder/, "shown once, with its place");
   await body.use(-1, 0);
   assert.equal(g.world.objAt(-1, 0).id, id("Smoldering Tinder"));
 
@@ -475,7 +520,7 @@ test("hints: the ignition chain can be found one click at a time from the observ
   g.setTile(0, 1, id("Kindling"));
   set(0, 1, "Kindling");
   await body.use(0, 1);
-  assert.match(obs(), /^- use it on a Burning Tinder \(none in view\): uses up Kindling, it becomes Fire$/m);
+  assert.match(obs(), /^- use it on a Burning Tinder \(not found in the wild: it is made\): uses up Kindling, it becomes Fire$/m);
   set(-1, 0, "Burning Tinder");
   assert.match(obs(), /^- use on Burning Tinder \(-1, 0\): uses up Kindling, it becomes Fire$/m);
   await body.use(-1, 0);
@@ -547,4 +592,172 @@ test("children 3-13 are girls and boys, not women and men (a mother asked her 4-
   assert.match(obs, /^- #2 \(no name, girl, 4\) /m);
   assert.match(obs, /^- #3 \(no name, boy, 13\) /m);
   assert.match(obs, /^- #4 \(no name, man, 14\) /m);
+});
+
+test("a mother keeps her children out of sight: last seen where and when; dropped on death or once grown", () => {
+  let t = 1_000_000;
+  const g = new FakeGame(gd, 1, 5, () => t);
+  g.addPlayer({ id: 1, x: -10, y: 57, age: 25, held: 0, female: true });
+  g.addPlayer({ id: 29, x: -130, y: 57, age: 1.2, held: 0, female: true, motherId: 1 });
+  g.addPlayer({ id: 30, x: -12, y: 57, age: 13.5, held: 0, female: false, motherId: 1 });
+  g.start();
+  g.world.handle({ type: "NM", names: [{ id: 29, first: "STAR", last: "PINE" }] });
+  const base = { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock };
+  assert.doesNotMatch(buildObservation(g.world, gd, { ...base, now: t }), /out of sight/, "all in range");
+  g.world.handle({ type: "PO", ids: [29, 30] });
+  t += 3 * 8000;
+  const obs = buildObservation(g.world, gd, { ...base, now: t });
+  assert.match(obs, /^Your children out of sight: #29 STAR PINE \(baby girl, 1\.6\) last seen at \(-130,57\), 120 tiles away, 3 turns ago; #30 \(boy, 13\) last seen at \(-12,57\), 2 tiles away, 3 turns ago\.$/m);
+  // #30 turns 14: no longer tracked
+  t += 30_000;
+  g.world.handle({ type: "HX", heat: { heat: 0.5, foodTime: 10, indoorBonus: 0 } });
+  assert.doesNotMatch(buildObservation(g.world, gd, { ...base, now: t }), /#30/);
+  // a death message for #29 ends the record
+  g.world.handle({ type: "PU", updates: [{ id: 29, displayId: 19, facing: 0, action: false, actionTarget: [0, 0], held: { id: 0, contained: [] }, heldOriginValid: false, heldOrigin: [0, 0], heldTransitionSourceId: 0, heat: 0.5, doneMovingSeq: 0, forced: false, x: null as unknown as number, y: null as unknown as number, age: 1.8, ageRate: 60, moveSpeed: 3.75, clothing: [], justAte: false, lastAteId: 0, responsibleId: -1, heldYum: false, heldLearned: false, deathReason: "reason_hunger" }] });
+  assert.doesNotMatch(buildObservation(g.world, gd, { ...base, now: t }), /out of sight/);
+});
+
+test("food at 0: you starve to death at the next drain (server.cpp: foodStore below 0 kills), counted from the last drop", () => {
+  let t = 1_000_000;
+  const g = new FakeGame(gd, 1, 5, () => t);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: 0, female: true });
+  g.food = 1;
+  g.cap = 12;
+  g.start();
+  g.world.handle({ type: "HX", heat: { heat: 0.5, foodTime: 32, indoorBonus: 0 } });
+  const fx = (food: number, yumBonus = 0) => g.world.handle({ type: "FX", food: { food, capacity: 12, lastAteId: 0, lastAteFillMax: 0, moveSpeed: 3.75, responsibleId: -1, yumBonus, yumMultiplier: 1 } });
+  fx(0);
+  assert.match(foodLine(g.world, clock), /^Food: 0\/12, STARVING - EAT NOW: empty; you starve to death in about 4 turns unless you eat \(at the next drain; it drains 1 pip every ~4 turns\)\.$/);
+  t += 16_000;
+  assert.match(foodLine(g.world, clock), /you starve to death in about 2 turns unless you eat/);
+  assert.doesNotMatch(foodLine(g.world, clock), /less than 1 turn/);
+  // a yum bonus is used up first: one more drain per bonus pip
+  fx(0, 1);
+  fx(0, 0);
+  fx(0, 1);
+  assert.match(foodLine(g.world, clock), /you starve to death in about 8 turns/);
+});
+
+test("age labels round down: 2.97 is a baby of 2.9, not 3.0; 13.6 is 13", () => {
+  assert.equal(ageText(2.97), "2.9");
+  assert.equal(ageText(13.6), "13");
+  assert.equal(ageText(0.3), "0.3");
+  assert.equal(ageText(2.97, 1), "2.9");
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: 0, female: true });
+  g.addPlayer({ id: 2, x: 1, y: 0, age: 2.97, held: 0, female: true });
+  g.start();
+  assert.match(buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock }), /#2 \(no name, baby girl, 2\.9\)/);
+});
+
+test("+FAMILY+ and other +WORD+ server markers are not speech; a naming line is checked for scrambling on its spoken words", () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 20, held: 0, female: true });
+  g.addPlayer({ id: 7, x: 3, y: 0, age: 30, held: 0, female: true, motherId: 50 });
+  g.addPlayer({ id: 21, x: 4, y: 0, age: 0.1, held: 0, female: true, motherId: 7 });
+  g.start();
+  g.world.handle({ type: "LN", lineages: [{ id: 1, ancestors: [], eveId: 1 }, { id: 7, ancestors: [50], eveId: 50 }, { id: 21, ancestors: [7], eveId: 50 }] });
+  g.world.handle({ type: "PS", says: [{ id: 7, isCurse: false, text: "+FAMILY+" }] });
+  g.world.handle({ type: "PS", says: [{ id: 7, isCurse: false, text: "+FAMILY+ HELLO" }] });
+  assert.deepEqual(g.world.heard.map((h) => h.text), ["HELLO"]);
+  g.world.handle({ type: "PS", says: [{ id: 7, isCurse: false, text: "YOU ARE LUNA" }] });
+  g.world.handle({ type: "NM", names: [{ id: 21, first: "LUNA", last: "THORN" }] });
+  const seen: string[] = [];
+  const obs = buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock, speechScrambled: (_id, text) => (seen.push(text), text !== "YOU ARE LUNA") });
+  assert.ok(seen.includes("YOU ARE LUNA"), seen.join(" | "));
+  assert.match(obs, /#7 \(no name, woman, 30\): "YOU ARE LUNA \[this named #21\]"/, "same words as said: not tagged as another language");
+});
+
+test("new-player prompt: fixed things can't be carried, said generally", () => {
+  const p = systemPromptFor({} as object);
+  assert.match(p, /Some things \(trees, bushes, big rocks, deposits, piles\) are fixed in place and can't be carried\./);
+  assert.doesNotMatch(p, /Trees and bushes can't be carried/);
+});
+
+// --- WHAT YOU SAW NEARBY (World.seen)
+
+function pu(id: number, x: number, y: number, o: Record<string, unknown> = {}) {
+  return { id, displayId: 19, facing: 0, action: false, actionTarget: [0, 0] as [number, number], held: { id: 0, contained: [] }, heldOriginValid: false, heldOrigin: [0, 0] as [number, number], heldTransitionSourceId: 0, heat: 0.5, doneMovingSeq: 0, forced: false, x, y, age: 30, ageRate: 60, moveSpeed: 3.75, clothing: [], justAte: false, lastAteId: 0, responsibleId: -1, heldYum: false, heldLearned: false, ...o };
+}
+const mxc = (x: number, y: number, obj: number, responsibleId: number, from?: [number, number]) =>
+  ({ type: "MX" as const, changes: [{ x, y, floor: 0, obj: { id: obj, contained: [] }, responsibleId, ...(from ? { from: { x: from[0], y: from[1], speed: 1 } } : {}) }] });
+
+function seenScene() {
+  let t = 1_000_000;
+  const g = new FakeGame(gd, 1, 5, () => t);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 30, held: 0, female: true });
+  g.addPlayer({ id: 4, x: 3, y: 0, age: 30, held: 0, female: true });
+  g.setTile(2, 2, id("Sharp Stone"));
+  g.setTile(1, 1, id("Milkweed Stalk"));
+  g.start();
+  g.world.seenMergeMs = 8000;
+  g.world.handle({ type: "NM", names: [{ id: 4, first: "LIRA", last: "TIDEWICK" }] });
+  const obs = () => buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock, now: t });
+  return { g, obs, tick: (turns: number) => (t += turns * 8000) };
+}
+
+test("WHAT YOU SAW NEARBY: people, others' doings, a dangerous animal and a death, newest last; not our own doings", () => {
+  const { g, obs, tick } = seenScene();
+  const w = g.world;
+  assert.equal(w.seen.length, 0, "who was already there when we appeared is not an event");
+  w.handle({ type: "PU", updates: [pu(5, 6, 6, { displayId: 347 })] });
+  w.handle(mxc(2, 2, 0, 4));
+  tick(1);
+  // #4 takes up a Milkweed Stalk, then uses it on the one on the ground
+  w.handle({ type: "PU", updates: [pu(4, 3, 0, { held: { id: id("Milkweed Stalk"), contained: [] } })] });
+  w.handle({ type: "PU", updates: [pu(4, 3, 0)] });
+  w.handle(mxc(1, 1, id("Thread"), 4));
+  w.handle(mxc(0, 1, id("Leaf"), 1)); // our own drop: already in YOUR LAST ACTIONS
+  // a wolf comes into view and closes in within one turn: one line, latest position
+  w.handle(mxc(10, 0, id("Wolf"), -1, [20, 0]));
+  w.handle(mxc(8, 0, id("Wolf"), -1, [10, 0]));
+  tick(1);
+  w.handle(mxc(6, 0, id("Wolf"), -1, [8, 0]));
+  w.handle(mxc(5, 0, id("Wolf"), -1, [6, 0]));
+  w.handle({ type: "PU", updates: [pu(5, null as unknown as number, null as unknown as number, { displayId: 347, deathReason: "reason_hunger" })] });
+  const o = obs();
+  const section = o.slice(o.indexOf("== WHAT YOU SAW NEARBY =="), o.indexOf("\n\n== HEARD =="));
+  assert.equal(section, [
+    "== WHAT YOU SAW NEARBY ==",
+    "- 2 turns ago: #5 (no name, man, 30) came into view at (6, 6)",
+    "- 2 turns ago: #4 LIRA TIDEWICK (woman, 30) picked up a Sharp Stone from (2, 2)",
+    "- 1 turn ago: #4 LIRA TIDEWICK (woman, 30) used a Milkweed Stalk on a Milkweed Stalk at (1, 1): it became Thread",
+    "- 1 turn ago: a Wolf came into view at (8, 0), 8 tiles from you",
+    "- just now: a Wolf moved to (5, 0), 5 tiles from you",
+    "- just now: #5 (no name, man, 30) died at (6, 6): starved",
+  ].join("\n"));
+  assert.doesNotMatch(o, /DEATHS YOU SAW|Leaf at \(0, 1\)/);
+  // about 5 turns later the old lines are gone
+  tick(5);
+  assert.doesNotMatch(obs(), /picked up a Sharp Stone/);
+  assert.match(obs(), /5 turns ago: #5 .* died/);
+});
+
+test("WHAT YOU SAW NEARBY: babies picked up and put down, births, naming, out of view; at most 20 lines, a busy person folded", () => {
+  const { g, obs, tick } = seenScene();
+  const w = g.world;
+  w.handle({ type: "PU", updates: [pu(9, 3, 1, { age: 0 })] });
+  w.handle({ type: "LN", lineages: [{ id: 9, ancestors: [4], eveId: 4 }] });
+  w.handle({ type: "PU", updates: [pu(4, 3, 0, { held: { id: -9, contained: [] } })] });
+  w.handle({ type: "PS", says: [{ id: 4, isCurse: false, text: "YOU ARE AURORA" }] });
+  w.handle({ type: "NM", names: [{ id: 9, first: "AURORA", last: "TIDEWICK" }] });
+  w.handle({ type: "PU", updates: [pu(4, 3, 0)] });
+  tick(1);
+  w.handle({ type: "PU", updates: [pu(4, 40, 0, { forced: true })] });
+  const o = obs();
+  assert.match(o, /- 1 turn ago: #9 AURORA TIDEWICK \(baby girl, 0\.0\) was born at \(3, 1\)/);
+  assert.match(o, /- 1 turn ago: #4 LIRA TIDEWICK \(woman, 30\) picked up #9 AURORA TIDEWICK/);
+  assert.match(o, /- 1 turn ago: #4 LIRA TIDEWICK \(woman, 30\) named #9 AURORA TIDEWICK/);
+  assert.match(o, /- 1 turn ago: #4 LIRA TIDEWICK \(woman, 30\) put down #9 AURORA TIDEWICK/);
+  assert.match(o, /- just now: #4 LIRA TIDEWICK \(woman, 30\) went out of view/);
+  // one person doing many things in a turn: 2 lines, the rest counted
+  w.handle({ type: "PU", updates: [pu(4, 3, 0, { forced: true })] });
+  for (let i = 0; i < 7; i++) w.handle(mxc(-2, i, id("Stone"), 4));
+  const busy = obs();
+  assert.equal((busy.match(/put down a Stone/g) ?? []).length, 4);
+  assert.match(busy, /put down a Stone at \(-2, 3\) \(and 3 more changes by them\)/);
+  for (let i = 0; i < 24; i++) w.handle({ type: "PU", updates: [pu(20 + i, 5, i - 12)] });
+  const lines = obs().split("== WHAT YOU SAW NEARBY ==\n")[1].split("\n\n")[0].split("\n");
+  assert.equal(lines.length, 20, "at most 20 lines");
+  assert.match(lines.at(-1)!, /#43 .* came into view/, "newest last; the oldest dropped");
 });

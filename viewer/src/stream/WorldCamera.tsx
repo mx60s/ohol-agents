@@ -56,6 +56,8 @@ export interface CameraProps {
   children?: React.ReactNode;
   /** where to look when the focused character is not (or no longer) in view, e.g. their last known tile */
   fallback?: { x: number; y: number } | null;
+  /** a cutaway to something that is not a person (a dangerous animal, a tile): the camera centres here instead; key changes per cutaway */
+  spot?: { key: string; x: number; y: number } | null;
   onCell?: (cell: { x: number; y: number; biome: number | null } | null) => void;
 }
 
@@ -204,20 +206,26 @@ function WorldCameraImpl(props: CameraProps) {
   };
   useEffect(() => {
     dirty.current = true;
-  }, [props.cells, props.bubbles, props.focusPlayerId, props.focusDead, figures]);
+  }, [props.cells, props.bubbles, props.focusPlayerId, props.focusDead, figures, props.spot?.key, props.spot?.x, props.spot?.y]);
 
   // ---- focus changes: pan if near, crossfade if far
   const pendingSnap = useRef(false);
   const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevFocus = useRef<number | null>(null);
+  const prevFocus = useRef<number | string | null>(null);
+  const spot = props.spot ?? null;
   useEffect(() => {
     const id = props.focusPlayerId;
-    if (id === prevFocus.current) return;
-    prevFocus.current = id;
-    if (id == null) return;
-    const m = motions.current.get(id);
-    if (!m) return;
-    const to = sampleMotion(m, performance.now());
+    const key = spot ? spot.key : id;
+    if (key === prevFocus.current) return;
+    prevFocus.current = key;
+    let to: Cam;
+    if (spot) to = { x: spot.x, y: spot.y };
+    else {
+      if (id == null) return;
+      const m = motions.current.get(id);
+      if (!m) return;
+      to = sampleMotion(m, performance.now());
+    }
     const how = focusTransition(cam.current, to);
     if (how === "snap") cam.current = { x: to.x, y: to.y };
     else if (how === "fade" && fadeRef.current) {
@@ -228,7 +236,8 @@ function WorldCameraImpl(props: CameraProps) {
         fadeRef.current?.classList.remove("on");
       }, FADE_MS);
     }
-  }, [props.focusPlayerId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.focusPlayerId, spot?.key]);
 
   // ---- death hold: remember the focused figure, fade it out when they die
   useEffect(() => {
@@ -296,7 +305,8 @@ function WorldCameraImpl(props: CameraProps) {
       let target: Cam | null = null;
       const fid = P.focusPlayerId;
       const g = ghost.current;
-      if (g && P.focusDead) target = { x: g.x, y: g.y };
+      if (P.spot) target = { x: P.spot.x, y: P.spot.y };
+      else if (g && P.focusDead) target = { x: g.x, y: g.y };
       else if (fid != null && pos.has(fid)) target = pos.get(fid)!;
       else if (P.fallback && (fid != null || P.focusDead)) target = P.fallback;
       if (target && (!cam.current || pendingSnap.current)) {

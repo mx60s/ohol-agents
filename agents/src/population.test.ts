@@ -1,14 +1,14 @@
 // Run status and limits in continuous vs normal mode (no game, no LLM calls).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { config, type Config } from "./config.ts";
 import { EventLog } from "./events.ts";
-import { MAP_MAX_CELLS, Population } from "./population.ts";
+import { MAP_MAX_CELLS, Population, readBirthReady, type BirthReady } from "./population.ts";
 import type { GameData } from "./game/gameData.ts";
 import { LlmHealth, LlmHttpError } from "./agent/llm.ts";
 
@@ -175,8 +175,8 @@ test("merged map keeps a known biome when a newer object-only update for that ce
 test("family room respects the early birth cap; an Eve outside the burst holds joins for a while", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "pop-"));
   try {
-    const cfg: Config = { ...config, logDir: dir, runId: "t", narratorIntervalMs: 0, earlyMaxBabies: 2, earlyMaxGenerations: 5, eveMinGapMs: 300_000 };
-    const kids: Record<string, string[]> = { "t:1": ["t:5", "t:6"], "t:2": [] };
+    const cfg: Config = { ...config, logDir: dir, runId: "t", narratorIntervalMs: 0, earlyMaxBabies: 3, earlyMaxGenerations: 5, eveMinGapMs: 300_000 };
+    const kids: Record<string, string[]> = { "t:1": ["t:5", "t:6", "t:8"], "t:2": [] };
     const lives = {
       playerFields: (pid: number) => ({ lifeId: `t:${pid}`, lineageId: "t:1", flower: null }),
       get: (id: string) => (id in kids ? { lifeId: id, generation: 2, childLifeIds: kids[id] } : null),
@@ -221,6 +221,44 @@ test("minimap: explored land is never forgotten, and survives a restart of the s
     // a new process on the same run reads it back from disk
     const pop2 = new Population(cfg, { name: () => "Stone" } as unknown as GameData, new EventLog(dir, "t"));
     assert.equal(pop2.minimap(200_000).cells.length, a.cells.length);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("family room with the server's mtsBirthReady.txt: no ready mother but one on cooldown = wait; none coming = Eve is fine", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pop-"));
+  try {
+    const cfg: Config = { ...config, logDir: dir, runId: "t", narratorIntervalMs: 0, earlyMaxBabies: 0, eveMinGapMs: 0 };
+    let br: BirthReady | null = null;
+    const pop = new Population(cfg, { name: () => "Stone" } as unknown as GameData, new EventLog(dir, "t"), { birthReady: () => br });
+    const woman = (id: number) => ({ status: "alive", world: { self: { id, female: true }, currentAge: () => 22 } });
+    pop.agents.push(woman(1) as never, woman(2) as never, woman(3) as never);
+    assert.equal(pop.familyRoom(), true, "no file: today's rule (3 mothers, no babies)");
+    br = { ready: 0, soonest: 1795052853 };
+    assert.equal(pop.familyRoom(), false, "all on cooldown: a login now would be an Eve");
+    assert.equal(pop.motherComing(), true);
+    br = { ready: 2, soonest: 0 };
+    assert.equal(pop.familyRoom(), true, "two ready: go");
+    assert.equal(pop.motherComing(), false);
+    br = { ready: 0, soonest: 0 };
+    assert.equal(pop.familyRoom(), true, "nobody can take a baby or will soon: an Eve is what the server makes anyway");
+    assert.equal(pop.motherComing(), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readBirthReady: parses '<ready> <soonest>'; missing or stale = null", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "br-"));
+  try {
+    assert.equal(readBirthReady(dir), null);
+    const f = path.join(dir, "mtsBirthReady.txt");
+    writeFileSync(f, "0 1795052853\n");
+    assert.deepEqual(readBirthReady(dir), { ready: 0, soonest: 1795052853 });
+    const old = (Date.now() - 60_000) / 1000;
+    utimesSync(f, old, old);
+    assert.equal(readBirthReady(dir), null, "not rewritten for a minute: the server isn't writing it");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

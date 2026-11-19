@@ -16,6 +16,7 @@ import { Director } from "./director.ts";
 import { JevClient } from "./jev.ts";
 import { StoryKeeper } from "./story.ts";
 import { InventionLog } from "./inventions.ts";
+import { FieldNotes } from "./fieldnotes.ts";
 import { LifeStore } from "./lifestore.ts";
 import { SpendLedger } from "./spend.ts";
 import { LlmHealth } from "./agent/llm.ts";
@@ -32,6 +33,8 @@ export class RunController extends EventEmitter {
   readonly story: StoryKeeper;
   /** first time each technology item was made, per run; persisted in LOG_DIR (inventions.ts) */
   readonly inventions: InventionLog;
+  /** field notes on the current run every 20 min (fieldnotes.ts); persisted in the run's log dirs */
+  readonly fieldNotes: FieldNotes;
   private runCount = 0;
   runId: string | null = null;
   private pastRunsCost = 0;
@@ -131,6 +134,21 @@ export class RunController extends EventEmitter {
       }
     });
     this.story.start();
+    this.fieldNotes = new FieldNotes(
+      {
+        llm: () => (this.cfg.overheadApiKey ? this.pop.overheadLlm : null),
+        canSpend: () =>
+          this.pop.started && !this.pop.halted && !this.pop.outage && !(this.cfg.maxTotalCostUsd > 0 && this.totalCost >= this.cfg.maxTotalCostUsd) &&
+          !this.spend.blocked(this.cfg.dailyCostUsd),
+        runId: () => this.runId,
+        runStartedAt: () => (this.pop.started ? this.pop.startedAt : null),
+        runDir: () => this.log.dir,
+        agents: () => this.pop.state().agents,
+        inventions: (runId) => this.inventions.list(200, runId),
+      },
+      { intervalMs: cfg.fieldNotesIntervalMs, model: cfg.fieldNotesModel, logDir: cfg.logDir },
+    );
+    this.fieldNotes.start();
     this.create(decision, decision?.resumed ? prev : null);
     if (regenerated) {
       const text = worldRegeneratedText(regenerated);
@@ -159,7 +177,7 @@ export class RunController extends EventEmitter {
     const runId = (this.runId = decision?.runId ?? newRunId(this.cfg.runId, this.runCount, Date.now()));
     const cfg: Config = { ...this.cfg, runId };
     const startSeq = resume ? readLastSeq(resume.eventsDir) + RunController.SEQ_GAP : 0;
-    this.log = new EventLog(cfg.logDir, runId, Math.max(0, cfg.logMaxFileMb) * 1024 * 1024, startSeq);
+    this.log = new EventLog(cfg.logDir, runId, Math.max(0, cfg.logMaxFileMb) * 1024 * 1024, startSeq, Math.max(0, cfg.logMaxTotalMb) * 1024 * 1024);
     this.log.on("event", (e: RunEvent) => this.emit("event", e));
     this.lives.attach(this.log, runId);
     const resumeSlots = resume ? this.lives.book.resumeRun(runId) : [];
@@ -261,6 +279,12 @@ export class RunController extends EventEmitter {
           : null,
         emitFocus: (e) => log.emitEvent("focus", e),
         record: (r) => log.write("director.jsonl", r),
+        // cutaways: dangerous animals on the known map (pop.map() is cached for ~2s)
+        animals: () =>
+          pop.map().cells
+            .filter((c) => c[4] > 0 && this.gd.dangerRadius(c[4]) > 0)
+            .map((c) => ({ objectId: c[4], x: c[0], y: c[1], name: this.gd.name(c[4]) })),
+        isFood: (held) => this.foodNames().has(held.trim().toLowerCase()),
       },
       {
         engine: cfg.directorEngine,
@@ -272,12 +296,28 @@ export class RunController extends EventEmitter {
         switchP: cfg.directorSwitchP,
         switchMargin: cfg.directorSwitchMargin,
         jevWeight: cfg.directorJevWeight,
+        cutawayMs: cfg.directorCutawayMs,
+        cutawayMinGapMs: cfg.directorCutawayMinGapMs,
+        cutawayMinScore: cfg.directorCutawayMinScore,
+        cutawayHeuristicScore: cfg.directorCutawayHeuristicScore,
+        cutawayP: cfg.directorCutawayP,
       },
     );
     log.on("event", (e: RunEvent) => d.observe(e));
     d.start();
     return d;
   }
+
+  /** lowercased display names of every food object (the director's "starving next to food" cutaway) */
+  private foodNames(): Set<string> {
+    if (!this.foodNameSet) {
+      const out = new Set<string>();
+      for (const [id, n] of Object.entries(this.gd.allNames())) if (this.gd.isFood(Number(id))) out.add(n.toLowerCase());
+      this.foodNameSet = out;
+    }
+    return this.foodNameSet;
+  }
+  private foodNameSet: Set<string> | null = null;
 
   /** Stream camera focus for /api/state. */
   focus(): Focus {
@@ -310,6 +350,7 @@ export class RunController extends EventEmitter {
     this.narrator?.stop();
     this.director?.stop();
     this.story.stop();
+    this.fieldNotes.stop();
     if (this.runId && !resumable) this.lives.markRunLost(this.runId);
     if (resumable) this.saveRecord({});
     this.lives.close();

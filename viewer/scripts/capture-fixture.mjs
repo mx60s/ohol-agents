@@ -5,7 +5,7 @@
 //   node scripts/capture-fixture.mjs [name=live1] [--api http://localhost:8787] [--logs 8] [--log-limit 500]
 //
 // Writes: state.json map.json events.json objects.json lives.json lineages.json deaths.json
-//         story-history.json inventions.json meta.json life/<id>.json log/<id>.json (ids: non [A-Za-z0-9._-] -> "_")
+//         story-history.json inventions.json fieldnotes.json meta.json life/<id>.json log/<id>.json (ids: non [A-Za-z0-9._-] -> "_")
 //         story-history.json agent-spec.json meta.json life/<id>.json log/<id>.json (ids: non [A-Za-z0-9._-] -> "_")
 // Read-only: only GETs, never touches the run.
 
@@ -72,6 +72,7 @@ await write("lineages.json", await get("/api/lineages"));
 await write("deaths.json", await get("/api/deaths?limit=500"));
 await write("story-history.json", await get("/api/story/history?limit=200"));
 await write("inventions.json", (await get("/api/inventions?limit=200").catch(() => null)) ?? { inventions: [] });
+await write("fieldnotes.json", (await get("/api/fieldnotes?limit=500").catch(() => null)) ?? { notes: [] });
 // optional: older agents services don't have it (agents/src/tools/agent-spec-fixture.ts builds one from logs)
 try {
   await write("agent-spec.json", await get("/api/agent-spec"));

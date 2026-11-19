@@ -10,21 +10,24 @@ import type { Config } from "../config.ts";
 import type { EventLog } from "../events.ts";
 import type { AgentView } from "../api-types.ts";
 import { Llm, llmLogFields, type ChatMessage, type ChatOptions, type LlmResult } from "./llm.ts";
-import { YearMemory } from "./memory.ts";
-import { buildObservation } from "./observe.ts";
+import { YearMemory, summaryMaxTokens } from "./memory.ts";
+import { buildObservation, seenText } from "./observe.ts";
 import { foodBonusOf, systemPromptFor } from "./prompt.ts";
 import { firstNameKey, mergeSurnames, namingSayAfterStep, reviewSpeech, surnameOf, type NamingContext } from "./naming.ts";
-import { parseReply, checkActions, sanitizeAction, type Action } from "./reply.ts";
+import { parseReply, parseRemember, checkActions, sanitizeAction, type Action } from "./reply.ts";
 import { stepFailed, stepLabel, seenSnapshot, staleness, type Seen } from "./steps.ts";
 import { snapshot, bodyEvents, speechEvent, deathEvent, birthEvent, type Salient, type BodySnapshot } from "./salience.ts";
 import { turnClock, realMs } from "./turns.ts";
 import { CraftPlanner, craftBudgetMs, runCraft } from "../game/craft.ts";
+import { search, searchSection, searchSummary, type SearchResult } from "../game/search.ts";
 import { cleanText } from "../safety.ts";
 import type { TurnAgent, TurnLink, TurnStatus } from "../turnclock.ts";
 
 export { sanitizeAction, type Action };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** how long to wait for the server's FW (who follows whom) after saying "I FOLLOW ..." */
+const FOLLOW_WAIT_MS = 1500;
 
 /** Collects who heard each spoken line (see Population). */
 export interface SpeechSink {
@@ -174,6 +177,8 @@ export class Agent implements TurnAgent<TurnPlan> {
   lastSaid: string | null = null;
   pastLifeNotes: string[] = [];
   history: { t: number; action: string; result: string }[] = [];
+  /** the latest hint search, shown in every observation until the next search (or "" clears it), like the client's hint panel */
+  lastSearch: SearchResult | null = null;
   /** this life's yearly summary (MEMORY_SUMMARY; see memory.ts) */
   readonly mem: YearMemory;
   private wake: (() => void) | null = null;
@@ -211,7 +216,11 @@ export class Agent implements TurnAgent<TurnPlan> {
       lockstep: !!clock.lockstep,
       cycleMs: clock.cycleMs,
       // the agents' own model, under the same reasoning cap as decisions; plain text, not JSON
-      call: (messages) => this.llm.chat(messages, { ...(capOptions(this.cfg) ?? {}), json: false }),
+      // max_tokens leaves room for the 8 lines after the reasoning budget
+      call: (messages) => {
+        const cap = capOptions(this.cfg);
+        return this.llm.chat(messages, { ...(cap ? { ...cap, maxTokens: summaryMaxTokens(this.cfg.llmDecisionMaxTokens, this.cfg.llmReasoningMaxTokens) } : {}), json: false });
+      },
       onDone: (r) =>
         this.log.write("llm.jsonl", {
           t: Date.now(), kind: "summary", agentId: this.id, playerId: this.world?.selfId ?? null, lifeIndex: this.lifeIndex, input: r.input,
@@ -283,12 +292,21 @@ export class Agent implements TurnAgent<TurnPlan> {
           this.speech?.spoke(this, h.text, h.x, h.y);
         } else {
           if (h.speakerId != null) this.speech?.heard(this, h.speakerId, h.text);
-          const who = h.speakerId != null ? world.names.get(h.speakerId) ?? world.players.get(h.speakerId)?.name ?? `#${h.speakerId}` : "someone";
-          this.mem.add(`heard ${who}: "${h.text}"`);
+          // a game notice is what the game says; speech and writing are claims (kept apart in the summary)
+          if (h.notice) this.mem.notice(`"${h.text}"`);
+          else {
+            const name = h.speakerId != null ? world.names.get(h.speakerId) ?? world.players.get(h.speakerId)?.name : null;
+            const who = h.speakerId != null ? `#${h.speakerId}${name ? ` ${name}` : ""}` : `written words at (${h.x}, ${h.y})`;
+            this.mem.heard(`${who}${h.speakerId != null ? " said" : ""}: "${h.text}"`);
+          }
           this.noteSalient(speechEvent(world, h));
         }
       },
       onPlayerDied: (p) => this.noteSalient(deathEvent(world, p)),
+      // what was seen nearby goes to the note-taker's transcript (an animal's every step does not)
+      onSeen: (e) => {
+        if (e.kind !== "animal_move") this.mem.saw(seenText(world, gd, e));
+      },
     }, turns ? () => turns.now() : undefined);
     this.pending = [];
     this.lastSnap = null;
@@ -335,6 +353,7 @@ export class Agent implements TurnAgent<TurnPlan> {
         // a new process: this life's earlier turns are gone from memory
         this.mem.reset();
         this.history = [];
+        this.lastSearch = null;
         this.goal = null;
         this.goalSetAt = null;
       }
@@ -356,6 +375,7 @@ export class Agent implements TurnAgent<TurnPlan> {
     }
     this.mem.reset();
     this.history = [];
+    this.lastSearch = null;
     this.goal = null;
     this.goalSetAt = null;
     this.lastThought = this.lastAction = this.lastSaid = null;
@@ -541,6 +561,7 @@ export class Agent implements TurnAgent<TurnPlan> {
     let obs = buildObservation(world, this.gd, {
       recipeHints: this.cfg.recipeHints,
       history: this.history,
+      search: searchSection(this.lastSearch),
       pastLifeNotes: this.pastLifeNotes,
       memory: this.memory,
       goal: this.goal,
@@ -578,7 +599,7 @@ export class Agent implements TurnAgent<TurnPlan> {
     return { kind: "reply", reply: parsed.value as Record<string, any>, obsBuiltAt, obsWorldT };
   }
 
-  /** Act on a decision: thought, goal, speech, then the action list ("note" is ignored: the notebook is gone). */
+  /** Act on a decision: thought, goal, remember, speech, then the action list ("note" is ignored: the notebook is gone). */
   private async apply(d: Decision) {
     if (d.kind === "unparseable") {
       const cut = d.cut ? " (it was cut off: keep it short)" : "";
@@ -591,7 +612,6 @@ export class Agent implements TurnAgent<TurnPlan> {
     const thought = cleanText(reply.thought, 400);
     if (thought) {
       this.lastThought = thought;
-      this.mem.add(`you thought: ${thought}`);
       this.ev("thought", thought);
     }
     const goal = cleanText(reply.goal, 200);
@@ -599,11 +619,23 @@ export class Agent implements TurnAgent<TurnPlan> {
       this.goal = goal;
       this.goalSetAt = d.obsWorldT ?? this.world?.now() ?? Date.now();
     }
+    // "remember": kept for the next yearly notes; only this history line shows it (no pending list in the observation)
+    const remember = parseRemember(reply);
+    if (remember) {
+      const result = !this.cfg.memorySummary ? "not kept: notes are off" : this.mem.remember(remember) ? "kept for your next notes" : "not kept: no words to keep";
+      this.record(`remember "${remember}"`, result, false);
+      this.ev("action", `remember "${remember}" -> ${result}`, { remember });
+    }
     const say = cleanText(reply.say, 200);
     const checked = checkActions(reply, this.cfg.craftMacro, this.cfg.actionListMax ?? 4);
     // "YOU ARE X" + pick_up_baby: spoken once the baby is in our arms (naming.ts)
     const sayAfter = say && !("error" in checked) ? namingSayAfterStep(say, checked.steps, (this.world?.self?.held.id ?? 0) < 0) : -1;
-    if (say && sayAfter < 0) this.record(`say "${say}"`, await this.speakSpaced(say));
+    this.spokeThisTurn = false;
+    if (say && sayAfter < 0) {
+      const said = await this.speakSpaced(say);
+      this.spokeThisTurn = /^said "/.test(said);
+      this.record(`say "${say}"`, said);
+    }
     if ("error" in checked) {
       this.record("(no valid action)", checked.error);
       this.ev("system", `invalid action: ${checked.error}`, { invalidAction: true });
@@ -630,8 +662,9 @@ export class Agent implements TurnAgent<TurnPlan> {
       this.record(`say "${say}"`, await this.speakSpaced(say));
     };
     for (let i = 0; i < n; i++) {
-      // turn clock: a step starts only while the game clock runs (a long list spans act windows)
-      if (this.hooks.turns) {
+      // turn clock: a step starts only while the game clock runs (a long list spans act windows);
+      // a search is a lookup, like the client's hint panel: it doesn't wait for one
+      if (this.hooks.turns && steps[i].type !== "search") {
         await this.hooks.turns.actWindow();
         if (!this.alive) break;
       }
@@ -658,7 +691,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       if (i === n - 1 || !this.alive) break;
       const rest = steps.slice(i + 1).map(describeAction).join(", ");
       const event = this.pending.find((p) => p.t >= listStart);
-      const why = stepFailed(result) ? `step ${i + 1} didn't work` : event ? `something happened: ${event.reason}` : null;
+      const why = stepFailed(result) && action.type !== "search" ? `step ${i + 1} didn't work` : event ? `something happened: ${event.reason}` : null;
       if (why) {
         this.record(`(not done: ${rest})`, `skipped because ${why}`);
         break;
@@ -686,9 +719,31 @@ export class Agent implements TurnAgent<TurnPlan> {
       if (gap > 0) await sleep(gap);
       this.lastSayAt = Date.now();
     }
-    return this.speak(text);
+    const me = this.world?.self;
+    const leaderBefore = me ? this.world!.leaders.get(me.id) : undefined;
+    const said = this.speak(text);
+    if (!me || !/^said "I FOLLOW\b/.test(said)) return said;
+    return said + (await this.followedWhom(me.id, leaderBefore));
+  }
+
+  /** After "I FOLLOW ...": whom the server's FW message says we now follow (nothing if none came). */
+  private async followedWhom(myId: number, before: number | undefined): Promise<string> {
+    const w = this.world!;
+    const t0 = Date.now();
+    while (Date.now() - t0 < FOLLOW_WAIT_MS && w.leaders.get(myId) === before) await sleep(50);
+    const l = w.leaders.get(myId);
+    if (l == null || l === before) return "";
+    const p = w.players.get(l);
+    const name = p?.name ?? w.names.get(l);
+    const lin = p ?? w.lineage.get(l);
+    const me = w.self;
+    const rel = !lin || !me ? "" : lin.ancestors[0] === myId ? (p && w.currentAge(p) < 3 ? ", your baby" : ", your child") : me.ancestors[0] === l ? ", your mother" : "";
+    const age = p ? `, age ${Math.floor(w.currentAge(p))}` : "";
+    return `; you now follow #${l}${name ? ` ${name}` : ""}${age || rel ? ` (${(age + rel).slice(2)})` : ""}`;
   }
   private lastSayAt = 0;
+  /** this reply's top-level "say" was spoken (a say-only reply records "spoke", not "did nothing") */
+  private spokeThisTurn = false;
 
   /** Say something, after the naming rules (naming.ts): a refused family name isn't sent; a repeated baby name gets a numeral. */
   private speak(text: string): string {
@@ -754,10 +809,11 @@ export class Agent implements TurnAgent<TurnPlan> {
     return { ...before, to: me ? this.world!.posOf(me) : null, heldAfter: me ? this.body?.heldName() ?? null : null };
   }
 
-  private record(action: string, result: string) {
+  /** an action and its result for the history; also the note-taker's transcript unless transcript is false */
+  private record(action: string, result: string, transcript = true) {
     this.history.push({ t: this.world?.now() ?? Date.now(), action, result });
     if (this.history.length > HISTORY_MAX) this.history.shift();
-    this.mem.add(`${action} -> ${result}`);
+    if (transcript) this.mem.add(`${action} -> ${result}`);
   }
 
   private async execute(a: Action): Promise<string> {
@@ -823,8 +879,20 @@ export class Agent implements TurnAgent<TurnPlan> {
         case "say":
           // accepted as an action too ({"type":"say","text":...}); speech is the whole turn.
           // Without text, the reply's top-level "say" carried the words (already spoken)
-          if (!a.text) return "spoke (your \"say\")";
+          if (!a.text) return this.spokeThisTurn ? "spoke; no other action this turn" : "nothing said; no other action this turn";
           return await this.speakSpaced(a.text);
+        case "search": {
+          // a lookup in the game data (the client's "/word" hint search); no game action
+          const q = (a.what ?? "").trim();
+          if (!q) {
+            const had = this.lastSearch;
+            this.lastSearch = null;
+            return had ? "search cleared" : "no search to clear";
+          }
+          const r = search(this.gd, q);
+          this.lastSearch = r;
+          return searchSummary(this.gd, r);
+        }
         case "wait": {
           // no model calls while waiting; a salient event (noteSalient) ends the wait early
           const turns = Math.min(Math.max(Math.round(Number(a.turns ?? 1)), 1), 4);
@@ -884,6 +952,8 @@ function describeAction(a: Action): string {
   const who = a.person ? ` #${a.person}` : "";
   if (a.type === "wait") return `wait ${a.turns ?? 1} turn${(a.turns ?? 1) === 1 ? "" : "s"}`;
   if (a.type === "craft") return `craft ${a.item ?? "?"}`;
-  if (a.type === "say") return `say "${a.text ?? ""}"`;
+  if (a.type === "search") return `search "${a.what ?? ""}"`;
+  // the reply's top-level "say" carried the words (recorded on its own)
+  if (a.type === "say") return a.text ? `say "${a.text}"` : "(no other action)";
   return `${a.type}${pos}${who}`;
 }

@@ -71,7 +71,7 @@ export function speechEvent(w: World, h: Heard, now = Date.now()): Salient | nul
   const spBaby = sp ? w.currentAge(sp) < BABY_AGE : false;
   const mine = !!sp && sp.ancestors[0] === me.id;
   if (spBaby && isHungryBabyCry(h.text)) {
-    if (mine) return { reason: `your baby #${sp!.id} says "${h.text}" (hungry)`, urgent: true, t: now };
+    if (mine) return { reason: `your baby #${sp!.id} says "${h.text}" (hungry; holding it nurses it)`, urgent: true, t: now };
     if (!iAmBaby && d <= HEAR_RADIUS) return { reason: `baby #${h.speakerId} says "${h.text}" (hungry) ${d} tiles away`, urgent: false, t: now };
     return null;
   }

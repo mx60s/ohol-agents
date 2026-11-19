@@ -31,6 +31,11 @@
 // all (then it's an Eve anyway). It waits at most FAMILY_ROOM_MAX_HOLD_MS.
 // That is a player choosing when to log in, not a rule change. Not
 // guaranteed: we can't see cooldowns, and leftover players count too.
+// Except with our server's mtsNoCooldownBypass=1 (wait-for-mothers.patch):
+// no mom on cooldown is ever used, and the server writes mtsBirthReady.txt
+// (ready moms, soonest cooldown end) next to the clock files. Then a join
+// waits while no mom is ready but one is coming off cooldown, past the hold
+// limit too (Population.familyRoom / motherComing).
 
 export interface LoginPlanConfig {
   agentCount: number;
@@ -56,6 +61,11 @@ export interface LoginDeps {
    * (see above). Ages come from the game, so this works at any time scale.
    */
   familyRoom(): boolean;
+  /**
+   * true = the server says a mother is only on birth cooldown (mtsBirthReady.txt):
+   * keep waiting past familyRoomMaxHoldMs, since logging in now would make an Eve.
+   */
+  motherComing?(): boolean;
 }
 
 /** gap between burst logins once the previous one was born, so the server sees them in order */
@@ -210,7 +220,7 @@ export class LoginScheduler {
   private async waitFamilyRoom() {
     const hold = this.plan.familyRoomMaxHoldMs ?? FAMILY_ROOM_MAX_HOLD_MS;
     const until = hold > 0 ? this.deps.now() + hold : Infinity;
-    while (!this.closed && !this.deps.familyRoom() && this.deps.now() < until) await this.sleep(ROOM_POLL_MS);
+    while (!this.closed && !this.deps.familyRoom() && (this.deps.now() < until || (this.deps.motherComing?.() ?? false))) await this.sleep(ROOM_POLL_MS);
   }
 
   private async whilePaused() {

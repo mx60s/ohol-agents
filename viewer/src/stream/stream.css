@@ -52,7 +52,7 @@ body.stream { background: var(--grain), var(--parchment); }
 .cam-label {
   display: flex; align-items: baseline; gap: 2px; max-width: 300px;
   padding: 2px 11px 3px; border: 2px solid var(--ink); border-radius: var(--r-pill);
-  background: var(--gloss), var(--paper-white); opacity: .93;
+  background: var(--gloss), var(--paper-white); opacity: 1;
   font-family: var(--font-display); font-size: 18px; line-height: 1.15; white-space: nowrap; text-transform: uppercase;
 }
 .cam-label .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -74,6 +74,7 @@ body.stream { background: var(--grain), var(--parchment); }
 
 .camhud { position: absolute; right: 16px; top: 16px; display: flex; gap: 8px; }
 .camhud .pill { font-size: 17px; padding: 3px 13px 4px; }
+.camhud .pill.cutaway { max-width: 640px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
 .reconnect {
   position: absolute; right: 16px; bottom: 196px; /* above the minimap */ padding: 2px 11px 3px; border-radius: var(--r-pill);
   background: rgba(31,26,20,.62); color: var(--paper-white); font-weight: 700; font-size: 15px;
@@ -203,3 +204,4 @@ body.stream { background: var(--grain), var(--parchment); }
 
 /* "Doing": the followed person's latest hands-on action, in full (results like "not food… nearest food…" matter) */
 .side .doing-sec .tx { white-space: normal; overflow-wrap: anywhere; }
+.side .doing-sec .t { margin-right: 6px; }

@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { resolveDataMode, pageHref } from "../src/data/config.ts";
-import { normDeaths, normInventions, normLife, normLineages, normLives, normState } from "../src/data/normalize.ts";
+import { normCutaway, normDeaths, normInventions, normLife, normLineages, normLives, normState } from "../src/data/normalize.ts";
 import { ageStage, deathReasonText, displayName, formatAge, formatDuration, formatMoney, formatRelative, formatTrait, truncate } from "../src/shared/format.ts";
 import { lineageColor, lineageName, LINEAGE_PALETTE } from "../src/shared/lineage.ts";
 import { personalityBlurb, personalityText } from "../src/shared/personality.ts";
@@ -258,9 +258,12 @@ test("describeAction: plain sentences for hands-on actions, null for walking/spe
     ["forage (48, 6) -> ate Banana; food 4 -> 12/12", "ate a Banana"],
     ["forage (48, 6) -> you're full, so you didn't eat: you picked a Banana and are holding it", "picked a Banana to carry"],
     ["use (44, 2) -> use at (44,2): nothing happened", "tried to use something: nothing happened"],
+    ['search "Fire" -> MAKING FIRE: 21 steps (see SEARCH)', "looked up how to make fire"],
+    ['search "clothes" -> nothing is called "clothes"', "looked up how to make clothes"],
+    ['remember "the pond is at (5, 10) -> north" -> kept for your next notes', "noted: the pond is at (5, 10) -> north"],
   ];
   for (const [inp, want] of cases) assert.equal(describeAction(inp), want, inp);
-  for (const inp of ["go (3, 4) -> arrived", "pick_up_baby #3 -> picked up baby #3", 'say "F" -> said "F"', "wait -> waited 2 turns", "jump -> wiggled"]) assert.equal(describeAction(inp), null, inp);
+  for (const inp of ["go (3, 4) -> arrived", "pick_up_baby #3 -> picked up baby #3", 'say "F" -> said "F"', "wait -> waited 2 turns", "jump -> wiggled", 'search "" -> search cleared', 'remember "x" -> not kept: notes are off']) assert.equal(describeAction(inp), null, inp);
 });
 
 test("motion: a 30-tile move between polls walks (fast) instead of warping; a 80-tile jump snaps", async () => {
@@ -271,4 +274,16 @@ test("motion: a 30-tile move between polls walks (fast) instead of warping; a 80
   const mid = sampleMotion(walk, 1000 + walk.dur / 2);
   assert.ok(mid.x > 5 && mid.x < 25, `in between halfway (${mid.x})`);
   assert.equal(retarget(start, 80, 0, 1000).dur, 0, "a respawn-sized jump snaps");
+});
+
+test("normState: focus.cutaway is optional and validated (old servers send none)", () => {
+  assert.equal(normState({ focus: { agentId: "a01", since: 1, reason: null } }).focus.cutaway, null);
+  const c = { kind: "cutaway", target: { type: "animal", objectId: 630, x: 5, y: -2, name: "Grizzly Bear" }, label: "Grizzly Bear near LIRA", reason: "animal", since: 10, until: 20, returnTo: "a01" };
+  assert.deepEqual(normState({ focus: { agentId: "a01", since: 1, reason: null, cutaway: c } }).focus.cutaway, c);
+  assert.deepEqual(normCutaway({ target: { type: "person", id: "a02" }, until: 5 }).target, { type: "person", id: "a02", lifeId: null, playerId: null, name: null });
+  assert.deepEqual(normCutaway({ target: { type: "tile", x: 1, y: 2 }, until: 5 }).target, { type: "tile", x: 1, y: 2 });
+  assert.equal(normCutaway({ target: { type: "animal", objectId: "x" }, until: 5 }), null);
+  assert.equal(normCutaway({ target: { type: "ufo" }, until: 5 }), null);
+  assert.equal(normCutaway({ target: { type: "tile", x: 1, y: 2 } }), null);
+  assert.equal(normCutaway("nope"), null);
 });

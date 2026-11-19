@@ -1,0 +1,28 @@
+{
+  "notes": [
+    {
+      "t": 1794867642027,
+      "runId": "dev1-r1-mwjtcz8f",
+      "windowStart": 1794866402027,
+      "windowEnd": 1794867602027,
+      "model": "google/gemini-3.1-flash-lite",
+      "text": "The HOPE household spent most of this period near the reed patch. DAWN HOPE made the first Basket at the end of the window, after JOY HOPE had been carrying reeds one at a time for several minutes.\n\nSpeech was short and mostly practical. GRACE HOPE, born early in the window, was fed twice by DAWN HOPE; the baby's only lines were single letters (\"F\", \"F\").\n\n- EVE DAWOD appeared as a new Eve about 600 tiles east and has not met anyone yet.\n- No deaths in this window, the first such window of the run.\n- Foraging still takes about half of all actions; tool use is concentrated in two people."
+    },
+    {
+      "t": 1794866437027,
+      "runId": "dev1-r1-mwjtcz8f",
+      "windowStart": 1794865202027,
+      "windowEnd": 1794866402027,
+      "model": "google/gemini-3.1-flash-lite",
+      "text": "JOY HOPE made a Reed Skirt, the first clothing in the run, and wore it immediately. Her thoughts mention the cold twice before that, so the timing fits.\n\nFAITH HOPE died of hunger at age 3. She had been handed between DAWN HOPE and JOY HOPE three times in the preceding minutes, and was not fed in between. Both adults said \"BABY\" but neither stated who would feed her."
+    },
+    {
+      "t": 1794865252027,
+      "runId": "dev1-r1-mwjtcz8f",
+      "windowStart": 1794858902027,
+      "windowEnd": 1794865202027,
+      "model": "google/gemini-3.1-flash-lite",
+      "text": "This first note covers the run from its start. EVE DAWN appeared as an Eve and spent her first years alone, making a Sharp Stone and then Kindling within ten minutes. Her daughter HOPE DAWN was born about 20 minutes in.\n\nThe DAWN and HOPE families met near the pond in the second hour. Their speech crossed languages: EVE DAWN's \"FIRE HERE\" was heard by DAWN HOPE, who answered with a question that EVE DAWN did not respond to.\n\nFAITH HOPE made a Fire Bow Drill, which none of the DAWN family has used since."
+    }
+  ]
+}

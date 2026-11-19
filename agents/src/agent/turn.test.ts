@@ -386,3 +386,39 @@ test("naming: a named Eve's 'I AM ...' and naming an already named baby are left
   assert.deepEqual(says(g), ["I AM MIRA DAWN. YOU ARE AURORA"]);
   assert.equal(g.world.players.get(2)!.name, "AURORA II DAWN", "client parsing keeps the numeral in the name");
 });
+
+test("search: a lookup with no game action; its steps stay in every observation until the next search or a clear", async () => {
+  const g = camp();
+  const { A, seen } = agentFor(g, [
+    '{"action":{"type":"search","what":"fire"}}',
+    '{"action":{"type":"go","x":1,"y":0}}',
+    '{"action":{"type":"lookup","what":"hat"}}',
+    '{"actions":[{"type":"search","what":"Reed Skirt"},{"type":"use","x":2,"y":0}]}',
+    '{"action":{"type":"search","what":""}}',
+    '{"action":{"type":"wait"}}',
+  ]);
+  A.sleepInterruptible = async () => {};
+  const sent0 = g.sent.length;
+  await A.turn();
+  assert.equal(g.sent.length, sent0, "nothing sent to the server");
+  assert.match(results(A).at(-1), /^search "fire" -> MAKING FIRE: \d+ steps \(see SEARCH\)$/);
+  await A.turn();
+  assert.match(seen[1], /== SEARCH: MAKING FIRE ==\n- [^\n]+\n/);
+  assert.match(seen[1], /- Kindling on Burning Tinder: the Kindling is used up, it becomes Fire/);
+  // the SEARCH section sits after YOU COULD/THINGS and before YOUR LAST ACTIONS
+  assert.ok(seen[1].indexOf("== SEARCH") < seen[1].indexOf("== YOUR LAST ACTIONS"));
+  await A.turn();
+  assert.match(seen[2], /== SEARCH: MAKING FIRE ==/, "still shown a turn later");
+  // a search with no steps replaces it; a search in a list doesn't stop the list
+  assert.match(results(A).at(-1), /^search "hat" -> "hat" matches: .*; search one by its full name$/);
+  await A.turn();
+  assert.doesNotMatch(seen[3], /== SEARCH/);
+  const r = results(A);
+  assert.match(r.at(-2), /^search "Reed Skirt" \[step 1\/2\] -> MAKING REED SKIRT: \d+ steps/);
+  assert.match(r.at(-1), /^use \(2, 0\) \[step 2\/2\] -> use: /);
+  await A.turn();
+  assert.match(seen[4], /== SEARCH: MAKING REED SKIRT ==/);
+  assert.match(results(A).at(-1), /^search "" -> search cleared$/);
+  await A.turn();
+  assert.doesNotMatch(seen[5], /== SEARCH/);
+});

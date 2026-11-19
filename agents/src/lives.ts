@@ -115,6 +115,8 @@ const isBaby = (s: string) => s.startsWith("baby");
  */
 export function classifyAction(ev: Pick<RunEvent, "text" | "data">): Partial<LifeActivity> {
   const d = ev.data ?? {};
+  // a "remember" for the notes is logged as an action event but is not a game action
+  if (typeof d.remember === "string") return {};
   const reflex = d.reflex === true;
   const type = reflex ? "forage" : String((d.action as { type?: unknown } | undefined)?.type ?? "");
   const i = ev.text.indexOf(" -> ");
