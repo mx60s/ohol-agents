@@ -352,6 +352,21 @@ export class LifeBook {
   }
 
   /**
+   * A family's place in the run's founding order (tester mode, agent/tester.ts):
+   * 0 = the run's first Eve's lineage, 1 = the next, ... Founders are the run's
+   * Eves (generation 1, founding their own lineage), ordered by bornAt, then
+   * lifeId. Derived from the records alone, so it survives a restart. null =
+   * no such founder in this run (e.g. an orphaned baby not yet re-attached).
+   */
+  founderIndex(runId: string, lineageId: string): number | null {
+    const founders: LifeCore[] = [];
+    for (const l of this.lives.values()) if (l.runId === runId && l.generation === 1 && l.lineageId === l.lifeId) founders.push(l);
+    founders.sort((a, b) => a.bornAt - b.bornAt || (a.lifeId < b.lifeId ? -1 : a.lifeId > b.lifeId ? 1 : 0));
+    const i = founders.findIndex((l) => l.lifeId === lineageId);
+    return i >= 0 ? i : null;
+  }
+
+  /**
    * Would a login of `agentId` that landed in `playerId` at age `age` be the
    * run's still-open life again (a reconnect, e.g. after an agents-service
    * restart) rather than a new character? Same test as birth().

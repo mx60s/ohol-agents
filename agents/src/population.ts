@@ -14,6 +14,7 @@ import { GraveBook, type Player, type TriedNothing, type World } from "./game/wo
 import { LoginScheduler, type LoginDeps } from "./logins.ts";
 import { LANGUAGES_MIN_PLAYERS } from "./agent/observe.ts";
 import { FileClockPort, TurnCoordinator, type ClockPort } from "./turnclock.ts";
+import { taskFor } from "./agent/tester.ts";
 
 /** positions.jsonl without the turn clock: one snapshot this often */
 export const POSITIONS_INTERVAL_MS = 10_000;
@@ -260,6 +261,12 @@ export class Population implements SpeechSink {
       takenSurnames: () => this.extras.lives?.takenSurnames() ?? [],
       familyFirstNames: (playerId: number) => this.extras.lives?.familyFirstNames(this.cfg.runId, playerId) ?? [],
       speechScrambled: (speakerId: number, text: string) => this.speechScrambled(speakerId, text),
+      // tester mode: each family's task list, by its founding position in this run (agent/tester.ts)
+      ...(c.testerGoals?.length ? { testTask: (playerId: number) => taskFor(c.testerGoals, this.extras.lives?.founderIndexOf(this.cfg.runId, playerId) ?? null) } : {}),
+      lifeOf: (a: Agent, playerId: number) => {
+        const f = this.extras.lives?.agentFields(this.cfg.runId, a.id, playerId);
+        return { lifeId: f?.lifeId ?? null, lineageId: f?.lineageId ?? null };
+      },
       turns: this.turns?.link(),
       // a try that did nothing: our other agents nearby see it (beyond human: no client learns of it)
       triedNothing: (from: Agent, t: TriedNothing) => relayTried(this.agents, from, t),
@@ -684,7 +691,7 @@ export class Population implements SpeechSink {
     const pauseKind = !this.started ? null : outage ? "llm-outage" : dailyPause ? "daily-cap" : null;
     return {
       run: {
-        id: this.cfg.runId, startedAt: this.startedAt, model: this.cfg.llmModelName, memoryMode: this.cfg.memoryMode,
+        id: this.cfg.runId, label: this.cfg.runLabel ?? "", startedAt: this.startedAt, model: this.cfg.llmModelName, memoryMode: this.cfg.memoryMode,
         recipeHints: this.cfg.recipeHints, targetPopulation: this.cfg.agentCount,
         status: this.halted ? "halted" : !this.started ? "idle" : pauseReason ? "paused" : "running", haltReason: this.haltReason,
         limits: { maxGeneration: this.cfg.maxGeneration, maxLives: this.cfg.maxLives, maxRuntimeMin: this.cfg.maxRuntimeMin, maxCostUsd: this.cfg.maxCostUsd },

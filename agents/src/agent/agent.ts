@@ -17,6 +17,7 @@ import { Acquaintances, PeopleView, knownNamesPath, rememberedName } from "./peo
 import { foodBonusOf, systemPromptFor } from "./prompt.ts";
 import { firstNameKey, mergeSurnames, namingSayAfterStep, reviewSpeech, surnameOf, type NamingContext } from "./naming.ts";
 import { parseReply, parseRemember, parseForget, checkActions, sanitizeAction, type Action } from "./reply.ts";
+import { parseIssue } from "./tester.ts";
 import { stepFailed, stepLabel, seenSnapshot, staleness, type Seen } from "./steps.ts";
 import { snapshot, bodyEvents, speechEvent, deathEvent, birthEvent, type Salient, type BodySnapshot } from "./salience.ts";
 import { turnClock, realMs } from "./turns.ts";
@@ -97,6 +98,10 @@ export interface AgentHooks {
   gave?(from: Agent, toPlayerId: number, item: string, at: [number, number]): void;
   /** fresh graves and whose body each is, shared by the agents of this world (world.ts GraveBook) */
   graves?: GraveBook;
+  /** tester mode (TESTER_GOALS): the task list of the family of our life with this player id (tester.ts), null = none */
+  testTask?(playerId: number): string | null;
+  /** the life and lineage ids of our life with this player id (LifeStore), for logs */
+  lifeOf?(agent: Agent, playerId: number): { lifeId: string | null; lineageId: string | null };
 }
 
 /** A decision waiting for the act window (turn clock): the parsed reply, or the starving reflex. */
@@ -667,6 +672,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       speechScrambled: this.hooks.speechScrambled,
       takenSurnames: me.ancestors.length === 0 && !me.name ? this.takenSurnames() : undefined,
       people: this.acq,
+      testTask: this.hooks.testTask?.(me.id) ?? null,
     });
     if (alerts.length) obs += `\n\n== JUST HAPPENED ==\n${[...new Set(alerts)].map((a) => `- ${a}`).join("\n")}`;
     const obsBuiltAt = Date.now(); // turn timing for calibration: observation built -> action dispatched
@@ -714,6 +720,8 @@ export class Agent implements TurnAgent<TurnPlan> {
       this.goal = goal;
       this.goalSetAt = d.obsWorldT ?? this.world?.now() ?? Date.now();
     }
+    // tester mode: "issue" (the model reporting a problem with the game or its controls)
+    if (this.cfg.testerGoals?.length) this.logIssue(parseIssue(reply));
     // "forget" first (so a full list can take a new entry without losing the oldest), then "remember"
     const madeAt = d.obsWorldT ?? this.world?.now() ?? Date.now();
     const forget = parseForget(reply);
@@ -1037,6 +1045,25 @@ export class Agent implements TurnAgent<TurnPlan> {
     } catch (e) {
       return `error: ${(e as Error).message}`;
     }
+  }
+
+  /** Tester mode: an "issue" from the reply goes to the run's events (kind "issue") and issues.jsonl. */
+  private logIssue(text: string) {
+    if (!text) return;
+    const w = this.world;
+    const me = w?.self;
+    const pid = me?.id ?? null;
+    const [x, y] = me ? w!.posOf(me) : [null, null];
+    const ids = pid != null ? this.hooks.lifeOf?.(this, pid) : undefined;
+    const turn = this.hooks.turns?.n?.();
+    const ev = this.log.emitEvent("issue", {
+      agentId: this.id, playerId: pid, name: this.nameOf(), text,
+      data: {
+        lifeId: ids?.lifeId ?? null, lineageId: ids?.lineageId ?? null, ...(turn != null ? { turn } : {}),
+        x, y, held: me && this.body ? this.body.heldName(true) : null, goal: this.goal,
+      },
+    });
+    this.log.write("issues.jsonl", ev);
   }
 
   /** a person-targeted action's person: "person":ID, or whoever stands at (or within 1 of) "x","y"; a string = why not */

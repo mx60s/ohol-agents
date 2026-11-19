@@ -33,6 +33,8 @@ export interface SiteData {
   online: boolean;
   isStatic: boolean;
   serverNow: number | null;
+  /** RUN_LABEL of the current run ("" = none) */
+  runLabel: string;
 }
 
 export function useSite(): SiteData {
@@ -118,6 +120,7 @@ export function useSite(): SiteData {
       online: w.online,
       isStatic: getClient().isStatic,
       serverNow: lv.now,
+      runLabel: w.state?.run.label?.trim() ?? "",
     };
-  }, [derived, surnameByLineage, flowers, lv.lives, lv.byId, lv.traitDims, lv.loading, lv.error, lv.now, lin.error, w.online]);
+  }, [derived, surnameByLineage, flowers, lv.lives, lv.byId, lv.traitDims, lv.loading, lv.error, lv.now, lin.error, w.online, w.state?.run.label]);
 }

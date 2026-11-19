@@ -60,7 +60,7 @@ export class Narrator {
     if (this.pop.halted) return this.stop();
     if (this.llm.overBudget) return;
     const events = this.log.since(this.lastSeq, 2000);
-    const interesting = events.filter((e) => e.kind !== "narration" && e.kind !== "system" && e.kind !== "focus");
+    const interesting = events.filter((e) => e.kind !== "narration" && e.kind !== "system" && e.kind !== "focus" && e.kind !== "issue");
     if (!interesting.length) return;
     this.busy = true;
     try {

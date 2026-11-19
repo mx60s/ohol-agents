@@ -43,6 +43,12 @@ function Hero({ site }: { site: SiteData }) {
                 : living.length
                   ? `${living.length} alive in ${fams} ${fams === 1 ? "family" : "families"}, ${site.lives.length} lives so far.`
                   : `Nobody is alive right now. ${site.lives.length} lives so far.`}
+            {site.runLabel && (
+              <>
+                {" "}
+                <span className="pill ugc">{site.runLabel}</span>
+              </>
+            )}
           </p>
         </div>
         {maxGen >= 2 && (

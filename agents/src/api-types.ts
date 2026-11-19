@@ -29,6 +29,8 @@ export type { Flower, FlowerColor, FlowerShape };
 
 export interface RunInfo {
   id: string;
+  /** RUN_LABEL: a short label for this run, shown on the stream and site; "" = none. Missing from older services */
+  label?: string;
   startedAt: number; // ms epoch
   model: string;
   memoryMode: "per-life" | "persistent";
@@ -355,7 +357,8 @@ export type RunEventKind =
   | "craft" // text = "made X from Y + Z"; data: { actor, target, newActor, newTarget }
   | "narration" // text = omniscient narrator's summary of recent plot (every ~30s); not seen by agents
   | "focus" // stream camera moved. agentId/playerId/name = new focus (all null if no one is alive); text = "camera follows <name>" (or "no one is alive"); data: { lifeId, previous: agentId | null, cause: "initial" | "switch" | "death" | "disconnect" | "empty" | "cutaway" | "cutaway-end", cutaway?: Cutaway (cause "cutaway"; agentId stays the main subject) }
-  | "system"; // run start/stop, errors
+  | "system" // run start/stop, errors
+  | "issue"; // tester mode (TESTER_GOALS): text = a problem the model reported with the game or its controls (the reply's "issue"); data: { lifeId, lineageId, turn?, x, y, held, goal }. Also in issues.jsonl
 
 export interface RunEvent {
   seq: number;

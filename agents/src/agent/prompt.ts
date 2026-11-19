@@ -11,6 +11,7 @@
 // Durations are given in TURNS (see turns.ts), never seconds.
 
 import { turnClock, turnsText, type TurnClock } from "./turns.ts";
+import { ISSUE_FIELD } from "./tester.ts";
 
 export interface PromptOptions {
   /** the `craft` macro is available (CRAFT_MACRO=1) */
@@ -26,6 +27,8 @@ export interface PromptOptions {
    * prompt: game facts a practised player knows plus a ranked early-game playbook.
    */
   baseline?: "new" | "playbook";
+  /** tester mode (TESTER_GOALS set): the reply format gains the optional "issue" field (tester.ts) */
+  tester?: boolean;
 }
 
 /** OHOL server.cpp maxSpeechRadius */
@@ -88,7 +91,7 @@ function replyFormat(o: PromptOptions, example: boolean): string {
       : `Instead of "action" you may give "actions": a list of up to ${listMax} actions done back to back at once. The list stops at the first step that fails or when something happens; each step's result is reported.\n`
     : "";
   return `Reply with ONE JSON object, nothing else:
-{"thought":"one short sentence","goal":"optional: what you are working on now; change it when you reach it or it no longer applies","say":"optional: words to say now","remember":"optional: anything you want to remember, for any reason; it can stay with you for the rest of your life (up to 25 things)","forget":"optional: the number of a memory to let go (as listed)","action":{"type":"...",...}}
+{"thought":"one short sentence","goal":"optional: what you are working on now; change it when you reach it or it no longer applies","say":"optional: words to say now","remember":"optional: anything you want to remember, for any reason; it can stay with you for the rest of your life (up to 25 things)","forget":"optional: the number of a memory to let go (as listed)",${o.tester ? `${ISSUE_FIELD},` : ""}"action":{"type":"...",...}}
 ${list}
 Actions (x,y are world coordinates from ${example ? "your observation" : "what you see"}; y grows north):
 ${actionList(o)}`;
@@ -186,12 +189,13 @@ If an action fails, read why and try something different.`;
 const cache = new Map<string, string>();
 
 /** The system prompt for this config (cached: identical on every call). */
-export function systemPromptFor(cfg: object & { craftMacro?: boolean; actionListMax?: number; foodBonusS?: number; promptBaseline?: "new" | "playbook" }): string {
+export function systemPromptFor(cfg: object & { craftMacro?: boolean; actionListMax?: number; foodBonusS?: number; promptBaseline?: "new" | "playbook"; testerGoals?: readonly string[] }): string {
   const clock = turnClock(cfg);
   const baseline = cfg.promptBaseline ?? "new";
   // the craft macro is on by default only with the playbook (config.ts does the same)
   const o: PromptOptions = { craft: cfg.craftMacro ?? baseline === "playbook", actionListMax: cfg.actionListMax ?? 4, foodBonusS: foodBonusOf(cfg), baseline };
-  const key = `${clock.cycleMs}|${clock.timeScale}|${o.craft}|${o.actionListMax}|${o.foodBonusS}|${o.baseline}`;
+  if (cfg.testerGoals?.length) o.tester = true;
+  const key = `${clock.cycleMs}|${clock.timeScale}|${o.craft}|${o.actionListMax}|${o.foodBonusS}|${o.baseline}|${o.tester === true}`;
   let p = cache.get(key);
   if (!p) cache.set(key, (p = buildSystemPrompt(clock, o)));
   return p;

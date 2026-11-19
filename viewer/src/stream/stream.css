@@ -108,6 +108,12 @@ body.stream { background: var(--grain), var(--parchment); }
 .camhud { position: absolute; right: 16px; top: 16px; display: flex; gap: 8px; }
 .camhud .pill { font-size: 17px; padding: 3px 13px 4px; }
 .camhud .pill.cutaway { max-width: 640px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+/* RUN_LABEL: always visible, top left of the camera (the HUD pills are top right) */
+.runlabel {
+  position: absolute; left: 16px; top: 16px; z-index: 5; pointer-events: none;
+  max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 17px; font-weight: 700; padding: 3px 13px 4px;
+}
 .reconnect {
   position: absolute; right: 16px; bottom: 196px; /* above the minimap */ padding: 2px 11px 3px; border-radius: var(--r-pill);
   background: rgba(31,26,20,.62); color: var(--paper-white); font-weight: 700; font-size: 15px;
@@ -300,6 +306,7 @@ body.stream { background: var(--grain), var(--parchment); }
   .camhud { right: 20px; top: 20px; }
   .camhud .pill { font-size: 28px; padding: 4px 18px 6px; }
   .camhud .pill.cutaway { max-width: 900px; }
+  .runlabel { font-size: 28px; padding: 4px 18px 6px; max-width: 900px; }
   .reconnect { bottom: 24px; right: 24px; font-size: 28px; padding: 4px 18px 6px; }
   .lost-in-thought { font-size: 30px; bottom: 24px; max-width: 92%; overflow: hidden; text-overflow: ellipsis; }
   .between { width: 88%; padding: 34px 40px 36px; border-radius: 28px; }

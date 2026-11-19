@@ -10,8 +10,7 @@ birthlands y shift and forceEveLocation:
   forceEveLocationX/Y, within mtsForceEveSpread tiles if that is > 0.
 - Else: a random living player is the anchor. A spot at a random angle
   and distance d, uniform in [mtsEveScatterMin, mtsEveScatterMax] tiles
-  (60, 300; mtsEveScatterStartMax=150 instead of the max until 3 Eves
-  were placed since server start), is taken if it is >= min tiles from
+  (60, 300), is taken if it is >= min tiles from
   every living player and from every Eve spawn point of the last
   mtsEveScatterRecentSeconds game seconds (7200; in memory), walkable
   and without a deadly object. 200 tries; then 200 more without the
@@ -21,13 +20,18 @@ birthlands y shift and forceEveLocation:
   babies, so y stays in her band (center getSpecialBiomeBandYCenterForRace
   +- specialBiomeBandThickness/4) and only x follows the distance rule.
 
+- The run's starting Eves (the first mtsEveScatterStartCount=2 placed
+  since the server started) use [mtsEveScatterStartMin,
+  mtsEveScatterStartMax] = [3, 10] instead, so they land next to each
+  other and can help out; every later Eve is scattered as above.
+
 Each placement is logged ("MTS Eve scatter: ...").
 
 diff --git a/server/server.cpp b/server/server.cpp
-index 2cc272b..5ee9828 100644
+index 2cc272b..8f67928 100644
 --- a/server/server.cpp
 +++ b/server/server.cpp
-@@ -9552,6 +9552,246 @@ char isAccountSpecial( char *inEmail ) {
+@@ -9552,6 +9552,253 @@ char isAccountSpecial( char *inEmail ) {
      
  
  
@@ -74,13 +78,20 @@ index 2cc272b..5ee9828 100644
 +                           int *outX, int *outY ) {
 +    int minD = SettingsManager::getIntSetting( "mtsEveScatterMin", 60 );
 +    int maxD = SettingsManager::getIntSetting( "mtsEveScatterMax", 300 );
++    // the run's starting Eves (the first mtsEveScatterStartCount since the
++    // server started) land next to each other so they can help out
++    int startCount = 
++        SettingsManager::getIntSetting( "mtsEveScatterStartCount", 2 );
++    int startMin = 
++        SettingsManager::getIntSetting( "mtsEveScatterStartMin", 3 );
 +    int startMax = 
-+        SettingsManager::getIntSetting( "mtsEveScatterStartMax", 150 );
++        SettingsManager::getIntSetting( "mtsEveScatterStartMax", 10 );
 +    double recentSec = SettingsManager::getFloatSetting(
 +        "mtsEveScatterRecentSeconds", 7200 );
++    char starting = ( mtsEveScatterCount < startCount );
 +    
-+    if( mtsEveScatterCount < 3 ) {
-+        // the starting Eves end up a little closer than usual
++    if( starting ) {
++        minD = startMin;
 +        maxD = startMax;
 +        }
 +    if( minD < 0 ) {
@@ -274,7 +285,7 @@ index 2cc272b..5ee9828 100644
  // MTS patch: living players survive restarts (setting mtsPlayerSaves)
  #include "mtsPlayerSaves.h"
  
-@@ -11451,6 +11691,28 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+@@ -11451,6 +11698,28 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
                      }
                  }
              }

@@ -4,6 +4,7 @@ import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTraitDims } from "./traits.ts";
+import { parseTesterGoals } from "./agent/tester.ts";
 
 // load repo-root .env for local dev (Railway injects env directly)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -291,6 +292,16 @@ export const config = {
   clockDir: env.MTS_CLOCK_DIR || env.WORLD_DIR || path.join(root, ".ohol-run"),
   /** turn clock: a baby with nothing salient happening decides at most every this many turns */
   babyIdleTurns: Math.max(1, Math.floor(num("BABY_IDLE_TURNS", 10))),
+  // --- tester mode (agent/tester.ts)
+  /**
+   * TESTER_GOALS: JSON array of strings, one ordered task list per family; the run's
+   * Eves take lists 0, 1, 2, ... in founding order (round-robin), descendants share
+   * their family's. Shown in the observation; the reply format gains "issue" (logged
+   * to issues.jsonl). Empty/unset = off.
+   */
+  testerGoals: parseTesterGoals(env.TESTER_GOALS),
+  /** RUN_LABEL: a short label for this run, shown on the stream and site (run.label); "" = none */
+  runLabel: (env.RUN_LABEL ?? "").trim(),
 };
 
 export type Config = typeof config;

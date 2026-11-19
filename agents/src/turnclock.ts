@@ -104,6 +104,8 @@ export interface TurnLink {
   turns(n: number, wake: () => boolean): Promise<number>;
   /** the game-paced clock for World (stands still while the server is paused) */
   now(): number;
+  /** turns started so far this run (TurnInfo.n) */
+  n?(): number;
 }
 
 export interface TurnClockOptions {
@@ -232,6 +234,7 @@ export class TurnCoordinator {
       actWindow: () => this.actWindow(),
       turns: (n, wake) => this.turns(n, wake),
       now: () => this.now(),
+      n: () => this.n,
     };
   }
 

@@ -215,6 +215,8 @@ function Stream() {
   const offline = !isStatic && w.connection === "offline";
   // model provider down: a quiet banner (never the raw error); goes away by itself on recovery
   const thinking = !offline && lostInThought(state?.run, serverNow);
+  // RUN_LABEL: always shown, top left of the camera
+  const runLabel = state?.run.label?.trim() ?? "";
 
   // the camera's minimap inset; on phones it gets its own panel below the followed person
   const miniMap = (
@@ -258,6 +260,7 @@ function Stream() {
             fallback={fallback}
             onCell={onCell}
           >
+            {runLabel && <span className="pill runlabel ugc">{runLabel}</span>}
             {(cell || shot) && !nobody && (
               <div className="camhud">
                 {shot && shot.label && <span className="pill cutaway ugc">Cutaway: {shot.label}</span>}

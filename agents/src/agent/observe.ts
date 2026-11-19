@@ -13,6 +13,7 @@ import { NOTE_HEADINGS } from "./memory.ts";
 import { keptLines, type KeptEntry } from "./kept.ts";
 import { turnsAgo, turnsForWall, turnsText, turnsTextWall, type TurnClock } from "./turns.ts";
 import { ageText, playerLabel, PeopleView, type Acquaintances } from "./people.ts";
+import { testTaskLine } from "./tester.ts";
 
 export const BIOMES: Record<number, string> = {
   0: "grassland", 1: "swamp", 2: "yellow prairie", 3: "badlands", 4: "snowy tundra", 5: "desert", 6: "jungle",
@@ -41,6 +42,8 @@ export interface FoodSource {
 
 export interface ObservationOptions {
   recipeHints: boolean;
+  /** tester mode: this family's task list (tester.ts), shown first; null/absent = no section */
+  testTask?: string | null;
   /** recent action results, newest last */
   history: { t: number; action: string; result: string }[];
   /** the latest hint search's steps (search.ts searchSection), shown until the next search */
@@ -197,6 +200,8 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   // how this character sees people: strangers without #id or name (people.ts)
   const pv = new PeopleView(w, gd, o.people ?? null, o.flowerOf);
 
+  // tester mode: the family's task list, first so it isn't lost (tester.ts)
+  if (o.testTask) L.push(testTaskLine(o.testTask), "");
   // --- identity and home: stable for a whole life
   L.push(`== YOU ==`);
   L.push(`${playerLabel(w, gd, me)}, ${isEve ? "an Eve (first of a family)" : `generation ${me.ancestors.length + 1}`}.`);

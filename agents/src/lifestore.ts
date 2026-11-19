@@ -324,6 +324,12 @@ export class LifeStore {
     return { lifeId: l?.lifeId ?? null, lineageId: l?.lineageId ?? null, traits: l?.traits ?? null, flower: l?.flower ?? null };
   }
 
+  /** Tester mode: the founding position of the family of the run's life with this player id (LifeBook.founderIndex), else null. */
+  founderIndexOf(runId: string, playerId: number): number | null {
+    const l = this.book.byRunPlayer(runId, playerId);
+    return l ? this.book.founderIndex(runId, l.lineageId) : null;
+  }
+
   /** Fields for PlayerView: our life (any run) with this player id that may be alive now. */
   playerFields(playerId: number) {
     const l = this.livingByPlayer(playerId);
