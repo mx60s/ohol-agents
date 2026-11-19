@@ -213,7 +213,13 @@ function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
         {L.resourceRadius} tiles; hand-pickable food nearby; dangerous animals in view.
       </>,
     ],
-    ["People", <>Up to {L.maxPeople} within {L.peopleRadius} tiles: id, name, sex, age, flower, relation (mother, child, sibling, family), what they hold, if they're carried, walking or hurt. Mothers: where each baby is. Where their children out of sight were last seen.</>],
+    [
+      "People",
+      <>
+        Up to {L.maxPeople} within {L.peopleRadius} tiles: sex, age, flower, relation (mother, child, sibling, family), what they hold, if they're carried, walking or hurt. Id and name only for people the
+        agent knows by name (see Names below); a stranger is "a woman, 30, with a red rose (name unknown to you)". Mothers: where each baby is. Where their children out of sight were last seen.
+      </>,
+    ],
     [
       "What you saw nearby",
       <>
@@ -528,6 +534,12 @@ function SpeechPanel({ spec }: { spec: AgentSpecResponse }) {
         <li>
           <b>Naming.</b> An Eve names herself and her family once: "I AM &lt;FIRST&gt; &lt;FAMILY&gt;". A mother holding her baby names it: "YOU ARE &lt;FIRST&gt;".
           {st.freeNames.value === "1" ? " Names are kept as spoken." : null}
+        </li>
+        <li>
+          <b>Names.</b> An agent knows by name only itself, its family, anyone whose naming or introduction ("I AM …", "MY NAME IS …") it heard in words it could understand, and anyone it gave
+          a name to in a "remember" note ("the woman with the red rose is LIRA"; shown as its own name for them until it hears the real one). Everyone else appears without a number or name,
+          described by what is visible, and is acted on by where they stand ("x","y"). A Fresh Grave says whose body it holds by the same rules. This page and the stream show everyone's true
+          names.
         </li>
         <li>
           <b>Flowers.</b> Everyone wears a flower in their hair, unique among the living members of their family, so siblings can be told apart.

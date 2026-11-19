@@ -54,6 +54,12 @@ STAGE="$(mktemp -d "$ARCHIVE_DIR/.stage.XXXXXX")"
 cleanup() { rm -rf "$STAGE" "$LOCK"; }
 trap cleanup EXIT
 
+# --- OHOL_DEST: write backups to this local folder instead (e.g. ~/ohol-archive/backups, synced to
+# Drive by Google Drive for desktop's "Folders from your computer"); no Full Disk Access needed
+if [ -n "${OHOL_DEST:-}" ]; then
+  DEST="$OHOL_DEST"
+  mkdir -p "$DEST" || die "can't create $DEST"
+else
 # --- Google Drive must be there and online
 if [ -z "${OHOL_DRIVE_DIR:-}" ]; then
   shopt -s nullglob
@@ -81,6 +87,7 @@ DEST="$OHOL_DRIVE_DIR/ohol-archive/backups"
 mkdir -p "$DEST" 2>/dev/null || die "can't create ohol-archive/backups in your Google Drive (offline?)"
 probe="$DEST/.write-test.$$"
 { : > "$probe" && rm -f "$probe"; } 2>/dev/null || die "Google Drive folder is not writable (offline?)"
+fi
 
 [ -x "$FLY" ] || die "fly CLI not found (set FLY=/path/to/fly)"
 

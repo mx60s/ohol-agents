@@ -3,7 +3,7 @@
 
 import { Connection } from "../protocol/connection.ts";
 import { parseMessage } from "../protocol/messages.ts";
-import { World, homesickNotice, type SeenEvent, type TriedNothing } from "../game/world.ts";
+import { World, GraveBook, homesickNotice, type SeenEvent, type TriedNothing } from "../game/world.ts";
 import { Body } from "../game/body.ts";
 import type { GameData } from "../game/gameData.ts";
 import type { Config } from "../config.ts";
@@ -11,7 +11,8 @@ import type { EventLog } from "../events.ts";
 import type { AgentView } from "../api-types.ts";
 import { Llm, llmLogFields, type ChatMessage, type ChatOptions, type LlmResult } from "./llm.ts";
 import { YearMemory, summaryMaxTokens } from "./memory.ts";
-import { buildObservation, seenText } from "./observe.ts";
+import { buildObservation, seenText, thingName } from "./observe.ts";
+import { Acquaintances, PeopleView, knownNamesPath, rememberedName } from "./people.ts";
 import { foodBonusOf, systemPromptFor } from "./prompt.ts";
 import { firstNameKey, mergeSurnames, namingSayAfterStep, reviewSpeech, surnameOf, type NamingContext } from "./naming.ts";
 import { parseReply, parseRemember, checkActions, sanitizeAction, type Action } from "./reply.ts";
@@ -46,8 +47,21 @@ function plannerFor(gd: GameData): CraftPlanner {
 }
 
 /** A new WHAT YOU SAW NEARBY line as it goes to the note-taker's transcript (an animal's every step does not: null). */
-export function seenForNotes(world: World, gd: GameData, e: SeenEvent): string | null {
-  return e.kind === "animal_move" ? null : seenText(world, gd, e);
+export function seenForNotes(world: World, gd: GameData, e: SeenEvent, pv?: PeopleView): string | null {
+  return e.kind === "animal_move" ? null : seenText(world, gd, e, pv);
+}
+
+/**
+ * The person a person-targeted action means by "x","y": whoever stands on that tile or nearest
+ * to it within 1 tile (now, else where the model saw them when it looked). null = nobody there.
+ */
+export function personAt(w: World, x: number, y: number, seen?: Map<number, [number, number]> | null): number | null {
+  const d = (a: [number, number]) => Math.max(Math.abs(a[0] - x), Math.abs(a[1] - y));
+  const pick = (cands: { id: number; d: number }[]) => (cands.length ? cands.sort((a, b) => a.d - b.d || a.id - b.id)[0].id : null);
+  const others = [...w.players.values()].filter((p) => p.id !== w.selfId);
+  const now = pick(others.map((p) => ({ id: p.id, d: d(w.posOf(p)) })).filter((c) => c.d <= 1));
+  if (now != null || !seen) return now;
+  return pick(others.flatMap((p) => (seen.has(p.id) ? [{ id: p.id, d: d(seen.get(p.id)!) }] : [])).filter((c) => c.d <= 1));
 }
 
 /** Optional hooks from Population (see logins.ts). */
@@ -80,6 +94,8 @@ export interface AgentHooks {
   triedNothing?(from: Agent, t: TriedNothing): void;
   /** we put an item down next to another player (give): tell them, if they're one of ours */
   gave?(from: Agent, toPlayerId: number, item: string, at: [number, number]): void;
+  /** fresh graves and whose body each is, shared by the agents of this world (world.ts GraveBook) */
+  graves?: GraveBook;
 }
 
 /** A decision waiting for the act window (turn clock): the parsed reply, or the starving reflex. */
@@ -211,6 +227,12 @@ export class Agent implements TurnAgent<TurnPlan> {
   private seen: Seen | null = null;
   /** counts lives (logins); the turn coordinator ignores work left over from an earlier one */
   private lifeSeq = 0;
+  /** whom this character knows by name (people.ts), saved per agent for the current life */
+  readonly acq: Acquaintances;
+  /** false while a login hasn't settled which life this is (nothing is learned into the wrong one) */
+  private acqLive = false;
+  /** graves when no shared book is given (tests, tools) */
+  private ownGraves = new GraveBook();
   private get clock() {
     return turnClock(this.cfg);
   }
@@ -225,6 +247,7 @@ export class Agent implements TurnAgent<TurnPlan> {
     private hooks: AgentHooks = {},
   ) {
     const clock = turnClock(cfg);
+    this.acq = new Acquaintances(cfg.logDir && cfg.runId ? knownNamesPath(cfg.logDir, cfg.runId, id) : null);
     this.mem = new YearMemory({
       everyTurns: Math.max(1, Math.floor(cfg.memorySummaryTurns ?? 25)),
       lockstep: !!clock.lockstep,
@@ -280,6 +303,16 @@ export class Agent implements TurnAgent<TurnPlan> {
     return this.world?.self?.name ?? null;
   }
 
+  /** how this character sees people right now (its name rules; people.ts) */
+  people(world: World | null = this.world): PeopleView | undefined {
+    return world ? new PeopleView(world, this.gd, this.acq, this.hooks.flowerOf) : undefined;
+  }
+
+  /** someone as this character would mention them ("#7 AURORA", or a stranger's description) */
+  personRef(playerId: number, fallback = "someone"): string {
+    return this.people()?.ref(playerId, fallback) ?? fallback;
+  }
+
   /** emit an event attributed to this agent's current character */
   emit(kind: Parameters<EventLog["emitEvent"]>[0], text: string, data?: Record<string, unknown>) {
     this.ev(kind, text, data);
@@ -309,21 +342,24 @@ export class Agent implements TurnAgent<TurnPlan> {
           // a game notice is what the game says; speech and writing are claims (kept apart in the summary)
           if (h.notice) this.mem.notice(`"${h.text}"`);
           else {
-            const name = h.speakerId != null ? world.names.get(h.speakerId) ?? world.players.get(h.speakerId)?.name : null;
-            const who = h.speakerId != null ? `#${h.speakerId}${name ? ` ${name}` : ""}` : `written words at (${h.x}, ${h.y})`;
-            this.mem.heard(`${who}${h.speakerId != null ? " said" : ""}: "${h.text}"`);
+            const pv = this.people(world)!;
+            const sp = h.speakerId != null ? world.players.get(h.speakerId) : undefined;
+            const who = h.speakerId != null ? (sp ? pv.label(sp) : pv.ref(h.speakerId)) : `written words at (${h.x}, ${h.y})`;
+            this.mem.heard(`${who}${h.speakerId != null ? " said" : ""}: "${pv.tags(h.text)}"`);
           }
-          this.noteSalient(speechEvent(world, h));
+          this.noteSalient(speechEvent(world, h, Date.now(), this.refIn(world)));
         }
       },
-      onPlayerDied: (p) => this.noteSalient(deathEvent(world, p)),
+      onPlayerDied: (p) => this.noteSalient(deathEvent(world, p, Date.now(), this.refIn(world))),
       onCue: (word, wasHomesick) => this.felt(world, word, wasHomesick),
       // what was seen nearby goes to the note-taker's transcript (an animal's every step does not)
       onSeen: (e) => {
-        const line = seenForNotes(world, gd, e);
+        const line = seenForNotes(world, gd, e, this.people(world));
         if (line) this.mem.saw(line);
       },
     }, turns ? () => turns.now() : undefined);
+    world.graveBook = this.hooks.graves ?? this.ownGraves;
+    this.acqLive = false;
     this.pending = [];
     this.lastSnap = null;
     this.knownKids = new Set();
@@ -347,6 +383,9 @@ export class Agent implements TurnAgent<TurnPlan> {
     this.conn = conn;
     this.body = new Body(conn, world, gd);
     this.body.interrupt = () => this.urgentSinceActionStart();
+    // results name people (and graves) as this character knows them
+    this.body.who = (id, fallback) => this.people(world)!.ref(id, fallback ?? `#${id}`);
+    this.body.tileName = (x, y) => thingName(world, gd, this.people(world)!, x, y);
     // where people walk (docs/data-format.md, positions.jsonl)
     this.body.onWalk = (from, to) => this.log.write("positions.jsonl", { t: Date.now(), kind: "walk", id: world.selfId, from, to });
 
@@ -364,6 +403,11 @@ export class Agent implements TurnAgent<TurnPlan> {
     const resumed = hinted === undefined ? (sameAsBefore ? { lifeIndex: this.lifeIndex } : null) : hinted;
     this.lastPlayerId = me.id;
     this.lastDied = false;
+    // whom this character knows: kept across a same-process reconnect, reloaded after a restart, empty for a new life
+    if (!resumed) this.acq.reset(me.id);
+    else if (!(sameAsBefore && this.acq.playerId === me.id)) this.acq.restore(me.id);
+    this.acqLive = true;
+    this.acq.sync(world);
     if (resumed) {
       this.lifeIndex = resumed.lifeIndex ?? Math.max(1, this.lifeIndex);
       this.status = "alive";
@@ -480,8 +524,9 @@ export class Agent implements TurnAgent<TurnPlan> {
   private checkWorld(w: World) {
     const me = w.self;
     if (!me) return;
+    if (this.acqLive) this.acq.sync(w);
     const snap = snapshot(w);
-    for (const e of bodyEvents(this.lastSnap, snap, w)) this.noteSalient(e);
+    for (const e of bodyEvents(this.lastSnap, snap, w, Date.now(), this.refIn(w))) this.noteSalient(e);
     this.lastSnap = snap;
     for (const p of w.players.values()) {
       if (p.ancestors[0] !== me.id || this.knownKids.has(p.id)) continue;
@@ -612,6 +657,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       flowerOf: this.hooks.flowerOf,
       speechScrambled: this.hooks.speechScrambled,
       takenSurnames: me.ancestors.length === 0 && !me.name ? this.takenSurnames() : undefined,
+      people: this.acq,
     });
     if (alerts.length) obs += `\n\n== JUST HAPPENED ==\n${[...new Set(alerts)].map((a) => `- ${a}`).join("\n")}`;
     const obsBuiltAt = Date.now(); // turn timing for calibration: observation built -> action dispatched
@@ -662,7 +708,11 @@ export class Agent implements TurnAgent<TurnPlan> {
     // "remember": kept for the next yearly notes; only this history line shows it (no pending list in the observation)
     const remember = parseRemember(reply);
     if (remember) {
-      const result = !this.cfg.memorySummary ? "not kept: notes are off" : this.mem.remember(remember) ? "kept for your next notes" : "not kept: no words to keep";
+      let result = !this.cfg.memorySummary ? "not kept: notes are off" : this.mem.remember(remember) ? "kept for your next notes" : "not kept: no words to keep";
+      // a name stated for someone in view ("the woman with the red rose is LIRA"): this character's own name for them
+      const pv = this.people();
+      const named = pv ? rememberedName(remember, pv) : null;
+      if (named && this.acq.learn(named.id, named.name, true)) result += `; you'll know ${named.who} as ${named.name}`;
       this.record(`remember "${remember}"`, result, false);
       this.ev("action", `remember "${remember}" -> ${result}`, { remember });
     }
@@ -776,13 +826,17 @@ export class Agent implements TurnAgent<TurnPlan> {
     while (Date.now() - t0 < FOLLOW_WAIT_MS && w.leaders.get(myId) === before) await sleep(50);
     const l = w.leaders.get(myId);
     if (l == null || l === before) return "";
+    // a stranger: as they look (no #id or name)
+    if (!this.acq.knows(w, l)) return `; you now follow ${this.personRef(l)}`;
     const p = w.players.get(l);
     const name = p?.name ?? w.names.get(l);
     const lin = p ?? w.lineage.get(l);
     const me = w.self;
     const rel = !lin || !me ? "" : lin.ancestors[0] === myId ? (p && w.currentAge(p) < 3 ? ", your baby" : ", your child") : me.ancestors[0] === l ? ", your mother" : "";
     const age = p ? `, age ${Math.floor(w.currentAge(p))}` : "";
-    return `; you now follow #${l}${name ? ` ${name}` : ""}${age || rel ? ` (${(age + rel).slice(2)})` : ""}`;
+    const own = this.acq.names.get(l);
+    const shown = own?.own ? `${own.name} (as you know ${p?.female ? "her" : p?.female === false ? "him" : "them"})` : name;
+    return `; you now follow #${l}${shown ? ` ${shown}` : ""}${age || rel ? ` (${(age + rel).slice(2)})` : ""}`;
   }
   private lastSayAt = 0;
   /** this reply's top-level "say" was spoken (a say-only reply records "spoke", not "did nothing") */
@@ -844,12 +898,12 @@ export class Agent implements TurnAgent<TurnPlan> {
   // position and held item before/after an action, for the per-life activity tally (lives.ts)
   private actionContext(): { from: [number, number] | null; heldBefore: string | null } {
     const me = this.world?.self;
-    return { from: me ? this.world!.posOf(me) : null, heldBefore: me ? this.body?.heldName() ?? null : null };
+    return { from: me ? this.world!.posOf(me) : null, heldBefore: me ? this.body?.heldName(true) ?? null : null };
   }
 
   private actionData(before: { from: [number, number] | null; heldBefore: string | null }) {
     const me = this.world?.self;
-    return { ...before, to: me ? this.world!.posOf(me) : null, heldAfter: me ? this.body?.heldName() ?? null : null };
+    return { ...before, to: me ? this.world!.posOf(me) : null, heldAfter: me ? this.body?.heldName(true) ?? null : null };
   }
 
   /** an action and its result for the history; also the note-taker's transcript unless transcript is false */
@@ -904,19 +958,22 @@ export class Agent implements TurnAgent<TurnPlan> {
         }
         case "undress":
           return await b.undress(Number(a.slot ?? 1));
-        case "pick_up_baby":
-          if (!a.person) return "need person id";
-          return await b.pickUpBaby(Number(a.person));
+        case "pick_up_baby": {
+          const who = this.targetPerson(a, hasXY, x, y);
+          return typeof who === "string" ? who : await b.pickUpBaby(who);
+        }
         case "give": {
-          if (!a.person) return "need person id";
-          const g = await b.give(Number(a.person));
-          if (g.at && g.item) this.hooks.gave?.(this, Number(a.person), g.item, g.at);
+          const who = this.targetPerson(a, hasXY, x, y);
+          if (typeof who === "string") return who;
+          const g = await b.give(who);
+          if (g.at && g.item) this.hooks.gave?.(this, who, g.item, g.at);
           return g.text;
         }
         case "feed":
-        case "use_on_person":
-          if (!a.person) return "need person id";
-          return await b.useOnPerson(Number(a.person));
+        case "use_on_person": {
+          const who = this.targetPerson(a, hasXY, x, y);
+          return typeof who === "string" ? who : await b.useOnPerson(who);
+        }
         case "jump":
           return b.jump();
         case "say":
@@ -960,6 +1017,18 @@ export class Agent implements TurnAgent<TurnPlan> {
     }
   }
 
+  /** a person-targeted action's person: "person":ID, or whoever stands at (or within 1 of) "x","y"; a string = why not */
+  private targetPerson(a: Action, hasXY: boolean, x: number, y: number): number | string {
+    if (a.person) return Number(a.person);
+    if (!hasXY) return `need "person":ID or "x","y" of where the person stands`;
+    return personAt(this.world!, x, y, this.seen?.people) ?? `nobody at or next to (${x},${y})`;
+  }
+
+  /** the salience/notes mention of a person by this character's name rules */
+  private refIn(world: World): (id: number) => string {
+    return (id) => this.people(world)!.ref(id);
+  }
+
   /** life/lineage/trait fields are added by Population from the LifeStore */
   view(): Omit<AgentView, "lifeId" | "lineageId" | "traits"> {
     const w = this.world;
@@ -978,7 +1047,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       food: alive ? w!.food : null,
       foodCapacity: alive ? w!.foodCapacity : null,
       heat: alive ? Math.round(w!.heat * 100) / 100 : null,
-      held: alive ? this.body!.heldName() : null,
+      held: alive ? this.body!.heldName(true) : null,
       motherId: alive ? me!.ancestors[0] ?? null : null,
       eveId: alive ? me!.eveId : null,
       generation: alive ? me!.ancestors.length + 1 : null,

@@ -72,6 +72,7 @@ export function actionList(o: PromptOptions): string {
     `{"type":"pick_up_baby","person":ID}  pick up and carry a baby or small child`,
     `{"type":"feed","person":ID}  use what you hold on another person: feed them (a baby only when starving), clothe them`,
     `{"type":"give","person":ID}  put what you hold down next to another person for them to pick up`,
+    `For pick_up_baby, feed and give, the person is "person":ID or "x":X,"y":Y of where they stand.`,
     `{"type":"jump"}  as a baby: wriggle out of someone's arms`,
     `{"type":"wait","turns":N}  do nothing for 1-4 turns; you are woken early if something important happens`,
     `{"type":"search","what":"<thing>"}  look up how a thing is made, step by step (the game's hint search)`,

@@ -16,6 +16,8 @@
   </array>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>OHOL_DEST</key>
+    <string>__HOME__/ohol-archive/backups</string>
     <key>PATH</key>
     <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>HOME</key>

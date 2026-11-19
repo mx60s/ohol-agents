@@ -18,6 +18,10 @@ export interface BodySnapshot {
   carrierId: number | null;
 }
 
+/** how a person is mentioned (Agent passes its name rules, people.ts PeopleView.ref); default "#id" */
+export type PersonRef = (id: number) => string;
+const byId: PersonRef = (id) => `#${id}`;
+
 const BABY_AGE = 3;
 const HEAR_RADIUS = 10;
 
@@ -37,7 +41,7 @@ function bands(cap: number, baby: boolean): { at: number; label: string; urgent:
 }
 
 /** Body changes since the last snapshot: food thresholds crossed, being picked up or put down. */
-export function bodyEvents(prev: BodySnapshot | null, cur: BodySnapshot | null, w: World, now = Date.now()): Salient[] {
+export function bodyEvents(prev: BodySnapshot | null, cur: BodySnapshot | null, w: World, now = Date.now(), ref: PersonRef = byId): Salient[] {
   if (!prev || !cur) return [];
   const out: Salient[] = [];
   const me = w.self;
@@ -49,8 +53,8 @@ export function bodyEvents(prev: BodySnapshot | null, cur: BodySnapshot | null, 
     if (hit) out.push({ reason: `${hit.label} (${cur.food}/${cur.cap})`, urgent: hit.urgent, t: now });
   }
   if (prev.carrierId !== cur.carrierId) {
-    if (cur.carrierId != null) out.push({ reason: `#${cur.carrierId} picked you up`, urgent: baby, t: now });
-    else out.push({ reason: `#${prev.carrierId} put you down`, urgent: baby, t: now });
+    if (cur.carrierId != null) out.push({ reason: `${ref(cur.carrierId)} picked you up`, urgent: baby, t: now });
+    else out.push({ reason: `${ref(prev.carrierId!)} put you down`, urgent: baby, t: now });
   }
   return out;
 }
@@ -60,7 +64,7 @@ function isHungryBabyCry(text: string): boolean {
 }
 
 /** Speech worth waking for; null = not salient. */
-export function speechEvent(w: World, h: Heard, now = Date.now()): Salient | null {
+export function speechEvent(w: World, h: Heard, now = Date.now(), ref: PersonRef = byId): Salient | null {
   const me = w.self;
   if (!me || h.speakerId == null || h.speakerId === me.id) return null;
   const sp = w.players.get(h.speakerId);
@@ -72,7 +76,7 @@ export function speechEvent(w: World, h: Heard, now = Date.now()): Salient | nul
   const mine = !!sp && sp.ancestors[0] === me.id;
   if (spBaby && isHungryBabyCry(h.text)) {
     if (mine) return { reason: `your baby #${sp!.id} says "${h.text}" (hungry; holding it nurses it)`, urgent: true, t: now };
-    if (!iAmBaby && d <= HEAR_RADIUS) return { reason: `baby #${h.speakerId} says "${h.text}" (hungry) ${d} tiles away`, urgent: false, t: now };
+    if (!iAmBaby && d <= HEAR_RADIUS) return { reason: `${babyRef(ref, h.speakerId)} says "${h.text}" (hungry) ${d} tiles away`, urgent: false, t: now };
     return null;
   }
   const first = me.name?.split(" ")[0];
@@ -80,11 +84,11 @@ export function speechEvent(w: World, h: Heard, now = Date.now()): Salient | nul
   if (iAmBaby) {
     // a baby only cares about its mother (or carrier) and its own name
     const carrier = w.carrierOf(me);
-    if (named || me.ancestors[0] === h.speakerId || carrier?.id === h.speakerId) return { reason: `#${h.speakerId} spoke to you`, urgent: false, t: now };
+    if (named || me.ancestors[0] === h.speakerId || carrier?.id === h.speakerId) return { reason: `${ref(h.speakerId)} spoke to you`, urgent: false, t: now };
     return null;
   }
-  if (named) return { reason: `#${h.speakerId} said your name`, urgent: false, t: now };
-  if (d <= HEAR_RADIUS && !spBaby) return { reason: `#${h.speakerId} spoke nearby`, urgent: false, t: now };
+  if (named) return { reason: `${ref(h.speakerId)} said your name`, urgent: false, t: now };
+  if (d <= HEAR_RADIUS && !spBaby) return { reason: `${ref(h.speakerId)} spoke nearby`, urgent: false, t: now };
   return null;
 }
 
@@ -93,11 +97,17 @@ export function birthEvent(w: World, p: Player, now = Date.now()): Salient | nul
   return null;
 }
 
-export function deathEvent(w: World, p: Player, now = Date.now()): Salient | null {
+export function deathEvent(w: World, p: Player, now = Date.now(), ref: PersonRef = (id) => `#${id}${p.name ? ` ${p.name}` : ""}`): Salient | null {
   const me = w.self;
   if (!me) return null;
   const d = Math.max(Math.abs(p.x - me.x), Math.abs(p.y - me.y));
   if (d > HEAR_RADIUS + 6) return null;
   const close = p.ancestors[0] === me.id || me.ancestors[0] === p.id;
-  return { reason: `#${p.id}${p.name ? ` ${p.name}` : ""} died ${d} tiles away`, urgent: close, t: now };
+  return { reason: `${ref(p.id)} died ${d} tiles away`, urgent: close, t: now };
+}
+
+/** "baby #7" for someone known; a stranger's description already says "a baby girl" */
+function babyRef(ref: PersonRef, id: number): string {
+  const r = ref(id);
+  return r.startsWith("#") ? `baby ${r}` : r;
 }

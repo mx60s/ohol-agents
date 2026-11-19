@@ -28,6 +28,7 @@ const FAIL: RegExp[] = [
   /not holding anything/i,
   /hands are full/i,
   /^need /i,
+  /^nobody at /i,
   /^unknown action/i,
   /^error/i,
   /isn't nearby|person #\d+ left/i,

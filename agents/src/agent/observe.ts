@@ -11,6 +11,7 @@ import { sayLimit } from "../game/body.ts";
 import { takenList } from "./naming.ts";
 import { NOTE_HEADINGS } from "./memory.ts";
 import { turnsAgo, turnsForWall, turnsText, turnsTextWall, type TurnClock } from "./turns.ts";
+import { ageText, playerLabel, PeopleView, type Acquaintances } from "./people.ts";
 
 export const BIOMES: Record<number, string> = {
   0: "grassland", 1: "swamp", 2: "yellow prairie", 3: "badlands", 4: "snowy tundra", 5: "desert", 6: "jungle",
@@ -69,6 +70,11 @@ export interface ObservationOptions {
   speechScrambled?: (speakerId: number, text: string) => boolean | null;
   /** label of the flower a player wears in their hair ("blue daisy"), if known (per-person flowers, see README) */
   flowerOf?: (playerId: number) => string | null;
+  /**
+   * Whom this character knows by name (people.ts): strangers are shown without #id or name.
+   * Absent: everyone is shown with #id and name (tools and older tests).
+   */
+  people?: Acquaintances | null;
 }
 
 const DEFAULT_CLOCK: TurnClock = { cycleMs: 8000, timeScale: 1 };
@@ -83,22 +89,7 @@ export const SEEN_TURNS = 5;
 export const SEEN_SHOWN = 20;
 const shownMs = (wallMs: number, clock: TurnClock) => (clock.lockstep ? Math.round(wallMs / DEFAULT_CLOCK.cycleMs) * clock.cycleMs : wallMs);
 
-/**
- * An age as shown: one decimal under 3 (else whole years), rounded down so a label never passes a
- * threshold early ("baby girl, 2.9", not "baby girl, 3.0"; "girl, 13", not "girl, 14").
- */
-export function ageText(age: number, decimals = age < 3 ? 1 : 0): string {
-  const f = 10 ** decimals;
-  return (Math.floor(age * f + 1e-9) / f).toFixed(decimals);
-}
-
-export function playerLabel(w: World, gd: GameData, p: Player, flower?: string | null): string {
-  const age = w.currentAge(p);
-  const sex = p.female == null ? "person" : age < 3 ? (p.female ? "baby girl" : "baby boy") : age < 14 ? (p.female ? "girl" : "boy") : p.female ? "woman" : "man";
-  // no name: say so inside the parentheses; a bare "unnamed" in name position got copied as a name ("I AM UNNAMED THORN")
-  const name = p.name ? `${p.name} ` : "";
-  return `#${p.id} ${name}(${p.name ? "" : "no name, "}${sex}, ${ageText(age)}${flower ? `, ${flower}` : ""})`;
-}
+export { ageText, playerLabel };
 
 export { withArticle };
 
@@ -165,12 +156,12 @@ function nursedBy(w: World, p: Player): Player | null {
 }
 
 /** The food line: "Food: 9/20, hungry. 1 pip per ~1 turn (cold); lasts about 9 turns." */
-export function foodLine(w: World, clock: TurnClock): string {
+export function foodLine(w: World, clock: TurnClock, pv?: PeopleView): string {
   const me = w.self!;
   const baby = w.currentAge(me) < 3;
   const label = w.food <= (baby ? 2 : 3) ? (baby ? ", STARVING - say F so a woman picks you up" : ", STARVING - EAT NOW") : w.food <= w.foodCapacity * 0.4 ? ", hungry" : "";
   const nurse = nursedBy(w, me);
-  if (nurse && w.currentAge(me) < 3) return `Food: ${w.food}/${w.foodCapacity}${label}. You are being nursed by #${nurse.id}: your food doesn't drain while she holds you.`;
+  if (nurse && w.currentAge(me) < 3) return `Food: ${w.food}/${w.foodCapacity}${label}. You are being nursed by ${pv ? pv.ref(nurse.id) : `#${nurse.id}`}: your food doesn't drain while she holds you.`;
   // right after birth the server hasn't sent our drain time yet; don't guess optimistically
   if (!(w.foodTime > 0)) return `Food: ${w.food}/${w.foodCapacity}${label}. Drain rate not known yet.`;
   // all wall seconds: the server already applied TIME_SCALE (don't scale again)
@@ -200,6 +191,8 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   const pos = w.posOf(me);
   const here = w.cell(pos[0], pos[1]);
   const isEve = me.ancestors.length === 0;
+  // how this character sees people: strangers without #id or name (people.ts)
+  const pv = new PeopleView(w, gd, o.people ?? null, o.flowerOf);
 
   // --- identity and home: stable for a whole life
   L.push(`== YOU ==`);
@@ -207,11 +200,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   const myFlower = o.flowerOf?.(me.id);
   if (myFlower) L.push(`You wear ${withArticle(myFlower)} in your hair.`);
   // leadership, as the client shows it with badges: who you follow and who follows you
-  const nameOf = (id: number) => {
-    const p = w.players.get(id);
-    const n = p?.name ?? w.names.get(id);
-    return `#${id}${n ? ` ${n}` : ""}`;
-  };
+  const nameOf = (id: number) => pv.ref(id);
   const myLeader = w.leaders.get(me.id);
   if (myLeader) L.push(`You follow ${nameOf(myLeader)}.`);
   const myFollowers = [...w.leaders].filter(([, l]) => l === me.id).map(([f]) => f);
@@ -225,14 +214,14 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   // --- body state
   if (age < 3) L.push(`You are a baby: you can't feed yourself or walk far, and can barely talk. A woman must carry you.`);
   const carrier = w.carrierOf(me);
-  L.push(`Age ${ageText(age, 1)} of at most 60. At (${pos[0]}, ${pos[1]})${carrier ? `, carried by #${carrier.id}` : ""}, ${here ? BIOMES[here.biome] ?? `biome ${here.biome}` : "unknown biome"}${here && here.floor ? `, on ${gd.name(here.floor)}` : ""}.`);
-  L.push(foodLine(w, clock));
+  L.push(`Age ${ageText(age, 1)} of at most 60. At (${pos[0]}, ${pos[1]})${carrier ? `, carried by ${pv.ref(carrier.id)}` : ""}, ${here ? BIOMES[here.biome] ?? `biome ${here.biome}` : "unknown biome"}${here && here.floor ? `, on ${gd.name(here.floor)}` : ""}.`);
+  L.push(foodLine(w, clock, pv));
   L.push(`Heat ${w.heat.toFixed(2)} (0.5 ideal; ${w.heat < 0.35 ? "too cold" : w.heat > 0.65 ? "too hot" : "ok"}).`);
   const worn = me.clothing.map((c, i) => (c.id ? `${["hat", "tunic", "front shoe", "back shoe", "bottom", "backpack"][i]}: ${gd.describeStack(c)}` : null)).filter(Boolean);
   const cond = conditionLine(w, gd, me, clock);
   if (cond) L.push(cond);
   const heldTimer = me.held.id > 0 && w.heldSince && !gd.condition(me.held.id) ? decayTimer(gd, me.held.id, w.heldSince, now, clock) : null;
-  L.push(`Holding: ${heldText(w, gd, me)}${heldTimer ? ` (${heldTimer})` : ""}. Wearing: ${worn.length ? worn.join(", ") : "nothing"}.`);
+  L.push(`Holding: ${heldText(w, gd, me, pv)}${heldTimer ? ` (${heldTimer})` : ""}. Wearing: ${worn.length ? worn.join(", ") : "nothing"}.`);
   // your own baby in your arms without a name: ask for it (the user's rule: mothers name their babies)
   // your own nameless baby in your arms or within 3 tiles: ask for the name (naming works held or nearby)
   const unnamedOwn = [...w.players.values()].find((b) => b.id !== me.id && !b.name && !w.names.get(b.id) && b.ancestors[0] === me.id && (me.held.id === -b.id || dist(w.posOf(me, now), w.posOf(b, now)) <= 3));
@@ -241,7 +230,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   if (age < 20) L.push(`Speech: at your age you can say at most ${sayLimit(age)} letters.`);
   if (w.craving) L.push(`Craving: ${gd.name(w.craving)} (bonus food if eaten).`);
   const under = w.objAt(pos[0], pos[1]);
-  if (under.id) L.push(`Under you: ${gd.describeStack(under)}.`);
+  if (under.id) L.push(`Under you: ${thingName(w, gd, pv, pos[0], pos[1])}.`);
 
   // --- resources: water, warmth, food
   L.push(...resourceLines(w, gd, pos, o.foodSources ?? [], now, clock));
@@ -256,17 +245,17 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   if (!people.length) L.push(`Nobody in sight.`);
   for (const p of people.slice(0, 10)) {
     const rel = relation(w, p);
-    const held = p.held.id && !gd.condition(p.held.id) ? `, holding ${heldText(w, gd, p)}` : "";
+    const held = p.held.id && !gd.condition(p.held.id) ? `, holding ${heldText(w, gd, p, pv)}` : "";
     const by = w.carrierOf(p);
     const pp = w.posOf(p, now);
-    L.push(`- ${playerLabel(w, gd, p, o.flowerOf?.(p.id))}${rel ? ` [${rel}]` : ""} at (${pp[0]}, ${pp[1]}), ${dist(pos, pp)} away${held}${by ? `, carried by #${by.id}` : w.isWalking(p, now) ? `, walking to (${p.x}, ${p.y})` : ""}${othersCondition(gd, p)}`);
+    L.push(`- ${pv.label(p, true)}${rel ? ` [${rel}]` : ""} at (${pp[0]}, ${pp[1]}), ${dist(pos, pp)} away${held}${by ? `, carried by ${pv.ref(by.id)}` : w.isWalking(p, now) ? `, walking to (${p.x}, ${p.y})` : ""}${othersCondition(gd, p)}`);
   }
   if (people.length > 10) L.push(`- ...and ${people.length - 10} more`);
   const myBabies = [...w.players.values()].filter((p) => p.ancestors[0] === me.id && w.currentAge(p) < 3);
   if (myBabies.length && me.female) {
     const parts = myBabies.map((b) => {
       const c = w.carrierOf(b);
-      return `#${b.id} ${c ? (c.id === me.id ? "in your arms" : `held by #${c.id}`) : `on the ground at (${w.posOf(b)[0]}, ${w.posOf(b)[1]})`}`;
+      return `#${b.id} ${c ? (c.id === me.id ? "in your arms" : `held by ${pv.ref(c.id)}`) : `on the ground at (${w.posOf(b)[0]}, ${w.posOf(b)[1]})`}`;
     });
     L.push(`Your babies: ${parts.join("; ")}. Unheld, a newborn dies within ~${turnsText(newbornWindowSeconds(o.foodBonusS ?? DEFAULT_FOOD_BONUS_S), clock).replace("about ", "")}; held by a woman aged 14-40, a baby is nursed and its food doesn't drain.`);
   }
@@ -286,7 +275,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   if (seen.length) {
     L.push(``);
     L.push(`== WHAT YOU SAW NEARBY ==`);
-    for (const e of seen) L.push(`- ${turnsAgo(e.t, now, clock)}: ${seenText(w, gd, e)}`);
+    for (const e of seen) L.push(`- ${turnsAgo(e.t, now, clock)}: ${seenText(w, gd, e, pv)}`);
   }
 
   // --- speech
@@ -302,9 +291,9 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
     const who = h.speakerId == null ? `written words at (${h.x}, ${h.y})` : h.speakerId === me.id ? "you" : (() => {
       const p = w.players.get(h.speakerId!);
       const other = p && relation(w, p) === "other family" && speechLooksScrambled(w, h.speakerId!, h.spoken ?? h.text, o.speechScrambled) ? " [other family: their language differs from yours]" : "";
-      return p ? `${playerLabel(w, gd, p)}${other}` : `#${h.speakerId}`;
+      return p ? `${pv.label(p)}${other}` : pv.ref(h.speakerId!);
     })();
-    L.push(`- ${turnsAgo(h.t, now, clock)}, ${who}: "${h.text}"`);
+    L.push(`- ${turnsAgo(h.t, now, clock)}, ${who}: "${pv.tags(h.text)}"`);
   }
 
   // --- things
@@ -315,7 +304,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
     for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++) {
       const c = w.cell(pos[0] + dx, pos[1] + dy);
       if (!c || !c.obj.id) continue;
-      const name = gd.describeStack(c.obj);
+      const name = thingName(w, gd, pv, pos[0] + dx, pos[1] + dy);
       const d = Math.max(Math.abs(dx), Math.abs(dy));
       const g = groups.get(name) ?? { d, pos: [] };
       g.d = Math.min(g.d, d);
@@ -370,24 +359,37 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
 }
 
 /** One WHAT YOU SAW NEARBY line: {0}, {1}... become the people as labelled elsewhere ("you" for ourselves). */
-export function seenText(w: World, gd: GameData, e: SeenEvent): string {
+export function seenText(w: World, gd: GameData, e: SeenEvent, pv: PeopleView = new PeopleView(w, gd)): string {
   const line = e.text.replace(/\{(\d+)\}/g, (_m, i: string) => {
     const p = e.people[Number(i)];
     if (!p) return "someone";
     if (p.id === w.selfId) return "you";
-    if (!("age" in p)) {
-      const n = w.names.get(p.id);
-      return `#${p.id}${n ? ` ${n}` : ""}`;
-    }
+    if (!("age" in p)) return pv.ref(p.id);
     const lin = w.players.get(p.id) ?? w.lineage.get(p.id);
     const q: Player = { ...p, name: w.names.get(p.id) ?? p.name, ancestors: lin?.ancestors ?? p.ancestors, eveId: lin?.eveId ?? p.eveId };
     const rel = relation(w, q);
-    return `${playerLabel(w, gd, q)}${rel ? ` [${rel}]` : ""}`;
+    // someone in view: as they look now (a stranger's description is unique among those in view)
+    const live = w.players.get(p.id);
+    return `${pv.label(live && !pv.known(p.id) ? live : q)}${rel ? ` [${rel}]` : ""}`;
   });
   const times = e.times && e.times > 1 ? ` (${e.times} times)` : "";
   const more = e.more ? ` (and ${e.more} more change${e.more === 1 ? "" : "s"} by them)` : "";
   const tries = e.moreTries ? ` (and ${e.moreTries} more tr${e.moreTries === 1 ? "y" : "ies"} by them that did nothing)` : "";
   return `${line}${times}${more}${tries}`;
+}
+
+/**
+ * The thing on a tile as listed: its name, and for a fresh grave whose body is known, whose it is
+ * ("Fresh Grave of your mother LIRA TIDEWICK"), by this character's name rules.
+ */
+export function thingName(w: World, gd: GameData, pv: PeopleView, x: number, y: number): string {
+  const obj = w.objAt(x, y);
+  const s = gd.describeStack(obj);
+  const e = gd.isFreshGrave(obj.id) ? w.graveBook.at(x, y) : undefined;
+  if (!e) return s;
+  const name = gd.name(obj.id);
+  const who = pv.deadLabel(e.person, relationTo(w, e.person.id, e.person.ancestors, e.person.eveId));
+  return s.startsWith(name) ? `${name} of ${who}${s.slice(name.length)}` : `${s} of ${who}`;
 }
 
 /** The notes as shown: heading lines ("What worked:") as they are, facts as "- fact". */
@@ -487,10 +489,11 @@ export function dangerLine(w: World, gd: GameData, pos: [number, number]): strin
   return `DANGER: ${list.join("; ")}${found.length > 4 ? ` (and ${found.length - 4} more)` : ""} (they move up to 4 tiles at a jump; a bite wounds).`;
 }
 
-function heldText(w: World, gd: GameData, p: Player): string {
+function heldText(w: World, gd: GameData, p: Player, pv: PeopleView): string {
   if (p.held.id < 0) {
     const b = w.players.get(-p.held.id);
-    return b ? `baby ${playerLabel(w, gd, b)}` : `baby #${-p.held.id}`;
+    if (!b) return pv.known(-p.held.id) ? `baby #${-p.held.id}` : "a baby";
+    return pv.known(b.id) ? `baby ${pv.label(b)}` : pv.label(b);
   }
   const c = gd.condition(p.held.id);
   if (c) return `nothing (hands taken by ${c.kind === "mark" ? "the" : "a"} ${c.kind === "mark" ? "" : `${c.kind}: `}${gd.name(p.held.id)})`;

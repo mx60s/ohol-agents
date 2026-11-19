@@ -83,7 +83,7 @@ export const REPLY_FIELDS: { name: string; meaning: string }[] = [
   { name: "thought", meaning: "one short sentence; shown back to it next turn as its previous thought (max 400 chars)" },
   { name: "goal", meaning: "optional: the long-term goal for this life (not this turn's step); kept and shown every turn with its age until it changes (max 200 chars)" },
   { name: "say", meaning: "optional; spoken aloud now, before the action; digits are removed; a baby naming line ('YOU ARE X') waits for a pick_up_baby in the same reply (max 200 chars, cut further by age)" },
-  { name: "remember", meaning: `optional: something to keep; handed to the note-taker, who includes it in the next yearly notes unless what happened shows it is wrong (up to ${REMEMBER_EXTRA_LINES} extra lines; max ${REMEMBER_CHARS} chars)` },
+  { name: "remember", meaning: `optional: something to keep; handed to the note-taker, who includes it in the next yearly notes unless what happened shows it is wrong (up to ${REMEMBER_EXTRA_LINES} extra lines; max ${REMEMBER_CHARS} chars). A name stated for one stranger in view ("the woman with the red rose is LIRA") becomes the agent's own name for them` },
   { name: "action", meaning: "one action object (see the table)" },
   { name: "actions", meaning: "instead of action: a list of steps run back to back" },
 ];
@@ -94,6 +94,9 @@ export const ACTION_NOTES: Record<string, string> = {
   drop: `refused if the tile is more than ${MAX_ACT_DIST} tiles away`,
   swap: `refused if the tile is more than ${MAX_ACT_DIST} tiles away`,
   take_out: `refused if the tile is more than ${MAX_ACT_DIST} tiles away`,
+  pick_up_baby: `or "x","y": the person on that tile or nearest to it within 1`,
+  feed: `or "x","y": the person on that tile or nearest to it within 1`,
+  give: `or "x","y": the person on that tile or nearest to it within 1`,
   search: `like the game client's hint search ("/fire"): matches whole words in object names, picks the cheapest recipe and lists it first step first (up to ${SEARCH_SHOWN} steps) in a SEARCH section shown every turn until the next search; takes no game time`,
 };
 
@@ -198,6 +201,8 @@ export function interventions(cfg: Config, s: AgentSpecSettings): AgentSpecInter
     { id: "danger", name: "Danger line", category: "human-ui", on: true, detail: `dangerous animals within ${L.viewRadius} tiles, with distance and direction; paths keep 4 tiles (a jump) away` },
     { id: "action-lists", name: "Action lists", category: "human-ui", on: cfg.actionListMax > 1, detail: `up to ${cfg.actionListMax} actions back to back, like quick clicks; stops at a failure or an event` },
     { id: "stale-check", name: "Stale-target check", category: "human-ui", on: true, detail: "a target that changed while the model was thinking is not acted on; the model is told" },
+    { id: "names", name: "Names only as heard", category: "human-ui", on: true, detail: "an agent knows by name itself, its family, anyone whose naming or introduction it heard (unscrambled), and anyone it gave a name to in a remember note (shown as its own name for them); everyone else is a stranger with no #number and no name, described by sex, age, flower and, for look-alikes, what they hold or where they stand; people without a #number are targeted by x,y. Saved per life across restarts. The site and stream show true names" },
+    { id: "graves", name: "Whose grave", category: "human-ui", on: true, detail: "a Fresh Grave says whose body it holds (from the server's grave message, or a death seen next to it; nothing when two deaths fit), by the same name rules, until it decays into a Grave (the client shows the name on hover)" },
     { id: "turns", name: "Durations in turns", category: "human-ui", on: true, detail: "every time is converted from game seconds into decision turns" },
     // like human experience or the wiki
     { id: "playbook", name: "Game facts and playbook in the prompt", category: "wiki", on: cfg.promptBaseline === "playbook", detail: "food values, cold, babies and nursing, camp priorities, naming phrases (PROMPT_BASELINE=playbook; the default new-player prompt has only what a first-time player knows, the controls and our rules)" },

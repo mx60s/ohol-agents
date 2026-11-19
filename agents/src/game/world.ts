@@ -7,6 +7,8 @@ import { withArticle, type Condition, type GameData } from "./gameData.ts";
 import { cleanText } from "../safety.ts";
 import { config } from "../config.ts";
 import { turnClock } from "../agent/turns.ts";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 /** names come from in-game speech; they reach the public API, the stream and prompts */
 const NAME_MAX = 60;
@@ -105,6 +107,107 @@ export interface SeenDeath {
   y: number;
   ancestors: number[];
   eveId: number | null;
+}
+
+/** Whose body a fresh grave is: the dead person as last seen (enough to describe them). */
+export interface DeadPerson {
+  id: number;
+  name: string | null;
+  female: boolean | null;
+  /** age at death; -1 = unknown (a grave the server told us of, of someone we didn't see die) */
+  age: number;
+  ancestors: number[];
+  eveId: number | null;
+  /** the flower they wore, if known */
+  flower?: string | null;
+}
+
+export interface GraveEntry {
+  x: number;
+  y: number;
+  /** wall ms when linked */
+  t: number;
+  person: DeadPerson;
+}
+
+/** fresh graves forgotten after this long (wall ms; a Fresh Grave decays in minutes), and at most this many kept */
+const GRAVE_KEEP_MS = 6 * 3600_000;
+const GRAVE_MAX = 1000;
+/** a death and a fresh grave this close (tiles) and this close in time (World.now ms) are the same body */
+export const GRAVE_LINK_TILES = 2;
+const GRAVE_LINK_MS = 10_000;
+
+/**
+ * Fresh graves and whose body each is (World links a death it saw to the grave the server
+ * put down at or next to that spot). The identity of a body is visible to anyone who sees it,
+ * so the agents of one world share one book (Population); the name shown still follows each
+ * viewer's name rules (people.ts). Saved to `file` on change when given.
+ */
+export class GraveBook {
+  private graves = new Map<string, GraveEntry>();
+  private loaded = false;
+  /** the flower a player wears (set by Population), noted with the death */
+  flowerOf?: (playerId: number) => string | null;
+
+  constructor(readonly file: string | null = null) {}
+
+  private load() {
+    if (this.loaded) return;
+    this.loaded = true;
+    if (!this.file) return;
+    try {
+      const arr = JSON.parse(readFileSync(this.file, "utf8")) as GraveEntry[];
+      for (const e of arr) if (e && Number.isFinite(e.x) && Number.isFinite(e.y) && e.person && Number.isFinite(e.person.id)) this.graves.set(`${e.x},${e.y}`, e);
+    } catch {
+      // none saved yet
+    }
+  }
+
+  private save() {
+    if (!this.file) return;
+    try {
+      mkdirSync(path.dirname(this.file), { recursive: true });
+      const tmp = `${this.file}.tmp`;
+      writeFileSync(tmp, JSON.stringify([...this.graves.values()]));
+      renameSync(tmp, this.file);
+    } catch (e) {
+      console.error("grave book save failed", e);
+    }
+  }
+
+  at(x: number, y: number): GraveEntry | undefined {
+    this.load();
+    return this.graves.get(`${x},${y}`);
+  }
+
+  /** the flower a dead person wore, if a grave of theirs is known */
+  flowerOfDead(id: number): string | null {
+    this.load();
+    for (const e of this.graves.values()) if (e.person.id === id) return e.person.flower ?? null;
+    return null;
+  }
+
+  link(x: number, y: number, person: DeadPerson, now = Date.now()) {
+    this.load();
+    const k = `${x},${y}`;
+    const cur = this.graves.get(k);
+    if (cur && cur.person.id === person.id) return;
+    this.graves.delete(k);
+    this.graves.set(k, { x, y, t: now, person: { ...person, flower: person.flower ?? this.flowerOf?.(person.id) ?? null } });
+    for (const [key, e] of this.graves) if (now - e.t > GRAVE_KEEP_MS || this.graves.size > GRAVE_MAX) this.graves.delete(key);
+    this.save();
+  }
+
+  /** the grave at x,y is gone or decayed */
+  forget(x: number, y: number) {
+    this.load();
+    if (this.graves.delete(`${x},${y}`)) this.save();
+  }
+
+  get size(): number {
+    this.load();
+    return this.graves.size;
+  }
 }
 
 /** tiles: things (and animals) this close are in view (the observation's THINGS radius) */
@@ -297,6 +400,11 @@ export class World {
   /** a dangerous animal's coalescing key, by the cell it is on */
   private animalKeys = new Map<string, string>();
   private animalSeq = 0;
+  /** fresh graves and whose body each is: shared by the agents of one world (Agent sets Population's) */
+  graveBook = new GraveBook();
+  /** deaths and new fresh graves seen in the last moments, not linked yet */
+  private pendingDeaths: { p: DeadPerson; x: number; y: number; t: number }[] = [];
+  private pendingGraves: { x: number; y: number; t: number }[] = [];
 
   /**
    * @param now the clock timestamps and extrapolation run on: wall time, or with
@@ -471,6 +579,7 @@ export class World {
           }
           this.trackPlacedHome(ch.x, ch.y, prev?.obj.id ?? 0, ch.obj.id, ch.responsibleId);
           this.seeMapChange(ch.x, ch.y, prev?.obj ?? null, ch.obj, by, ch.from ?? null);
+          if (!ch.from) this.trackGrave(ch.x, ch.y, prev?.obj.id ?? 0, ch.obj.id, now);
           this.ev.onMapChange?.(ch.x, ch.y, prev?.obj ?? null, ch.obj, ch.responsibleId);
         }
         break;
@@ -584,6 +693,10 @@ export class World {
           const p = this.players.get(id);
           if (p) p.dying = false;
         }
+        break;
+      case "GV":
+        // the server says whose body a new grave holds (the client keeps it for the grave's hover label)
+        for (const g of m.graves) this.graveOf(g.x, g.y, g.id, now);
         break;
       case "CR":
         this.craving = m.craving.foodId;
@@ -723,6 +836,9 @@ export class World {
         const [dx, dy] = this.posOf(p);
         this.deaths.push({ t: now, id: p.id, name: p.name ?? this.names.get(p.id) ?? null, female: p.female, age: this.currentAge(p), x: dx, y: dy, ancestors: p.ancestors, eveId: p.eveId });
         if (this.deaths.length > 20) this.deaths.shift();
+        const d = this.deaths[this.deaths.length - 1];
+        this.pendingDeaths.push({ p: { id: d.id, name: d.name, female: d.female, age: d.age, ancestors: [...d.ancestors], eveId: d.eveId }, x: dx, y: dy, t: now });
+        this.linkGraves(now);
         this.inView?.delete(p.id);
         if (this.inSight([dx, dy], PEOPLE_RADIUS)) {
           const cause = deathCause(this.gd, reason);
@@ -940,17 +1056,25 @@ export class World {
     if (!(by > 0) || by === this.selfId || from) return;
     if (!this.inSight([x, y], VIEW_RADIUS)) return;
     const actor = this.players.get(by);
-    const people = [actor ? this.snap(actor) : { id: by }];
+    const people: SeenEvent["people"] = [actor ? this.snap(actor) : { id: by }];
     const at = `(${x}, ${y})`;
     const n = (id: number) => withArticle(gd.name(id));
+    // a fresh grave whose body is known: "a Fresh Grave of {1}" (each viewer sees the name by its own rules)
+    const grave = (id: number) => {
+      const e = gd.isFreshGrave?.(id) ? this.graveBook.at(x, y) : undefined;
+      // (someone we never saw: too little to describe them in a line)
+      if (!e || e.person.age < 0) return "";
+      people.push(deadAsPlayer(e.person));
+      return ` of {${people.length - 1}}`;
+    };
     let text: string | null = null;
     if (!a && b) text = `put down ${n(b)} at ${at}`;
-    else if (a && !b) text = `picked up ${n(a)} from ${at}`;
+    else if (a && !b) text = `picked up ${n(a)}${grave(a)} from ${at}`;
     else if (a && b && a !== b && gd.name(a) !== gd.name(b)) {
       const hb = this.heldBefore.get(by);
       const held = hb && this.now() - hb.t <= 1000 ? hb.id : actor?.held.id ?? 0;
       const tool = held > 0 && !gd.condition?.(held) ? n(held) : null;
-      text = `used ${tool ?? "bare hands"} on ${n(a)} at ${at}: it became ${gd.name(b)}`;
+      text = `used ${tool ?? "bare hands"} on ${n(a)}${grave(a)} at ${at}: it became ${gd.name(b)}`;
     } else if (a && a === b && before) {
       const count = (s: ObjStack) => {
         const m = new Map<number, number>();
@@ -960,10 +1084,66 @@ export class World {
       const was = count(before), now = count(after);
       const added = [...now].find(([id, k]) => k > (was.get(id) ?? 0))?.[0];
       const removed = [...was].find(([id, k]) => k > (now.get(id) ?? 0))?.[0];
-      if (added && added > 0) text = `put ${n(added)} into ${n(a)} at ${at}`;
-      else if (removed && removed > 0) text = `took ${n(removed)} out of ${n(a)} at ${at}`;
+      if (added && added > 0) text = `put ${n(added)} into ${n(a)}${grave(a)} at ${at}`;
+      else if (removed && removed > 0) text = `took ${n(removed)} out of ${n(a)}${grave(a)} at ${at}`;
     }
     if (text) this.pushSeen("did", `{0} ${text}`, people);
+  }
+
+  /** GV: the grave at x,y holds player `id`: described from their death if we saw it, else from what we know of them */
+  private graveOf(x: number, y: number, id: number, now: number) {
+    const seen = [...this.deaths].reverse().find((d) => d.id === id);
+    const lin = this.lineage.get(id);
+    const person: DeadPerson = seen
+      ? { id, name: seen.name ?? this.names.get(id) ?? null, female: seen.female, age: seen.age, ancestors: [...seen.ancestors], eveId: seen.eveId }
+      : { id, name: this.names.get(id) ?? null, female: null, age: -1, ancestors: lin?.ancestors ?? [], eveId: lin?.eveId ?? null };
+    this.graveBook.link(x, y, person);
+    this.pendingDeaths = this.pendingDeaths.filter((d) => d.p.id !== id);
+    this.pendingGraves = this.pendingGraves.filter((g) => g.x !== x || g.y !== y);
+  }
+
+  /** a fresh grave appeared (link it to a death), changed into another fresh grave (kept), or decayed or went (forgotten) */
+  private trackGrave(x: number, y: number, before: number, after: number, now: number) {
+    const gd = this.gd;
+    if (!gd.isFreshGrave) return;
+    if (gd.isFreshGrave(after)) {
+      if (!gd.isFreshGrave(before)) {
+        this.pendingGraves.push({ x, y, t: now });
+        this.linkGraves(now);
+      }
+    } else if (this.graveBook.at(x, y)) this.graveBook.forget(x, y);
+  }
+
+  /**
+   * Link recent deaths to recent fresh graves, nearest first (within GRAVE_LINK_TILES and
+   * GRAVE_LINK_MS). A pair is only linked when it is the one clear choice: if another death
+   * is as near the same grave, or another grave as near the same death, neither is labelled.
+   */
+  private linkGraves(now: number) {
+    this.pendingDeaths = this.pendingDeaths.filter((d) => now - d.t <= GRAVE_LINK_MS);
+    this.pendingGraves = this.pendingGraves.filter((g) => now - g.t <= GRAVE_LINK_MS);
+    const pairs: { g: { x: number; y: number; t: number }; d: { p: DeadPerson; x: number; y: number; t: number }; dist: number }[] = [];
+    for (const g of this.pendingGraves)
+      for (const d of this.pendingDeaths) {
+        const dist = Math.max(Math.abs(g.x - d.x), Math.abs(g.y - d.y));
+        if (dist <= GRAVE_LINK_TILES) pairs.push({ g, d, dist });
+      }
+    pairs.sort((a, b) => a.dist - b.dist);
+    const done = new Set<object>();
+    for (const pr of pairs) {
+      if (done.has(pr.g) || done.has(pr.d)) continue;
+      const rivals = pairs.filter((o) => o !== pr && o.dist === pr.dist && (o.g === pr.g || o.d === pr.d) && !done.has(o.g) && !done.has(o.d));
+      done.add(pr.g);
+      done.add(pr.d);
+      // ambiguous: everyone involved stays unlabelled (no guessing later either)
+      for (const o of rivals) {
+        done.add(o.g);
+        done.add(o.d);
+      }
+      if (!rivals.length) this.graveBook.link(pr.g.x, pr.g.y, pr.d.p);
+    }
+    this.pendingDeaths = this.pendingDeaths.filter((d) => !done.has(d));
+    this.pendingGraves = this.pendingGraves.filter((g) => !done.has(g));
   }
 
   /**
@@ -990,6 +1170,14 @@ export class World {
     else text = `tried ${hand} on ${t.target > 0 ? n(t.target) : "the empty ground"} at ${at}: nothing happened`;
     this.pushSeen("tried", `{0} ${text}`, people);
   }
+}
+
+/** a dead person as a frozen Player (for labels) */
+export function deadAsPlayer(d: DeadPerson): Player {
+  return {
+    id: d.id, displayId: 0, x: 0, y: 0, moving: false, moveEndsAt: 0, age: d.age, ageAt: 0, ageRate: 0, moveSpeed: 0, held: EMPTY, clothing: [], heat: 0,
+    name: d.name, female: d.female, dying: false, lastSeen: 0, ancestors: [...d.ancestors], eveId: d.eveId,
+  };
 }
 
 /** a death's cause as the server reports it: "starved", "old age", "killed by a Wolf"; null if unknown */

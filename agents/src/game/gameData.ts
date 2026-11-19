@@ -281,6 +281,17 @@ export class GameData {
   }
 
   /** The Home Marker object (homeMarker=1 in the object file; only id 487 in OneLifeData7). */
+  /**
+   * A body's fresh grave as the server places it at a death (Fresh Grave, Murder Grave, Baby Bone
+   * Pile): objects tagged "fromDeath" that change on their own. It decays into an old Grave (or
+   * nothing), which no longer shows whose body it is. Baby Bones, which never decay, don't count.
+   */
+  isFreshGrave(id: number): boolean {
+    if (!(id > 0)) return false;
+    const o = this.objects.get(this.base(id));
+    return !!o && /\bfromDeath\b/.test(o.name.split("#")[1] ?? "") && !!this.transition(-1, o.id);
+  }
+
   isHomeMarker(id: number): boolean {
     return id > 0 && /^home marker$/i.test(cleanName(this.objects.get(this.base(id))?.name ?? ""));
   }

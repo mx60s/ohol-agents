@@ -430,7 +430,9 @@ function checkOne(raw: unknown, craft: boolean, topSay = false): { action: Actio
   if (a.type === "say" && !a.text && !topSay) return { error: `to speak, put the words in "say" (e.g. "say":"HELLO"); you did nothing` };
   for (const need of SPECS[a.type]?.need ?? []) {
     if (need === "xy" && !(Number.isFinite(a.x) && Number.isFinite(a.y))) return { error: `"${a.type}" needs numeric "x" and "y" (copy them from your observation); you did nothing` };
-    if (need === "person" && !(Number.isFinite(a.person) && a.person! > 0)) return { error: `"${a.type}" needs "person": the number after # in the people list; you did nothing` };
+    // a person: "person":ID (the number after #), or "x","y" of where they stand (people shown without a number)
+    if (need === "person" && !(Number.isFinite(a.person) && a.person! > 0) && !(Number.isFinite(a.x) && Number.isFinite(a.y)))
+      return { error: `"${a.type}" needs "person": the number after # in the people list, or "x" and "y" of where the person stands; you did nothing` };
     if (need === "item" && !a.item) return { error: `"craft" needs "item": the name of the thing to make, e.g. "Sharp Stone"; you did nothing` };
     if (need === "what" && a.what === undefined) return { error: `"search" needs "what": the name of a thing, e.g. "Fire" ("" clears the last search); you did nothing` };
     if (need === "slot" && !(Number.isInteger(a.slot) && a.slot! >= 0 && a.slot! <= 5)) return { error: `"undress" needs "slot" 0-5; you did nothing` };

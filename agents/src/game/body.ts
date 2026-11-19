@@ -47,6 +47,13 @@ export class Body {
   interrupt: (() => string | null) | null = null;
   /** set by the agent: a walk starts from `from` toward `to` (the go/approach target; positions.jsonl) */
   onWalk: ((from: Pos, to: Pos) => void) | null = null;
+  /**
+   * set by the agent: how a person is mentioned in results, by whom the character knows by name
+   * (people.ts PeopleView.ref: a stranger by description, never by #id or name). Default "#id".
+   */
+  who: ((id: number, fallback?: string) => string) | null = null;
+  /** set by the agent: the thing on a tile as the character sees it (a fresh grave says whose it is); default its name */
+  tileName: ((x: number, y: number) => string) | null = null;
 
   constructor(private conn: Pick<Connection, "send">, private world: World, private gd: GameData) {}
 
@@ -57,6 +64,24 @@ export class Body {
   get pos(): Pos | null {
     const s = this.world.self;
     return s ? [s.x, s.y] : null;
+  }
+
+  /** a person in a result: "#7" (with the name when withName and no `who` is set) */
+  private person(id: number, withName = false): string {
+    if (this.who) return this.who(id);
+    const n = withName ? this.world.players.get(id)?.name ?? this.world.names.get(id) : null;
+    return `#${id}${n ? ` ${n}` : ""}`;
+  }
+
+  /** "baby #7" for someone known; a stranger's description already says what they are */
+  private babyName(id: number): string {
+    if (!this.who) return `baby ${this.world.players.get(id)?.name ?? "#" + id}`;
+    const r = this.who(id);
+    return r.startsWith("#") ? `baby ${r}` : r;
+  }
+
+  private tile(x: number, y: number): string {
+    return this.tileName?.(x, y) ?? this.gd.describeStack(this.world.objAt(x, y));
   }
 
   private send(cmd: string) {
@@ -270,7 +295,7 @@ export class Body {
   /** Send an action and wait for the server to update us or the tile. */
   private async act(cmd: string, x: number, y: number): Promise<{ before: string; after: string; heldBefore: string; heldAfter: string; t0: number }> {
     this.syncForce();
-    const before = this.gd.describeStack(this.world.objAt(x, y));
+    const before = this.tile(x, y);
     const heldBefore = this.heldName();
     const t0 = this.world.now();
     const wall0 = Date.now();
@@ -286,13 +311,15 @@ export class Body {
         break;
       }
     }
-    return { before, after: this.gd.describeStack(this.world.objAt(x, y)), heldBefore, heldAfter: this.heldName(), t0 };
+    return { before, after: this.tile(x, y), heldBefore, heldAfter: this.heldName(), t0 };
   }
 
-  heldName(): string {
+  /** what we hold, as the character sees it; omniscient: true names (the public view and event data) */
+  heldName(omniscient = false): string {
     const s = this.world.self;
     if (!s) return "nothing";
     if (s.held.id < 0) {
+      if (!omniscient) return this.babyName(-s.held.id);
       const b = this.world.players.get(-s.held.id);
       return `baby ${b?.name ?? "#" + -s.held.id}`;
     }
@@ -350,7 +377,7 @@ export class Body {
     const blocked = this.conditionBlock();
     if (blocked) return `use at (${x},${y}): ${blocked}`;
     // arms full with a baby: the server ignores the click; a human sees the baby in their arms
-    if (heldId < 0) return `use at (${x},${y}): nothing happened (your arms are full: you're carrying baby #${-heldId}; put the baby down first)`;
+    if (heldId < 0) return `use at (${x},${y}): nothing happened (your arms are full: you're carrying ${this.babyName(-heldId)}; put the baby down first)`;
     const r = await this.act(`USE ${x} ${y}${target > 0 ? " " + target : ""}`, x, y);
     if (Body.unchanged(r)) this.noteNoop({ kind: "use", x, y, held: heldId, target });
     const out = this.summarize("use", x, y, r);
@@ -376,11 +403,10 @@ export class Body {
     const c = this.world.cell(x, y);
     // "now" only when the cell changed while the action ran
     const n = c && c.t > since ? " now" : "";
-    const now = c && c.obj.id > 0 ? `the tile at (${x},${y})${n} has ${this.gd.describeStack(c.obj)}` : `the tile at (${x},${y}) is${n} empty`;
+    const now = c && c.obj.id > 0 ? `the tile at (${x},${y})${n} has ${this.tile(x, y)}` : `the tile at (${x},${y}) is${n} empty`;
     const me = this.world.self?.id;
     if (c?.by && c.by !== me && this.world.now() - c.t < TILE_JUST_CHANGED_MS) {
-      const who = this.world.players.get(c.by);
-      return ` (${now}; #${c.by}${who?.name ? " " + who.name : ""} changed it just now${c.prev ? `, it had ${this.gd.name(c.prev)}` : ""})`;
+      return ` (${now}; ${this.who ? this.who(c.by, "someone") : this.person(c.by, true)} changed it just now${c.prev ? `, it had ${this.gd.name(c.prev)}` : ""})`;
     }
     return ` (${now})`;
   }
@@ -498,7 +524,7 @@ export class Body {
     if (this.world.objAt(x, y).id !== 0) return null;
     const me = this.world.self?.id;
     const p = [...this.world.players.values()].find((q) => q.id !== me && Math.round(this.world.posOf(q)[0]) === x && Math.round(this.world.posOf(q)[1]) === y);
-    return p ? `there is no item at (${x},${y}), only #${p.id}${p.name ? ` ${p.name}` : ""}: things can't be swapped with or taken from a person; one puts it down, the other picks it up` : null;
+    return p ? `there is no item at (${x},${y}), only ${this.person(p.id, true)}: things can't be swapped with or taken from a person; one puts it down, the other picks it up` : null;
   }
 
   async swap(x: number, y: number): Promise<string> {
@@ -584,11 +610,13 @@ export class Body {
 
   private async nearPlayer(id: number): Promise<{ p: Pos } | string> {
     const o = this.world.players.get(id);
-    if (!o) return `person #${id} isn't nearby`;
+    if (!o) return `person ${this.person(id)} isn't nearby`;
+    // named while in view (a stranger's description needs them in view)
+    const who = this.person(id);
     const a = await this.approach(o.x, o.y);
-    if (a !== "arrived") return `couldn't reach person #${id}: ${a}`;
+    if (a !== "arrived") return `couldn't reach ${who.startsWith("#") ? "person " : ""}${who}: ${a}`;
     const o2 = this.world.players.get(id);
-    if (!o2) return `person #${id} left`;
+    if (!o2) return `couldn't reach ${who.startsWith("#") ? "person " : ""}${who}: they left`;
     return { p: [o2.x, o2.y] };
   }
 
@@ -605,7 +633,7 @@ export class Body {
     const n = await this.nearPlayer(id);
     if (typeof n === "string") return { text: n, at: null, item: null };
     const spot = [n.p, ...DIRS8.map(([dx, dy]) => [n.p[0] + dx, n.p[1] + dy] as Pos)].find(([x, y]) => this.world.objAt(x, y).id === 0 && this.world.walkable(x, y)) ?? this.nearestEmpty(n.p, DROP_SEARCH_RADIUS);
-    if (!spot) return { text: `no empty tile next to #${id} to put the ${item} down`, at: null, item: null };
+    if (!spot) return { text: `no empty tile next to ${this.person(id)} to put the ${item} down`, at: null, item: null };
     this.lastDrop = null;
     const r = await this.drop(spot[0], spot[1]);
     // drop may have put it on another empty tile; the result says what happened to the tile and the hand
@@ -613,16 +641,16 @@ export class Body {
     const at = d?.at ?? spot;
     const nowHeld = this.world.self?.held.id ?? 0;
     const onTile = this.world.objAt(at[0], at[1]).id;
-    if (nowHeld === 0) return { text: `put the ${item} down next to #${id} at (${at[0]},${at[1]}); they can pick it up`, at, item };
+    if (nowHeld === 0) return { text: `put the ${item} down next to ${this.person(id)} at (${at[0]},${at[1]}); they can pick it up`, at, item };
     // the tile had a loose item by the time we dropped: the game swapped them
     if (held > 0 && nowHeld !== held && onTile === held)
       return {
-        text: `swapped next to #${id} at (${at[0]},${at[1]}): you put down the ${item} and picked up the ${this.gd.name(nowHeld)} that was lying there (dropping onto an item swaps them); they can pick up the ${item}`,
+        text: `swapped next to ${this.person(id)} at (${at[0]},${at[1]}): you put down the ${item} and picked up the ${this.gd.name(nowHeld)} that was lying there (dropping onto an item swaps them); they can pick up the ${item}`,
         at,
         item,
       };
-    if (nowHeld === held && (!d || onTile === d.there)) return { text: `couldn't put the ${item} down next to #${id}: ${r}`, at: null, item: null };
-    return { text: `give to #${id}: ${r}`, at: null, item: null };
+    if (nowHeld === held && (!d || onTile === d.there)) return { text: `couldn't put the ${item} down next to ${this.person(id)}: ${r}`, at: null, item: null };
+    return { text: `give to ${this.person(id)}: ${r}`, at: null, item: null };
   }
 
   /** Hand-pickable food near us: loose food, or things that yield food by hand. */
@@ -704,7 +732,7 @@ export class Body {
       if (this.world.self?.held.id === -babyId) parts.push(`${r} again`);
       else {
         const b = this.world.players.get(babyId);
-        parts.push(`COULDN'T PICK THE BABY BACK UP (${r})${b ? `; baby #${babyId} is at (${this.world.posOf(b)[0]},${this.world.posOf(b)[1]})` : ""}`);
+        parts.push(`COULDN'T PICK THE BABY BACK UP (${r})${b ? `; ${this.babyName(babyId)} is at (${this.world.posOf(b)[0]},${this.world.posOf(b)[1]})` : ""}`);
       }
     } else if (toolId) {
       const at = toolAt ?? this.findNear(toolId, 2);
@@ -740,21 +768,21 @@ export class Body {
   async pickUpBaby(id: number): Promise<string> {
     // the server only accepts BABY with empty hands, and says nothing otherwise
     const held = this.world.self?.held.id ?? 0;
-    if (held === -id) return `you're already carrying #${id}`;
-    if (held < 0) return `tried to pick up #${id}: your arms are full (carrying ${this.heldName()}); put them down first`;
+    if (held === -id) return `you're already carrying ${this.person(id)}`;
+    if (held < 0) return `tried to pick up ${this.person(id)}: your arms are full (carrying ${this.heldName()}); put them down first`;
     const blocked = this.conditionBlock();
-    if (blocked) return `tried to pick up #${id}: ${blocked}`;
-    if (held > 0) return `tried to pick up #${id}: your hands are full (holding ${this.heldName()}); drop it first`;
+    if (blocked) return `tried to pick up ${this.person(id)}: ${blocked}`;
+    if (held > 0) return `tried to pick up ${this.person(id)}: your hands are full (holding ${this.heldName()}); drop it first`;
     // server.cpp minPickupBabyAge: the BABY message is ignored below age 10
     const me = this.world.self;
-    if (me && this.world.currentAge(me) < MIN_PICKUP_BABY_AGE) return `tried to pick up #${id}: you're ${Math.floor(this.world.currentAge(me))}: you can carry a baby from ${MIN_PICKUP_BABY_AGE}`;
+    if (me && this.world.currentAge(me) < MIN_PICKUP_BABY_AGE) return `tried to pick up ${this.person(id)}: you're ${Math.floor(this.world.currentAge(me))}: you can carry a baby from ${MIN_PICKUP_BABY_AGE}`;
     const n = await this.nearPlayer(id);
     if (typeof n === "string") return n;
     const r = await this.act(`BABY ${n.p[0]} ${n.p[1]} ${id}`, n.p[0], n.p[1]);
     for (let i = 0; i < 10 && this.world.self?.held.id !== -id; i++) await sleep(100);
     if (this.world.self?.held.id === -id) return `picked up ${this.heldName()}`;
     if (r.heldBefore !== r.heldAfter) return `picked up ${r.heldAfter}`;
-    return `tried to pick up #${id}: nothing happened${this.babyPickupWhy(id)}`;
+    return `tried to pick up ${this.person(id)}: nothing happened${this.babyPickupWhy(id)}`;
   }
 
   /** Why a BABY pickup did nothing, when the world shows it (server.cpp BABY: age under babyAge, not held, next to us). */
@@ -763,35 +791,35 @@ export class Body {
     const me = this.world.self;
     if (!o || !me) return "";
     const age = this.world.currentAge(o);
-    if (age >= BABY_AGE) return ` (#${id} is ${Math.floor(age)}: only someone under ${BABY_AGE} can be carried)`;
+    if (age >= BABY_AGE) return ` (${this.person(id)} is ${Math.floor(age)}: only someone under ${BABY_AGE} can be carried)`;
     const c = this.world.carrierOf(o);
-    if (c && c.id !== me.id) return ` (#${id} is being carried by #${c.id})`;
+    if (c && c.id !== me.id) return ` (${this.person(id)} is being carried by ${this.person(c.id)})`;
     if ((me.held.id ?? 0) > 0) return ` (your hands are full: you're holding ${this.heldName()})`;
     const [ox, oy] = this.world.posOf(o);
     const d = Math.max(Math.abs(ox - me.x), Math.abs(oy - me.y));
-    if (d > 1) return ` (#${id} is at (${ox},${oy}), ${d} tiles from you; a baby can be picked up only from your tile or next to it)`;
+    if (d > 1) return ` (${this.person(id)} is at (${ox},${oy}), ${d} tiles from you; a baby can be picked up only from your tile or next to it)`;
     return "";
   }
 
   /** Use held item on another person: feed them food, clothe a baby, heal a wound. */
   async useOnPerson(id: number): Promise<string> {
     // server.cpp UBABY/SELF: holding a baby, the action isn't let through (targetPlayer stays NULL)
-    if ((this.world.self?.held.id ?? 0) < 0) return `used held item on #${id}: nothing happened (your arms are full: you're carrying ${this.heldName()}; put the baby down first)`;
+    if ((this.world.self?.held.id ?? 0) < 0) return `used held item on ${this.person(id)}: nothing happened (your arms are full: you're carrying ${this.heldName()}; put the baby down first)`;
     const blocked = this.conditionBlock();
-    if (blocked) return `can't feed or help #${id}: ${blocked}`;
+    if (blocked) return `can't feed or help ${this.person(id)}: ${blocked}`;
     const n = await this.nearPlayer(id);
     if (typeof n === "string") return n;
     const heldId = this.world.self?.held.id ?? 0;
     const r = await this.act(`UBABY ${n.p[0]} ${n.p[1]} -1 ${id}`, n.p[0], n.p[1]);
-    if (r.heldBefore !== r.heldAfter) return `gave/used ${r.heldBefore} on #${id}; now holding ${r.heldAfter}`;
+    if (r.heldBefore !== r.heldAfter) return `gave/used ${r.heldBefore} on ${this.person(id)}; now holding ${r.heldAfter}`;
     this.noteNoop({ kind: "feed", x: n.p[0], y: n.p[1], held: heldId, target: 0, person: id });
     // server.cpp: a baby under 3 (defaultActionAge) refuses food above babyFeedingLevel (2); the client shows the refusal
     const o = this.world.players.get(id);
-    if (o && heldId > 0 && this.gd.isFood(heldId) && this.world.currentAge(o) < 3) return `#${id} refused the ${this.gd.name(heldId)}: a baby under 3 only takes food when starving (2 food or less); a woman aged 14-40 nurses a baby by holding it`;
-    if (heldId === 0) return `used bare hands on #${id}: nothing happened (you're holding nothing)`;
+    if (o && heldId > 0 && this.gd.isFood(heldId) && this.world.currentAge(o) < 3) return `${this.person(id)} refused the ${this.gd.name(heldId)}: a baby under 3 only takes food when starving (2 food or less); a woman aged 14-40 nurses a baby by holding it`;
+    if (heldId === 0) return `used bare hands on ${this.person(id)}: nothing happened (you're holding nothing)`;
     // server.cpp UBABY: on another person a held item can heal a wound, feed or clothe; nothing else
-    const kind = heldId > 0 && !this.gd.isFood(heldId) && this.gd.objects.get(heldId)?.clothing === "n" ? ` (${withArticle(this.gd.name(heldId))} is not food or clothing, so it can't be fed to or put on #${id})` : "";
-    return `used held item on #${id}: nothing happened${kind}`;
+    const kind = heldId > 0 && !this.gd.isFood(heldId) && this.gd.objects.get(heldId)?.clothing === "n" ? ` (${withArticle(this.gd.name(heldId))} is not food or clothing, so it can't be fed to or put on ${this.person(id)})` : "";
+    return `used held item on ${this.person(id)}: nothing happened${kind}`;
   }
 
   say(text: string): string {

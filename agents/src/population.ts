@@ -10,7 +10,7 @@ import type { EventLog } from "./events.ts";
 import type { LifeStore } from "./lifestore.ts";
 import type { LeadershipResponse, MapCellTuple, MapResponse, MinimapResponse, PlayerView, StateResponse } from "./api-types.ts";
 import { buildLeadership } from "./leadership.ts";
-import type { Player, TriedNothing, World } from "./game/world.ts";
+import { GraveBook, type Player, type TriedNothing, type World } from "./game/world.ts";
 import { LoginScheduler, type LoginDeps } from "./logins.ts";
 import { LANGUAGES_MIN_PLAYERS } from "./agent/observe.ts";
 import { FileClockPort, TurnCoordinator, type ClockPort } from "./turnclock.ts";
@@ -242,9 +242,11 @@ export class Population implements SpeechSink {
       });
     }
     // every slot starts now; the login scheduler decides when each one actually logs in
+    this.graves.flowerOf = (pid: number) => this.extras.lives?.flowerLabel(pid) ?? null;
     const hooks = {
       beforeLogin: (a: Agent) => this.logins.beforeLogin(a.id, a.lifeIndex === 0),
       flowerOf: (pid: number) => this.extras.lives?.flowerLabel(pid) ?? null,
+      graves: this.graves,
       reconnect: (a: Agent, playerId: number, age: number) => {
         const lives = this.extras.lives;
         if (!lives) return undefined;
@@ -263,7 +265,8 @@ export class Population implements SpeechSink {
         const to = this.agents.find((x) => x.status === "alive" && x.world?.selfId === toPlayerId);
         const me = from.world?.self;
         if (!to || !me) return;
-        const who = `#${me.id}${me.name ? ` ${me.name}` : ""}`;
+        // as the receiver knows the giver (a stranger by description)
+        const who = to.personRef(me.id);
         to.noteSalient({ reason: `${who} put ${/^[AEIOU]/i.test(item) ? "an" : "a"} ${item} down next to you at (${at[0]}, ${at[1]})`, urgent: false, t: Date.now() });
       },
     };
@@ -537,6 +540,11 @@ export class Population implements SpeechSink {
     if (body.block < 2) body.block = 2;
     this.minimapCache = { at: now, body };
     return body;
+  }
+  /** fresh graves and whose body each is, shared by our agents in this world and saved per run (world.ts GraveBook) */
+  private gravesBook: GraveBook | null = null;
+  get graves(): GraveBook {
+    return (this.gravesBook ??= new GraveBook(path.join(this.cfg.logDir, "research", `graves-${this.cfg.runId}.json`)));
   }
   private explored = new Map<string, { biome: number }>();
   private exploredLoaded = false;
