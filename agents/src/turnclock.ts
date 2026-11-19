@@ -121,6 +121,14 @@ export interface TurnClockOptions {
   idleMs?: number;
   /** true = no turns now (run paused/halted): the clock stays paused */
   paused?: () => boolean;
+  /**
+   * After a decide phase, with its plans: true = don't open the act window (the clock stays
+   * paused) and try again after holdMs. Wired to "the model is failing and nobody got a reply",
+   * so the world never runs on with nobody thinking (r9: a dead endpoint let everyone starve).
+   */
+  holdWhen?: (plans: unknown[]) => boolean;
+  /** wait before the next decide phase after a held turn (default 5 s) */
+  holdMs?: number;
   /** problems worth a system event (server clock silent, act window timed out) */
   warn?: (text: string) => void;
   /** after each act window closes (turn n, game time reached): e.g. the positions log */
@@ -148,6 +156,8 @@ export class TurnCoordinator {
   /** turns started so far (the current one while running) */
   n = 0;
   phase: TurnInfo["phase"] = "idle";
+  /** turns whose act window was withheld (holdWhen) */
+  held = 0;
   private decided = 0;
   private deciding = 0;
   private stopped = false;
@@ -313,6 +323,14 @@ export class TurnCoordinator {
     await this.wakeWaiters();
     const plans = await this.decide();
     if (this.stopped) return;
+    if (this.o.holdWhen?.([...plans.values()])) {
+      this.held++;
+      this.phase = "idle";
+      this.warnOnce("held", "turn clock: no agent got a reply from the model this turn; the clock stays paused until one does");
+      await sleep(this.o.holdMs ?? 5000);
+      return;
+    }
+    this.warned.delete("held");
     await this.act(plans);
   }
 

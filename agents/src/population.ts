@@ -234,6 +234,9 @@ export class Population implements SpeechSink {
         decideTimeoutMs: c.turnDecideTimeoutMs,
         babyIdleTurns: c.babyIdleTurns,
         paused: () => !this.playing,
+        // the model failing for everyone: hold the world instead of letting it run unplayed
+        // (starving reflexes alone don't count as playing)
+        holdWhen: (plans) => !this.llm.health.status().ok && !plans.some((p) => (p as { kind?: string } | null)?.kind === "reply"),
         onActEnd: (n, gameTime) => this.logPositions(n, gameTime),
         warn: (text) => {
           this.log.emitEvent("system", { text });

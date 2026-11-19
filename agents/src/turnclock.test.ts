@@ -54,13 +54,13 @@ interface Harness {
 }
 
 /** 2.4 game s per turn at 200 game s per wall s: a 12 ms act window */
-function harness(o: { decideTimeoutMs?: number; babyIdleTurns?: number; paused?: () => boolean; onActEnd?: (n: number, gameTime: number | null) => void } = {}): Harness {
+function harness(o: { decideTimeoutMs?: number; babyIdleTurns?: number; paused?: () => boolean; onActEnd?: (n: number, gameTime: number | null) => void; holdWhen?: (plans: unknown[]) => boolean } = {}): Harness {
   const port = new FakeClockPort(1000, 200);
   const agents: FakeAgent[] = [];
   const warnings: string[] = [];
   const coord = new TurnCoordinator(port, () => agents, {
     turnGameS: 2.4, timeScale: 1, decideTimeoutMs: o.decideTimeoutMs ?? 150, babyIdleTurns: o.babyIdleTurns ?? 4,
-    pollMs: 2, idleMs: 5, paused: o.paused, warn: (t) => warnings.push(t), onActEnd: o.onActEnd,
+    pollMs: 2, idleMs: 5, paused: o.paused, warn: (t) => warnings.push(t), onActEnd: o.onActEnd, holdWhen: o.holdWhen, holdMs: 5,
   });
   const h: Harness = {
     port, coord, agents, warnings,
@@ -344,4 +344,19 @@ test("turn units at TURN_GAME_S 2.4: a year is 25 turns, at any TIME_SCALE", () 
   }
   // off: unchanged
   assert.deepEqual(turnClock({ decisionCycleMs: 8000, timeScale: 1, turnGameS: 2.4 }), { cycleMs: 8000, timeScale: 1 });
+});
+
+test("holdWhen: a turn where nobody got a reply leaves the clock paused (no target written) until replies come back", async () => {
+  let down = true;
+  const h = harness({ holdWhen: () => down });
+  const a = h.add("a");
+  h.coord.start();
+  await h.until(() => h.coord.held >= 3);
+  assert.equal(h.port.writes.length, 0, "no act window while the model is down");
+  assert.equal(a.acted.length, 0);
+  assert.ok(h.warnings.some((w) => /stays paused/.test(w)));
+  down = false;
+  await h.until(() => h.port.writes.length >= 2);
+  await h.coord.stop();
+  assert.ok(a.acted.length >= 1);
 });

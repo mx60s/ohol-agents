@@ -201,11 +201,12 @@ export class LlmHealth {
 /**
  * Failures that mean the provider can't serve us (they count toward the
  * outage pause, LLM_OUTAGE_PAUSE_S): bad key / no credits (401, 402, 403),
- * server errors (5xx), and timeouts / network errors (status 0). Not 429
- * (slow down) or other 4xx (a bad request, e.g. an unknown model id).
+ * server errors (5xx), a missing endpoint (404, e.g. a terminated GPU pod), and
+ * timeouts / network errors (status 0). Not 429 (slow down) or other 4xx (a bad request).
  */
 export function isOutageStatus(status: number): boolean {
-  return status === 401 || status === 402 || status === 403 || status >= 500 || status === 0;
+  // 404: the endpoint itself is gone (a terminated GPU pod's proxy), not a bad request
+  return status === 401 || status === 402 || status === 403 || status === 404 || status >= 500 || status === 0;
 }
 
 /** Short, viewer-safe error text: "HTTP 402: Insufficient credits" (no links, no echoed payloads). */
