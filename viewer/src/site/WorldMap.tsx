@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MapCellTuple, PlayerView } from "../api-types.ts";
-import { pageHref, useMap, useWorldState } from "../data/index.ts";
+import { pageHref, useMap, useMinimap, useWorldState } from "../data/index.ts";
 import { appearanceFor, drawGround, drawObject, drawPerson, getOholAssets, loadOholAssets, onOholSpriteLoaded } from "../ohol/index.ts";
 import { displayName, firstNameOf } from "../shared/index.ts";
 import type { SiteData } from "./useSite.ts";
@@ -48,20 +48,38 @@ export function WorldMap({ site, height = 360, focusLifeId }: { site: SiteData; 
   const raf = useRef(0);
 
   const cells = map.data?.cells;
+  const overview = useMinimap().data;
   const players = w.state?.players;
+  const runId = w.state?.run?.id ?? null;
 
+  // Everything explored stays drawn: detailed cells are added up across polls (they come only from what
+  // agents currently see), and the server's explored overview (/api/minimap: every tile any agent ever saw,
+  // in blocks, biome only) fills in the rest, so walked-over land never vanishes.
+  const seen = useRef<{ runId: string | null; m: Map<string, MapCellTuple> }>({ runId: null, m: new Map() });
   const index = useMemo(() => {
-    const m = new Map<string, MapCellTuple>();
+    if (seen.current.runId !== runId) seen.current = { runId, m: new Map() };
+    const m = seen.current.m;
+    for (const c of cells ?? []) m.set(key(c[0], c[1]), c);
+    const block = overview && overview.block > 0 ? overview.block : 0;
+    if (block) {
+      for (const c of overview!.cells) {
+        if (!(c[2] >= 0)) continue;
+        for (let dy = 0; dy < block; dy++)
+          for (let dx = 0; dx < block; dx++) {
+            const k = key(c[0] + dx, c[1] + dy);
+            if (!m.has(k)) m.set(k, [c[0] + dx, c[1] + dy, c[2], 0, 0]);
+          }
+      }
+    }
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    for (const c of cells ?? []) {
-      m.set(key(c[0], c[1]), c);
+    for (const c of m.values()) {
       if (c[0] < x0) x0 = c[0];
       if (c[0] > x1) x1 = c[0];
       if (c[1] < y0) y0 = c[1];
       if (c[1] > y1) y1 = c[1];
     }
-    return { m, bbox: m.size ? { x0, x1, y0, y1 } : null };
-  }, [cells]);
+    return { m: new Map(m), bbox: m.size ? { x0, x1, y0, y1 } : null };
+  }, [cells, overview, runId]);
 
   useEffect(() => {
     if (artReady) return;
