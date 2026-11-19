@@ -7,6 +7,7 @@ import type {
   AgentSpecResponse,
   DeathsResponse,
   FieldNote,
+  LeadershipResponse,
   Invention,
   LifeRecord,
   LineagesResponse,
@@ -267,6 +268,11 @@ export function useFieldNotes(limit = 200): { notes: FieldNote[]; loading: boole
   return { notes: r.data?.notes ?? EMPTY_NOTES, loading: r.loading, error: r.error };
 }
 const EMPTY_NOTES: FieldNote[] = [];
+/** Who follows whom among the living (GET /api/leadership), polled every 10 s like the other live data; null until the first load. */
+export function useLeadership(): { data: LeadershipResponse | null; loading: boolean; error: Error | null } {
+  const r = useResource(poller("leadership", (c) => c.leadership(), 10_000));
+  return { data: r.data ?? null, loading: r.loading, error: r.error };
+}
 /** What agents are told and can do (GET /api/agent-spec), polled every 60 s; data null if the service doesn't have it. */
 export function useAgentSpec(): Resource<AgentSpecResponse | null> & { refresh: () => void } {
   return useResource(poller("agent-spec", async (c) => (c.agentSpec ? c.agentSpec() : null), 60_000));

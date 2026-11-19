@@ -20,7 +20,11 @@ test("normAgentSpec keeps the live1 fixture intact", () => {
   assert.deepEqual(s.settings, fixture.settings);
   assert.deepEqual(s.limits, fixture.limits);
   assert.deepEqual(s.example, fixture.example);
-  assert.ok(s.actions.some((a) => a.type === "craft" && a.temporary));
+  assert.deepEqual(s.replyFields, fixture.replyFields);
+  assert.deepEqual(s.noteHeadings, fixture.noteHeadings);
+  assert.ok(s.replyFields.some((f) => f.name === "remember"));
+  assert.ok(s.actions.find((a) => a.type === "search")?.note);
+  assert.equal(s.settings.turnClock, true);
 });
 
 test("normAgentSpec: not a spec -> null; bad fields dropped or defaulted", () => {

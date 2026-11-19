@@ -3,7 +3,7 @@
 
 import { Connection } from "../protocol/connection.ts";
 import { parseMessage } from "../protocol/messages.ts";
-import { World } from "../game/world.ts";
+import { World, homesickNotice } from "../game/world.ts";
 import { Body } from "../game/body.ts";
 import type { GameData } from "../game/gameData.ts";
 import type { Config } from "../config.ts";
@@ -303,6 +303,7 @@ export class Agent implements TurnAgent<TurnPlan> {
         }
       },
       onPlayerDied: (p) => this.noteSalient(deathEvent(world, p)),
+      onCue: (word, wasHomesick) => this.felt(world, word, wasHomesick),
       // what was seen nearby goes to the note-taker's transcript (an animal's every step does not)
       onSeen: (e) => {
         if (e.kind !== "animal_move") this.mem.saw(seenText(world, gd, e));
@@ -429,6 +430,24 @@ export class Agent implements TurnAgent<TurnPlan> {
       const rest = this.cfg.babyIdleMaxMs - (Date.now() - t0);
       if (rest > 0) await this.sleepInterruptible(rest);
     }
+  }
+
+  /**
+   * The server's private cue over our head (World onCue): the stream shows it as an
+   * emote (a "+WORD+" say); for the agent it is a feeling, never something it said
+   * (not in HEARD, not lastSaid). Homesick: told once, and why; not what it means for births.
+   */
+  private felt(world: World, word: string, wasHomesick: boolean) {
+    const me = world.self;
+    const [x, y] = me ? world.posOf(me) : [0, 0];
+    this.speech?.spoke(this, `+${word}+`, x, y);
+    let text: string | null = null;
+    if (word === "HOMESICK") text = homesickNotice(world.homesick);
+    else if (word === "HOME" && wasHomesick) text = "You no longer feel homesick: you are back in your family's homeland.";
+    if (!text) return;
+    this.record("(feeling)", text, false);
+    this.mem.notice(text);
+    if (word === "HOMESICK") this.noteSalient({ reason: text, urgent: false, t: Date.now() });
   }
 
   /** Queue a salient event; it wakes an idle agent (the minimum interval still applies). */

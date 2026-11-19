@@ -46,7 +46,7 @@ before(async () => {
   const runs = Object.assign(new EventEmitter(), {
     lives,
     inventions,
-    pop: { state: () => ({ run: { id: "run1", status: "running" }, agents: [], players: [] }), map: () => ({ cells: [], names: {} }), minimap: () => ({ block: 1, cells: [] }) },
+    pop: { state: () => ({ run: { id: "run1", status: "running" }, agents: [], players: [] }), map: () => ({ cells: [], names: {} }), minimap: () => ({ block: 1, cells: [] }), leadership: () => ({ runId: "run1", at: 5, edges: [{ follower: 2, leader: 1 }], people: [] }) },
     log: { since: (n: number) => [{ seq: n + 1, kind: "system" }] },
     openControl: false,
     maxTotalCostUsd: 0,
@@ -97,6 +97,13 @@ test("GET /api/fieldnotes: the current run's notes, newest first, limit", async 
   assert.equal(body.notes[0].windowStart, 2000);
   assert.deepEqual((await get("/api/fieldnotes?limit=1")).body.notes.map((n: { text: string }) => n.text), ["note 3"]);
   assert.equal((await get("/api/fieldnotes?limit=junk")).body.notes.length, 3);
+});
+
+test("GET /api/leadership: the population's merged view", async () => {
+  const r = await get("/api/leadership");
+  assert.equal(r.status, 200);
+  assert.equal(r.cors, "*");
+  assert.deepEqual(r.body, { runId: "run1", at: 5, edges: [{ follower: 2, leader: 1 }], people: [] });
 });
 
 test("GET /api/flowers: the flower catalogue", async () => {

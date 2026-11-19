@@ -8,7 +8,8 @@ import type { GameData } from "./game/gameData.ts";
 import type { Config } from "./config.ts";
 import type { EventLog } from "./events.ts";
 import type { LifeStore } from "./lifestore.ts";
-import type { MapCellTuple, MapResponse, MinimapResponse, PlayerView, StateResponse } from "./api-types.ts";
+import type { LeadershipResponse, MapCellTuple, MapResponse, MinimapResponse, PlayerView, StateResponse } from "./api-types.ts";
+import { buildLeadership } from "./leadership.ts";
 import { LoginScheduler, type LoginDeps } from "./logins.ts";
 import { LANGUAGES_MIN_PLAYERS } from "./agent/observe.ts";
 import { FileClockPort, TurnCoordinator, type ClockPort } from "./turnclock.ts";
@@ -558,6 +559,12 @@ export class Population implements SpeechSink {
     const body = { cells, names };
     this.mapCache = { at: now, radius, body };
     return body;
+  }
+
+  /** GET /api/leadership: who follows whom among the living, merged across the living agents' views (leadership.ts) */
+  leadership(now = Date.now()): LeadershipResponse {
+    const views = this.agents.flatMap((a) => (a.status === "alive" && a.world ? [a.world] : []));
+    return buildLeadership(this.cfg.runId, views, this.extras.lives, now);
   }
 
   state(): StateResponse {

@@ -86,6 +86,20 @@ tr.is-dead .name-cell a { color: var(--ink-2); }
 .fn-older .fn-note { padding: 12px 0; border-top: 1px solid var(--parchment-edge); }
 .fn-older .fn-text { font-size: 14.5px; }
 
+/* ---------- families: leadership ---------- */
+.page-jump { display: flex; gap: 12px; margin-left: auto; font-size: 13px; font-weight: 800; padding-bottom: 6px; }
+.ld-tree { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+.ld-row { display: flex; align-items: flex-start; min-height: 24px; }
+.ld-row.is-root { margin-top: 10px; font-weight: 800; }
+.ld-row.is-root:first-child { margin-top: 0; }
+.ld-pre { flex: none; white-space: pre; font-family: var(--font-mono); color: var(--ink-3); line-height: 24px; }
+.ld-person { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; line-height: 24px; }
+.ld-person .flower-icon { flex: none; }
+.ld-age { font-size: 12px; font-weight: 700; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ld-list { display: flex; flex-wrap: wrap; gap: 0 10px; min-width: 0; }
+.ld-li { display: inline-flex; align-items: center; }
+.ld-loners { margin: 12px 0 0; font-size: 13px; color: var(--ink-3); }
+
 /* ---------- home: grid ---------- */
 .home-grid .cloud-row { grid-template-columns: minmax(0, 5fr) minmax(0, 3fr); }
 .about { background: var(--gloss), linear-gradient(180deg, #fff6d2, #f6e3a6); }
@@ -328,6 +342,7 @@ dl.kv dd { margin: 0; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
   .tl li { grid-template-columns: 44px 26px minmax(0, 1fr); gap: 8px; }
   .tools .search { min-width: 0; width: 100%; }
   .page-title h1 { font-size: 26px; }
+  .ld-tree { font-size: 13px; }
   .sib-nav { margin-left: 0; }
   .story-nav { margin-left: 0; }
   .roster { grid-template-columns: 1fr; }

@@ -22,6 +22,7 @@ import type { AgentView, FieldNote, Invention, RunEvent } from "./api-types.ts";
 import type { ChatLlm } from "./director.ts";
 import { productsOf } from "./director.ts";
 import { cleanText, stripControl } from "./safety.ts";
+import { cueOfSay } from "./cues.ts";
 
 export const FIELD_NOTES_SYSTEM = `You are a researcher on a project in which LLM agents live whole lives in a One Hour One Life world: they are born as babies to mothers (or appear as an Eve, the founder of a family), grow up in about 14 years, raise children, make tools and die, a year being about a minute of game time. You take part in the project by keeping field notes: every 20 minutes you write one entry about what the people in the world did in that period.
 
@@ -387,6 +388,7 @@ export class Digest {
         break;
       }
       case "say": {
+        if (cueOfSay(e.text)) break; // an emote, not speech
         const p = this.person(e);
         p.says++;
         this.speechCount++;

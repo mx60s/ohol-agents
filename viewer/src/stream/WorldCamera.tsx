@@ -12,8 +12,8 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { LifeRecord, MapCellTuple, PlayerView } from "../api-types.ts";
 import { appearanceFor, drawGround, drawObject, drawPerson, getOholAssets, loadOholAssets, objectBounds, onOholSpriteLoaded, personBounds } from "../ohol/index.ts";
 import type { Appearance } from "../ohol/index.ts";
-import { displayName } from "../shared/format.ts";
-import { cameraStep, fanOut, focusTransition, occluderAlpha, parseHeld, retarget, sampleMotion, type Cam, type Motion, type ScreenBox } from "./logic.ts";
+import { cueLabel, displayName } from "../shared/format.ts";
+import { cameraStep, fanOut, focusTransition, occluderAlpha, parseHeld, retarget, sampleMotion, type Cam, type Motion, type ScreenBox, type SpeechBubble } from "./logic.ts";
 
 /** screen px per world tile (the game uses 128) */
 export const CELL = 112;
@@ -27,11 +27,8 @@ const GHOST_MS = 2600;
 /** repaint cap: the overlay streams at 30 fps, and a full repaint is the costly part of a frame */
 const MAX_FPS = 30;
 
-export interface Bubble {
-  key: string;
-  playerId: number;
-  text: string;
-}
+/** a speech bubble, or (with `emote`) a small emote such as homesick */
+export type Bubble = SpeechBubble;
 
 export interface CameraProps {
   players: PlayerView[];
@@ -492,6 +489,9 @@ function WorldCameraImpl(props: CameraProps) {
         if (kind === "bubble") {
           x = a.x - 26;
           y = a.y - a.head - h - 14;
+        } else if (kind === "emote") {
+          x = a.x - w / 2;
+          y = a.y - a.head - h - 10;
         } else if (kind === "death") {
           x = a.x - w / 2;
           y = a.y - a.head - h - 22;
@@ -503,7 +503,7 @@ function WorldCameraImpl(props: CameraProps) {
         x = Math.max(8, Math.min(size.W - w - 8, x));
         y = Math.max(8, Math.min(size.H - h - 8, y));
         const r = { x, y, w, h };
-        const step = kind === "bubble" ? -(h + 6) : h + 4;
+        const step = kind === "bubble" || kind === "emote" ? -(h + 6) : h + 4;
         for (let i = 0; i < 4 && hits(r); i++) r.y += step;
         placed.push(r);
         y = r.y;
@@ -536,6 +536,15 @@ function WorldCameraImpl(props: CameraProps) {
   for (const b of props.bubbles) {
     const f = figures.get(b.playerId);
     if (!f) continue;
+    if (b.emote) {
+      labels.push(
+        <div key={`e${b.key}`} data-pid={f.carriedBy ?? f.id} data-kind="emote" className="cam-emote" title={cueLabel(b.emote)}>
+          {(b.emote === "HOMESICK" || b.emote === "HOME") && <HomeIcon tear={b.emote === "HOMESICK"} />}
+          <span className="tx">{cueLabel(b.emote)}</span>
+        </div>,
+      );
+      continue;
+    }
     labels.push(
       <div key={`b${b.key}`} data-pid={f.carriedBy ?? f.id} data-kind="bubble" className="cam-bubble speech">
         <span className="tx">{b.text}</span>
@@ -567,8 +576,18 @@ function WorldCameraImpl(props: CameraProps) {
 function rank(el: HTMLElement): number {
   if (el.dataset.kind === "death") return 0;
   if (el.classList.contains("is-focus")) return 1;
-  if (el.dataset.kind === "bubble") return 2;
+  if (el.dataset.kind === "bubble" || el.dataset.kind === "emote") return 2;
   return 3;
+}
+
+/** the emote's icon: a little house (with a tear when homesick) */
+function HomeIcon({ tear }: { tear: boolean }) {
+  return (
+    <svg className="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <path d="M3 11.5 12 4l9 7.5M6 9.6V20h12V9.6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      {tear ? <path d="M12 11.2c-1.7 2.3-2.5 3.6-2.5 4.6a2.5 2.5 0 0 0 5 0c0-1-.8-2.3-2.5-4.6z" fill="var(--berry)" /> : <path d="M10 20v-5h4v5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />}
+    </svg>
+  );
 }
 
 /** subtle dashed butter ellipse under the focused character's feet */

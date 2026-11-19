@@ -10,6 +10,7 @@ import { apiUrl, clockNow, mockMode, replay, replayMode, source, speechScale } f
 import { SPEEDS, type ReplayStatus } from "./replay";
 import MapCanvas, { agentColor, type FocusPoint } from "./MapCanvas";
 import CameraGrid from "./CameraGrid";
+import { cueOfSay } from "./shared/format.ts";
 
 const EMPTY_CELLS: MapCellTuple[] = [];
 const EMPTY_NAMES: Record<number, string> = {};
@@ -295,13 +296,14 @@ export default function App() {
   const recentSays = useMemo(
     () =>
       events.filter(
-        (e) => e.kind === "say" && nowTs - e.t < 8000 * speechScale() && e.t <= nowTs,
+        (e) => e.kind === "say" && !cueOfSay(e.text) && nowTs - e.t < 8000 * speechScale() && e.t <= nowTs,
       ),
     [events, nowTs],
   );
 
   const chatEvents = useMemo(
-    () => events.filter((e) => e.kind === "say"),
+    // "+HOMESICK+" and other cues are emotes over a head, not speech
+    () => events.filter((e) => e.kind === "say" && !cueOfSay(e.text)),
     [events],
   );
 

@@ -34,10 +34,14 @@ import type {
   InventionsResponse,
   FieldNote,
   FieldNotesResponse,
+  LeadershipEdge,
+  LeadershipPerson,
+  LeadershipResponse,
   StorySoFar,
   TraitSource,
   Traits,
 } from "../api-types.ts";
+import { canonicalFlower } from "../flowers.ts";
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -398,6 +402,39 @@ export function normFieldNotes(v: unknown): FieldNotesResponse {
   return { notes: rows.sort((a, b) => b.windowEnd - a.windowEnd) };
 }
 
+/**
+ * GET /api/leadership: living people with an integer id (first copy wins), edges between listed people
+ * only (one leader per follower, the last listed wins; no self-follows). Cycles are left to the
+ * tree builder (site/leadership.ts), which guards against them.
+ */
+export function normLeadership(v: unknown): LeadershipResponse {
+  const r = isObj(v) ? v : {};
+  const seen = new Set<number>();
+  const people = arr(r.people, (x): LeadershipPerson | null => {
+    if (!isObj(x)) return null;
+    const id = num(x.id, NaN);
+    // living people only (the API never sends anyone else; a hand-written fixture might)
+    if (!Number.isInteger(id) || seen.has(id) || x.alive === false) return null;
+    seen.add(id);
+    const name = strOrNull(x.name)?.trim() || null;
+    const family = strOrNull(x.family)?.trim() || null;
+    return {
+      id, name, age: num(x.age), female: boolOrNull(x.female), isEve: x.isEve === true, family, alive: true,
+      lifeId: strOrNull(x.lifeId), flower: canonicalFlower(x.flower),
+    };
+  });
+  const leaderOf = new Map<number, number>();
+  for (const x of Array.isArray(r.edges) ? r.edges : []) {
+    if (!isObj(x)) continue;
+    const follower = num(x.follower, NaN);
+    const leader = num(x.leader, NaN);
+    if (follower === leader || !seen.has(follower) || !seen.has(leader)) continue;
+    leaderOf.set(follower, leader);
+  }
+  const edges: LeadershipEdge[] = [...leaderOf].map(([follower, leader]) => ({ follower, leader }));
+  return { runId: str(r.runId), at: num(r.at), edges, people };
+}
+
 // ------------------------------------------------------------------ /api/agent-spec
 
 const CATEGORIES = ["human-ui", "wiki", "beyond-human", "game-setting"] as const;
@@ -418,14 +455,15 @@ function numRecord<T extends { [K in keyof T]: number }>(v: unknown, d: T): T {
 
 const LIMITS0: AgentSpecLimits = {
   viewRadius: 0, peopleRadius: 0, resourceRadius: 0, maxThingKinds: 0, maxHints: 0, maxPeople: 0, historyShown: 0, heardWindowS: 0, heardMax: 0,
-  deathsWindowS: 0, deathsMax: 0, memoryLines: 0, memoryLineChars: 0, wakeSpeechRadius: 0, hearingRadius: 0, reflexFood: 0,
+  heardTurns: 0, seenTurns: 0, seenMax: 0, seenPerPersonPerTurn: 0, memoryLines: 0, memoryLineChars: 0, rememberExtraLines: 0, rememberChars: 0, searchSteps: 0,
+  maxActDist: 0, wakeSpeechRadius: 0, hearingRadius: 0, reflexFood: 0,
 };
 
 function normAgentExample(v: unknown): AgentSpecExample | null {
   if (!isObj(v) || typeof v.observation !== "string") return null;
   const rep = isObj(v.reply) ? v.reply : {};
   const reply: AgentSpecExample["reply"] = {};
-  for (const k of ["thought", "goal", "note", "say"] as const) if (typeof rep[k] === "string") reply[k] = rep[k] as string;
+  for (const k of ["thought", "goal", "say", "remember"] as const) if (typeof rep[k] === "string") reply[k] = rep[k] as string;
   if (isObj(rep.action)) reply.action = rep.action;
   if (Array.isArray(rep.actions)) reply.actions = rep.actions.filter(isObj);
   return {
@@ -451,11 +489,18 @@ export function normAgentSpec(v: unknown): AgentSpecResponse | null {
   const om = isObj(s.overheadModels) ? s.overheadModels : {};
   const settings: AgentSpecSettings = {
     model: str(s.model),
-    overheadModels: { narrator: str(om.narrator), director: strOrNull(om.director), story: str(om.story) },
+    selfHosted: s.selfHosted === true,
+    overheadModels: { narrator: str(om.narrator), director: strOrNull(om.director), story: str(om.story), fieldNotes: strOrNull(om.fieldNotes) },
     ...numRecord(s, {
       decisionCycleMs: 0, babyDecisionIntervalMs: 0, babyIdleMaxMs: 0, timeScale: 1, gameSecondsPerTurn: 0, turnsPerYear: 0,
-      reasoningMaxTokens: 0, decisionMaxTokens: 0, maxTokens: 0, actionListMax: 1,
+      reasoningMaxTokens: 0, decisionMaxTokens: 0, maxTokens: 0, actionListMax: 1, turnDecideTimeoutMs: 0, babyIdleTurns: 0, memorySummaryTurns: 0,
     }),
+    directorMinDwellMs: numOrNull(s.directorMinDwellMs),
+    directorCutawayMs: numOrNull(s.directorCutawayMs),
+    fieldNotesIntervalMs: numOrNull(s.fieldNotesIntervalMs),
+    turnClock: s.turnClock === true,
+    memorySummary: s.memorySummary === true,
+    promptBaseline: s.promptBaseline === "playbook" ? "playbook" : "new",
     reasoningCap: s.reasoningCap === true,
     reasoningEffort: strOrNull(s.reasoningEffort),
     craftMacro: s.craftMacro === true,
@@ -466,6 +511,11 @@ export function normAgentSpec(v: unknown): AgentSpecResponse | null {
     foodBonusSecondsPerPip: normServerSetting(s.foodBonusSecondsPerPip),
     freeNames: normServerSetting(s.freeNames),
     playerSaves: normServerSetting(s.playerSaves),
+    earlyMaxBabies: normServerSetting(s.earlyMaxBabies),
+    earlyMaxGenerations: normServerSetting(s.earlyMaxGenerations),
+    noCooldownBypass: normServerSetting(s.noCooldownBypass),
+    languagesMinPlayers: normServerSetting(s.languagesMinPlayers),
+    langLearnSeconds: normServerSetting(s.langLearnSeconds),
   };
   return {
     now: num(v.now),
@@ -473,9 +523,10 @@ export function normAgentSpec(v: unknown): AgentSpecResponse | null {
     systemPrompt: v.systemPrompt,
     userSuffix: str(v.userSuffix),
     replyFields: arr(v.replyFields, (x) => (isObj(x) && typeof x.name === "string" ? { name: x.name, meaning: str(x.meaning) } : null)),
+    noteHeadings: strArr(v.noteHeadings),
     actions: arr(v.actions, (x) =>
       isObj(x) && typeof x.type === "string"
-        ? { type: x.type, template: str(x.template), fields: strArr(x.fields), meaning: str(x.meaning), ...(x.temporary === true ? { temporary: true } : {}) }
+        ? { type: x.type, template: str(x.template), fields: strArr(x.fields), meaning: str(x.meaning), ...(typeof x.note === "string" && x.note ? { note: x.note } : {}), ...(x.temporary === true ? { temporary: true } : {}) }
         : null,
     ),
     validActionTypes: strArr(v.validActionTypes),

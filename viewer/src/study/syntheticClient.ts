@@ -54,6 +54,7 @@ export class SyntheticClient implements ApiClient {
   async storyHistory() { return { history: [] }; }
   async inventions() { return { inventions: [] }; }
   async fieldNotes() { return { notes: [] }; }
+  async leadership() { return { runId: "synthetic", at: this.data.now, edges: [], people: [] }; }
 }
 
 /** Install the synthetic client if the URL asks for it. Call before mount(). */

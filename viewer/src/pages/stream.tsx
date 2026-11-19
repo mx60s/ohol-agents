@@ -5,16 +5,15 @@ import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentView, Invention, LifeRecord, MapCellTuple, PlayerView, RunEvent } from "../api-types.ts";
 import { getClient, useInventions, useLives, useMap, useMinimap, useNow, useObjectNames, useWorldState } from "../data/index.ts";
-import { ageStage, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait, withFamilyNames } from "../shared/index.ts";
+import { ageStage, cueLabel, cueOfSay, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait, withFamilyNames } from "../shared/index.ts";
 import { flowersForLives } from "../ohol/flower.ts";
 import { Sticker, Wordmark } from "../theme/index.ts";
-import { biomeName, cutawayShot, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, describeAction, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
-import { CELL, FOCUS_DROP, WorldCamera, type Bubble } from "../stream/WorldCamera.tsx";
+import { biomeName, cutawayShot, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, speechBubbles, describeAction, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
+import { CELL, FOCUS_DROP, WorldCamera } from "../stream/WorldCamera.tsx";
 import { MiniMap } from "../stream/MiniMap.tsx";
 import "../stream/stream.css";
 import { mount } from "./mount.tsx";
 
-const BUBBLE_MS = 6000;
 const EMPTY_PLAYERS: PlayerView[] = [];
 const EMPTY_AGENTS: AgentView[] = [];
 const EMPTY_CELLS: MapCellTuple[] = [];
@@ -108,21 +107,10 @@ function Stream() {
 
   const idsByName = useMemo(() => objectIdsByName(names), [names]);
 
-  // speech bubbles: newest line per speaker in the last few seconds
+  // speech bubbles: newest line per speaker in the last few seconds ("+HOMESICK+" is an emote)
   const bubbleSecond = Math.floor(serverNow / 1000);
-  const bubbles = useMemo(() => {
-    const out: Bubble[] = [];
-    const seen = new Set<number>();
-    for (let i = w.events.length - 1; i >= 0; i--) {
-      const e = w.events[i];
-      if (serverNow - e.t > BUBBLE_MS) break;
-      if (e.kind !== "say" || e.playerId == null || seen.has(e.playerId) || !e.text.trim()) continue;
-      seen.add(e.playerId);
-      out.push({ key: String(e.seq), playerId: e.playerId, text: e.text });
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [w.events, bubbleSecond]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const bubbles = useMemo(() => speechBubbles(w.events, serverNow), [w.events, bubbleSecond]);
 
   const [cell, setCell] = useState<{ x: number; y: number; biome: number | null } | null>(null);
   const cellRef = useRef(cell);
@@ -513,7 +501,7 @@ function Following(p: FollowingProps) {
                 return (
                   <li key={e.seq}>
                     <time>{shortAgo(e.t, p.now)}</time>
-                    <span className="speech ugc">{e.text}</span>
+                    {cueOfSay(e.text) ? <span className="emote-label">({cueLabel(cueOfSay(e.text)!)})</span> : <span className="speech ugc">{e.text}</span>}
                     {heard.length > 0 && <span className="to">heard by {heard.slice(0, 3).map(agentName).join(", ")}</span>}
                   </li>
                 );

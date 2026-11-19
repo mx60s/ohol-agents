@@ -143,6 +143,46 @@ export interface WorldEvents {
   onAte?(foodId: number): void;
   /** a new line in World.seen (not called when one is merged into an earlier line) */
   onSeen?(e: SeenEvent): void;
+  /**
+   * The server's private cue over our own head ("+HOMESICK+", "+HOME+", "+FREE REIN+"):
+   * a feeling the client shows with an emote, not words we said. `wasHomesick`: before this cue.
+   */
+  onCue?(word: string, wasHomesick: boolean): void;
+}
+
+/**
+ * Feeling homesick (server.cpp, on every walk: start and end tile against
+ * isBirthland): the server says "+HOMESICK+" over our head, only to us, when a
+ * walk leaves the family's homeland, and "+HOME+" when one ends back inside it
+ * ("+FREE REIN+": a person with no homeland, out of someone else's). Being
+ * carried is no walk: a baby carried out gets no cue.
+ */
+export interface Homesick {
+  t: number;
+  /** compass word toward the homeland ("south"): back toward where the walk that left it started; null if unknown */
+  toward: string | null;
+}
+
+/** "You feel homesick: ..." as the agent is told when it leaves (nothing about births: that's for it to find out) */
+export function homesickNotice(h: Homesick | null): string {
+  return `You feel homesick: you have left your family's homeland.${h?.toward ? ` It lies back the way you came, to the ${h.toward}.` : ""}`;
+}
+
+/** the YOU line while outside the homeland */
+export const HOMESICK_LINE = "You feel homesick: you are outside your family's homeland.";
+
+/** a +WORD+ cue in a speech line (the server's client cues: +HOMESICK+, +FREE REIN+, +FAMILY+) */
+const CUE_RE = /\+([A-Z](?:[A-Z ]*[A-Z])?)\+/g;
+/** a MOVE we sent this long ago (World.now ms) is the walk the server's homeland cue is about */
+const CUE_MOVE_MS = 5000;
+
+/** "south", "northeast": the compass word from `from` toward `to` (y grows north); null for the same tile */
+export function compassWord(from: [number, number], to: [number, number]): string | null {
+  const dx = to[0] - from[0], dy = to[1] - from[1];
+  if (!dx && !dy) return null;
+  const ns = Math.abs(dy) * 2 >= Math.abs(dx) ? (dy > 0 ? "north" : dy < 0 ? "south" : "") : "";
+  const ew = Math.abs(dx) * 2 >= Math.abs(dy) ? (dx > 0 ? "east" : dx < 0 ? "west" : "") : "";
+  return ns + ew;
 }
 
 /** OHOL: everyone dies of old age at 60 */
@@ -203,6 +243,12 @@ export class World {
   home: { x: number; y: number } | null = null;
   /** where this character's body first appeared (birth spot, or where an Eve spawned) */
   birthPos: [number, number] | null = null;
+  /** outside the family's homeland, as the server's cues say (see Homesick); null = not homesick */
+  homesick: Homesick | null = null;
+  /** the last walk we sent (Body.move), on the World clock: which way a homeland crossing went */
+  lastMove: { t: number; from: [number, number]; to: [number, number] } | null = null;
+  /** who carried us at the last message (a put-down ends what the homeland cues can tell) */
+  private carriedBy: number | null = null;
   private firstPU = true;
   /** client-side copy of TIME_SCALE (the server's game clock slowdown) */
   timeScale = config.timeScale;
@@ -450,8 +496,11 @@ export class World {
             this.pushHeard({ t: now, speakerId: null, x: 0, y: 0, text: cleanText(r.notice + where, SPEECH_MAX), notice: true });
             continue;
           }
-          // "+FAMILY+" (server makeOffspringSayMarker) and other +WORD+ markers are client cues, not words
-          const words = s.id === this.selfId ? r.text : r.text.replace(/\+[A-Z]+\+/g, " ").replace(/\s+/g, " ").trim();
+          // "+FAMILY+" (server makeOffspringSayMarker) and other +WORD+ markers are client cues, not words;
+          // over our own head ("+HOMESICK+") they are a feeling, not something we said
+          const cues: string[] = [];
+          const words = r.text.replace(CUE_RE, (_m, w: string) => (cues.push(w), " ")).replace(/\s+/g, " ").trim();
+          if (s.id === this.selfId) for (const c of cues) this.selfCue(c, now);
           if (!words) continue;
           const text = cleanText(words + (r.followerId != null && r.followerId === this.selfId && s.id !== this.selfId ? " [an order to you: you are their nearest follower]" : ""), SPEECH_MAX);
           const h: Heard = { t: now, speakerId: s.id, x: p?.x ?? 0, y: p?.y ?? 0, text };
@@ -489,6 +538,7 @@ export class World {
         for (const f of m.follows) {
           if (f.leaderId > 0) this.leaders.set(f.followerId, f.leaderId);
           else this.leaders.delete(f.followerId);
+          this.leaderSeen.set(f.followerId, now);
         }
         break;
       case "LN":
@@ -526,7 +576,37 @@ export class World {
         break;
     }
     this.trackChildren(now);
+    this.trackCarry();
     this.updateView(now);
+  }
+
+  /** Body: a walk was sent from `from` to `to` */
+  noteMoveSent(from: [number, number], to: [number, number]) {
+    this.lastMove = { t: this.now(), from: [from[0], from[1]], to: [to[0], to[1]] };
+  }
+
+  /** a +WORD+ cue the server put over our own head */
+  private selfCue(word: string, now: number) {
+    const was = this.homesick != null;
+    if (word === "HOMESICK") {
+      // the walk started inside the homeland (that's what made it a crossing): it lies back toward that start
+      const m = this.lastMove && now - this.lastMove.t <= CUE_MOVE_MS ? this.lastMove : null;
+      this.homesick = { t: now, toward: m ? compassWord(m.to, m.from) : null };
+    } else if (word === "HOME" || word === "FREE REIN") this.homesick = null;
+    this.ev.onCue?.(word, was);
+  }
+
+  /**
+   * Put down after being carried: the server only checks our own walks, so a
+   * carry in or out sends no cue. Whatever we felt before no longer says where
+   * we are; drop it (the next walk across a border cues afresh).
+   */
+  private trackCarry() {
+    const me = this.self;
+    if (!me) return;
+    const c = this.carrierOf(me)?.id ?? null;
+    if (this.carriedBy != null && c == null) this.homesick = null;
+    this.carriedBy = c;
   }
 
   /** A child's age now, extrapolated from the record (as currentAge does for a player). */
@@ -577,6 +657,8 @@ export class World {
   names = new Map<number, string>();
   /** follower id -> leader id, from FW messages */
   leaders = new Map<number, number>();
+  /** follower id -> when (World.now) the latest FW about them arrived, also for "follows no one" (merged views prefer the newest) */
+  leaderSeen = new Map<number, number>();
   lineage = new Map<number, { ancestors: number[]; eveId: number }>();
 
   /**

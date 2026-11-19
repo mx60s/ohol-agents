@@ -10,6 +10,7 @@
 // GET  /api/flowers          -> FlowersResponse       (the per-person flower catalogue: shapes and colours)
 // GET  /api/inventions?limit=N&run=<runId|all> -> InventionsResponse (first time each technology item was made; newest first; default 20, max 200; default run = the current one)
 // GET  /api/fieldnotes?limit=N -> FieldNotesResponse (the current run's field notes, newest first; default 50, max 500)
+// GET  /api/leadership       -> LeadershipResponse    (who follows whom among the living, merged across agents' views)
 //
 // Research endpoints (lives, lineages, traits; persisted across restarts and runs):
 // GET  /api/lives?since=<ms>&limit=<n>        -> LivesResponse    lives with updatedAt > since, oldest update first
@@ -289,6 +290,39 @@ export interface FieldNote {
 
 export interface FieldNotesResponse {
   notes: FieldNote[]; // the current run's, newest first
+}
+
+/** One "follows" link: `follower` follows `leader` (player ids; both alive). */
+export interface LeadershipEdge {
+  follower: number;
+  leader: number;
+}
+
+/** A living person in GET /api/leadership. */
+export interface LeadershipPerson {
+  id: number; // player id
+  name: string | null;
+  age: number; // years, 1 decimal
+  female: boolean | null;
+  /** first of a family: generation 1, no ancestors */
+  isEve: boolean;
+  /** the surname (last word of the name); null while unnamed */
+  family: string | null;
+  alive: boolean; // always true: living people only
+  lifeId?: string | null;
+  flower?: Flower | null;
+}
+
+/**
+ * GET /api/leadership: who follows whom right now (the server's FW messages, merged across every
+ * living agent's view; the most recently received report wins). Living people only; edges between
+ * living people only, never a cycle. `people` lists everyone alive, leaders and followers or not.
+ */
+export interface LeadershipResponse {
+  runId: string;
+  at: number; // ms epoch
+  edges: LeadershipEdge[];
+  people: LeadershipPerson[];
 }
 
 /** [x, y, biome, floorId, objectId] ; objectId/floorId 0 = empty */
@@ -584,6 +618,8 @@ export interface AgentSpecResponse {
   userSuffix: string;
   /** fields of the reply JSON object */
   replyFields: { name: string; meaning: string }[];
+  /** the headings of the note-taker's yearly notes (YOUR NOTES), in order */
+  noteHeadings: string[];
   /** every action, parsed from the prompt's own action list */
   actions: AgentSpecAction[];
   /** the action types the reply parser accepts (reply.ts) */
@@ -608,6 +644,8 @@ export interface AgentSpecAction {
   fields: string[];
   /** the prompt's one-line meaning */
   meaning: string;
+  /** how the harness carries it out, beyond the prompt's line (e.g. what search returns) */
+  note?: string;
   /** a temporary intervention (the craft macro) */
   temporary?: boolean;
 }
@@ -621,13 +659,26 @@ export interface ServerSetting {
 export interface AgentSpecSettings {
   /** the agents' model (every agent uses it) */
   model: string;
-  /** models for the narrator / director / story (they never talk to agents); director null = heuristic */
-  overheadModels: { narrator: string; director: string | null; story: string };
-  /** one turn: ms from one decision's start to the next */
+  /** the agents' model runs on our own server (not via OpenRouter) */
+  selfHosted: boolean;
+  /** models for the narrator / director / story / field notes (they never talk to agents); director null = heuristic, fieldNotes null = off */
+  overheadModels: { narrator: string; director: string | null; story: string; fieldNotes: string | null };
+  /** the stream director's shortest shot and its cutaway length (ms); null = off */
+  directorMinDwellMs: number | null;
+  directorCutawayMs: number | null;
+  /** a field-notes write-up every this many ms; null = off */
+  fieldNotesIntervalMs: number | null;
+  /** the turn clock (TURN_CLOCK=1): the world is paused while agents think, then runs gameSecondsPerTurn per turn */
+  turnClock: boolean;
+  /** turn clock: replies later than this (ms) are dropped and the agent sits the turn out */
+  turnDecideTimeoutMs: number;
+  /** turn clock: a baby under 3 with nothing happening decides at most every this many turns */
+  babyIdleTurns: number;
+  /** one turn: ms from one decision's start to the next (turn clock: ms of the game-paced clock, not real time) */
   decisionCycleMs: number;
-  /** minimum ms between decisions under age 2 */
+  /** without the turn clock: minimum ms between decisions under age 2 */
   babyDecisionIntervalMs: number;
-  /** a baby with nothing happening is asked at most this often (ms) */
+  /** without the turn clock: a baby with nothing happening is asked at most this often (ms) */
   babyIdleMaxMs: number;
   /** game clock slowdown k (1 = stock) */
   timeScale: number;
@@ -642,14 +693,28 @@ export interface AgentSpecSettings {
   maxTokens: number;
   reasoningEffort: string | null;
   actionListMax: number;
+  /** PROMPT_BASELINE: "new" = a first-time player's facts, no recipes or strategy; "playbook" = game facts and a ranked playbook */
+  promptBaseline: "new" | "playbook";
   craftMacro: boolean;
   recipeHints: boolean;
   memoryMode: "per-life" | "persistent";
+  /** the note-taker's yearly notes are on, every memorySummaryTurns turns */
+  memorySummary: boolean;
+  memorySummaryTurns: number;
   traitSource: TraitSource;
   foodBonus: ServerSetting;
   foodBonusSecondsPerPip: ServerSetting;
   freeNames: ServerSetting;
   playerSaves: ServerSetting;
+  /** early birth cap: at most earlyMaxBabies per woman in generations 1..earlyMaxGenerations (0 = off) */
+  earlyMaxBabies: ServerSetting;
+  earlyMaxGenerations: ServerSetting;
+  /** 1 = a mother on her birth cooldown never gets a baby (stock bypasses it when every mother is on one) */
+  noCooldownBypass: ServerSetting;
+  /** family languages apply from this many players */
+  languagesMinPlayers: ServerSetting;
+  /** game seconds of living together to learn most of another family's language (0 = off, stock) */
+  langLearnSeconds: ServerSetting;
 }
 
 export interface AgentSpecLimits {
@@ -660,13 +725,25 @@ export interface AgentSpecLimits {
   maxHints: number;
   maxPeople: number;
   historyShown: number;
+  /** heard lines stay this long (wall s; with the turn clock see heardTurns) */
   heardWindowS: number;
+  /** turns a heard line stays in HEARD */
+  heardTurns: number;
   heardMax: number;
-  deathsWindowS: number;
-  deathsMax: number;
-  /** the yearly memory summary: at most this many lines of this many chars */
+  /** WHAT YOU SAW NEARBY: events from the last seenTurns turns, at most seenMax lines, seenPerPersonPerTurn about one person a turn */
+  seenTurns: number;
+  seenMax: number;
+  seenPerPersonPerTurn: number;
+  /** the yearly notes: at most this many lines of this many chars */
   memoryLines: number;
   memoryLineChars: number;
+  /** extra note lines allowed for "remember" items, and one item's max length */
+  rememberExtraLines: number;
+  rememberChars: number;
+  /** steps shown in the SEARCH section */
+  searchSteps: number;
+  /** use / drop / swap / take_out refuse a tile farther than this */
+  maxActDist: number;
   /** speech this close (tiles) wakes an agent before its turn */
   wakeSpeechRadius: number;
   /** the server delivers speech this far (tiles) */
@@ -702,7 +779,7 @@ export interface AgentSpecExample {
   /** the reply as written */
   replyText: string;
   /** the reply as the harness read it: known fields only */
-  reply: { thought?: string; goal?: string; note?: string; say?: string; action?: Record<string, unknown>; actions?: Record<string, unknown>[] };
+  reply: { thought?: string; goal?: string; say?: string; remember?: string; action?: Record<string, unknown>; actions?: Record<string, unknown>[] };
   /** each step's result, as the agent is told next turn */
   results: { action: string; result: string }[];
   /** what was actually said (cut to the age limit by the server) */

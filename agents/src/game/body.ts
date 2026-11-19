@@ -223,6 +223,7 @@ export class Body {
     const seq = this.moveSeq;
     const deltas = path.map(([x, y]) => `${x - start[0]} ${y - start[1]}`).join(" ");
     this.send(`MOVE ${start[0]} ${start[1]} @${seq} ${deltas}`);
+    if (path.length) this.world.noteMoveSent(start, path[path.length - 1]);
     // server-reported walking speed (follows TIME_SCALE); generous margin for babies, elders, loads
     // on the world's clock: with the turn clock a walk only progresses in act windows
     const deadline = this.world.now() + this.world.walkMs(path.length) * 3 + 3000;
@@ -766,7 +767,8 @@ export class Body {
 
   say(text: string): string {
     // printable ASCII only: '#' ends a protocol message, and the game font has nothing else
-    const upper = text.toUpperCase().replace(/[^\x20-\x22\x24-\x7E]/g, " ").replace(/\s+/g, " ").trim();
+    // and no '+': "+WORD+" is the server's cue to the client (+HOMESICK+), not something a person says
+    const upper = text.toUpperCase().replace(/[^\x20-\x22\x24-\x2A\x2C-\x7E]/g, " ").replace(/\s+/g, " ").trim();
     // the game removes numbers from speech (the echo comes back without them): say what was really said
     const clean = upper.replace(/[0-9]/g, "").replace(/\s+/g, " ").trim();
     const lostNumbers = clean !== upper;

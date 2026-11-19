@@ -1,9 +1,11 @@
-// Families (families.html?family=<lineageId>): every lineage, its look, stats and an interactive tree; then every death.
+// Families (families.html?family=<lineageId>): every lineage, its look, stats and an interactive tree;
+// then who leads whom right now (#leadership); then every death (#deaths).
 import { useEffect, useMemo, useState } from "react";
 import type { LifeRecord, LineageRecord } from "../api-types.ts";
 import { queryParam, useNow } from "../data/index.ts";
 import { formatClock, formatRelative, formatTrait, PersonPortrait } from "../shared/index.ts";
 import { DeathsTable } from "../site/Deaths.tsx";
+import { Leadership } from "../site/Leadership.tsx";
 import { FamilyTree, TreeScroll, useFolds } from "../site/FamilyTree.tsx";
 import { buildForest, meanTraits, sortBy, traitLabel, TRAIT_LIMIT } from "../site/logic.ts";
 import { LivesState, Note } from "../site/ui.tsx";
@@ -120,6 +122,10 @@ function FamiliesPage() {
       <div className="as">
         <div className="page-title">
           <h1>Families</h1>
+          <nav className="page-jump" aria-label="On this page">
+            <a href="#leadership">Leadership</a>
+            <a href="#deaths">Deaths</a>
+          </nav>
         </div>
         {!fams.length ? (
           <Panel title="Families" variant="orange">
@@ -147,6 +153,9 @@ function FamiliesPage() {
             {current && <FamilyDetail key={current.lineageId} fam={current} site={site} />}
           </>
         )}
+        <Panel title="Leadership" sub="who follows whom right now" variant="navy" id="leadership" style={{ marginTop: 20 }}>
+          <Leadership />
+        </Panel>
         <Panel title="Deaths" variant="dark" id="deaths" style={{ marginTop: 20 }}>
           <DeathsTable site={site} />
         </Panel>

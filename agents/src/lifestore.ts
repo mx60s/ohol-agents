@@ -328,6 +328,11 @@ export class LifeStore {
     return l ? { lifeId: l.lifeId, lineageId: l.lineageId, flower: l.flower ?? null } : { lifeId: null, lineageId: null, flower: null };
   }
 
+  /** The generation (1 = an Eve) of our life with this player id that may be alive now, else null. */
+  generationOf(playerId: number): number | null {
+    return this.livingByPlayer(playerId)?.generation ?? null;
+  }
+
   /** The flower label ("blue daisy") of our life with this player id that may be alive now, else null. */
   flowerLabel(playerId: number): string | null {
     return this.livingByPlayer(playerId)?.flower?.label ?? null;

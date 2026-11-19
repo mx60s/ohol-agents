@@ -10,6 +10,7 @@ import type { DeathRecord, LifeActivity, LifeRecord, LineageRecord, RunEvent, Tr
 import { config } from "./config.ts";
 import { canonicalFlower, isKnownFlower, pickFlower, type Flower } from "./flowers.ts";
 import { inheritTraits, sampleEveTraits, type Rng } from "./traits.ts";
+import { cueOfSay } from "./cues.ts";
 
 /** OHOL: one in-game year per real minute, death of old age at 60. */
 export const LIFESPAN_YEARS = 60;
@@ -346,6 +347,7 @@ export class LifeBook {
         life.activity.thoughts++;
         break;
       case "say": {
+        if (cueOfSay(ev.text)) break; // an emote, not speech
         life.activity.says++;
         const heard = ev.data?.heardBy;
         if (Array.isArray(heard) && heard.length > 0) life.activity.saysHeard++;

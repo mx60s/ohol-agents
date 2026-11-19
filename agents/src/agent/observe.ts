@@ -4,7 +4,7 @@
 // Order: what changes rarely first (identity, home), what changes every turn
 // last, so consecutive prompts share a long prefix. Durations are in turns.
 
-import { VIEW_RADIUS, type World, type Player, type Since, type SeenEvent } from "../game/world.ts";
+import { HOMESICK_LINE, VIEW_RADIUS, type World, type Player, type Since, type SeenEvent } from "../game/world.ts";
 import { withArticle, type GameData } from "../game/gameData.ts";
 import { DEFAULT_FOOD_BONUS_S, drainSecondsPerPip, newbornWindowSeconds } from "./prompt.ts";
 import { sayLimit } from "../game/body.ts";
@@ -218,6 +218,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   if (!me.name) L.push(isEve ? `You have no name yet, and neither does your family: name yourself and your family now, this turn, by saying "I AM <FIRST NAME> <FAMILY NAME>" (once only; your children carry the family name).${o.takenSurnames?.length ? ` Family names already taken (pick a new one): ${takenList(o.takenSurnames)}.` : ""}` : `No name yet; usually your mother names you.`);
   if (o.goal) L.push(`Your long-term goal${goalAge(o.goalSetAt, now, clock)}: ${o.goal}`);
   L.push(homeLine(w, pos, isEve));
+  if (w.homesick) L.push(HOMESICK_LINE);
 
   // --- body state
   if (age < 3) L.push(`You are a baby: you can't feed yourself or walk far, and can barely talk. A woman must carry you.`);

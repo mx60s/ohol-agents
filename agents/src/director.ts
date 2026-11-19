@@ -52,6 +52,7 @@ import type { ChatMessage, LlmResult } from "./agent/llm.ts";
 import { JEV_DEFAULT_MODEL, type DecisionsClient, type DecisionsRequest } from "./jev.ts";
 import { cleanPhrase, cleanText, parseJsonObjectStrict, quoteData } from "./safety.ts";
 import { surnameOf } from "./agent/naming.ts";
+import { cueOfSay } from "./cues.ts";
 
 /** The part of Llm the director needs (lets tests inject a fake). */
 export interface ChatLlm {
@@ -299,6 +300,7 @@ export class Director {
         break;
       }
       case "say": {
+        if (cueOfSay(e.text)) break; // an emote, not speech
         const heard = Array.isArray(e.data?.heardBy) ? (e.data!.heardBy as unknown[]).filter((x): x is string => typeof x === "string") : [];
         add(e.agentId, `said ${quoteData(e.text, 80)}${heard.length ? ` (heard by ${heard.slice(0, 4).join(", ")})` : " (no one heard)"}`, heard.length ? 2 : 0.5);
         for (const h of heard.slice(0, 6)) add(h, `was spoken to by ${e.agentId}`, 1);

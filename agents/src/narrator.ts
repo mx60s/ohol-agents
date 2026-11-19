@@ -11,6 +11,7 @@ import type { Population } from "./population.ts";
 import type { AgentView, RunEvent } from "./api-types.ts";
 import { cleanProse, quoteData } from "./safety.ts";
 import { config } from "./config.ts";
+import { cueOfSay } from "./cues.ts";
 
 export const PERSONA_NAME = "Dolores Pike";
 
@@ -130,6 +131,7 @@ export function buildNarratorInput(agents: AgentView[], events: RunEvent[], hist
   const lines: string[] = [];
   for (const e of events) {
     const who = e.name ? quoteData(e.name, 40) : nameOf(e.agentId);
+    if (e.kind === "say" && cueOfSay(e.text)) continue; // an emote over their head, not speech
     if (e.kind === "say") {
       const heard = Array.isArray(e.data?.heardBy) ? (e.data!.heardBy as string[]).map(nameOf) : null;
       lines.push(`${who} said ${quoteData(e.text, 120)}${heard ? (heard.length ? ` (heard by ${heard.join(", ")})` : " (no one in earshot)") : ""}`);

@@ -3,7 +3,7 @@ import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useMemo, useState } from "react";
 import type { LifeRecord, RunEvent } from "../api-types.ts";
 import { pageHref, queryParam, useLife, useLifeLog, useNow, useWorldState, type LifeLogState } from "../data/index.ts";
-import { deathReasonText, displayName, firstNameOf, formatAge, formatClock, formatCount, formatDuration, formatTrait, personalityText } from "../shared/index.ts";
+import { cueLabel, cueOfSay, deathReasonText, displayName, firstNameOf, formatAge, formatClock, formatCount, formatDuration, formatTrait, personalityText } from "../shared/index.ts";
 import { DEATH_ICON } from "../site/Deaths.tsx";
 import { FamilyTree, TreeScroll } from "../site/FamilyTree.tsx";
 import {
@@ -138,7 +138,7 @@ function RightNow({ life }: { life: LifeRecord }) {
       )}
 
       {a.lastThought && <div className="thought ugc">{a.lastThought}</div>}
-      {a.lastSaid && (
+      {a.lastSaid && !cueOfSay(a.lastSaid) && (
         <p>
           <span className="speech ugc">{a.lastSaid}</span>
         </p>
@@ -149,7 +149,7 @@ function RightNow({ life }: { life: LifeRecord }) {
 
 function CauseOfDeath({ life, events }: { life: LifeRecord; events: RunEvent[] }) {
   const why = deathReasonText(life.deathReason);
-  const last = events.find((e) => e.kind === "say" && e.text.trim());
+  const last = events.find((e) => e.kind === "say" && e.text.trim() && !cueOfSay(e.text));
   return (
     <section className="panel death">
       <div className="panel-head is-ink">
@@ -389,7 +389,8 @@ function Timeline({ life, site, log }: { life: LifeRecord; site: SiteData; log: 
               </span>
               <div className="body">
                 {k === "thought" && <div className="thought ugc">{e.text}</div>}
-                {k === "say" && (
+                {k === "say" && cueOfSay(e.text) && <span className="muted emote-label">({cueLabel(cueOfSay(e.text)!)})</span>}
+                {k === "say" && !cueOfSay(e.text) && (
                   <>
                     <span className="speech ugc">{e.text}</span>
                     <span className="who ugc">{heard.length ? `heard by ${heardNames.length ? heardNames.join(", ") : heard.length}` : "heard by no one"}</span>

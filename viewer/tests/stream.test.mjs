@@ -1,6 +1,9 @@
 // Stream overlay pure logic (node --test, .ts via type stripping).
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   MAX_WALK_MS,
@@ -376,4 +379,37 @@ test("trackAnimal: same id or kind, nearest within reach", () => {
   assert.deepEqual(trackAnimal([[5, 0, 0, 0, 630], [1, 1, 0, 0, 631]], names, t), { x: 1, y: 1 });
   assert.equal(trackAnimal([[1, 0, 0, 0, 700]], names, t), null);
   assert.equal(trackAnimal([[20, 0, 0, 0, 630]], names, t), null);
+});
+
+test("speechBubbles: a +WORD+ cue is an emote for 4 s, not a speech bubble; speech stays 6 s", async () => {
+  const { speechBubbles, EMOTE_MS, BUBBLE_MS } = await import("../src/stream/logic.ts");
+  const evs = [
+    { seq: 1, t: 10_000, kind: "say", agentId: "a1", playerId: 7, name: null, text: "HELLO" },
+    { seq: 2, t: 11_000, kind: "say", agentId: "a2", playerId: 8, name: null, text: "+HOMESICK+" },
+  ];
+  assert.deepEqual(speechBubbles(evs, 12_000), [
+    { key: "2", playerId: 8, text: "", emote: "HOMESICK" },
+    { key: "1", playerId: 7, text: "HELLO" },
+  ]);
+  // after EMOTE_MS the emote is gone; the older speech line is still up
+  assert.deepEqual(speechBubbles(evs, 11_000 + EMOTE_MS + 1).map((b) => b.key), ["1"]);
+  assert.deepEqual(speechBubbles(evs, 10_000 + BUBBLE_MS + 1), []);
+  // an expired emote doesn't hide the speaker's earlier line still on screen
+  const same = [evs[0], { ...evs[1], playerId: 7 }];
+  assert.deepEqual(speechBubbles(same, 12_000).map((b) => b.emote ?? b.text), ["HOMESICK"]);
+  assert.deepEqual(speechBubbles(same, 15_500).map((b) => b.emote ?? b.text), ["HELLO"]);
+});
+
+test("cues are told apart from speech: +HOMESICK+, +FREE REIN+; not words around a plus", async () => {
+  const { cueOfSay, cueLabel } = await import("../src/shared/format.ts");
+  assert.equal(cueOfSay("+HOMESICK+"), "HOMESICK");
+  assert.equal(cueLabel(cueOfSay("+FREE REIN+")), "free rein");
+  assert.equal(cueOfSay("I MISS HOME"), null);
+  assert.equal(cueOfSay("+HOME+ NOW"), null);
+  assert.equal(cueOfSay(null), null);
+});
+
+test("the camera draws an emote bubble as a small house badge, not a speech bubble", () => {
+  const src = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../src/stream/WorldCamera.tsx"), "utf8");
+  assert.match(src, /if \(b\.emote\) \{[\s\S]*?data-kind="emote" className="cam-emote"[\s\S]*?continue;/);
 });

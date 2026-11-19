@@ -3,7 +3,7 @@
 // selection. Tested in tests/stream.test.mjs.
 
 import type { Cutaway, MapCellTuple, PlayerView, RunEvent, Traits } from "../api-types.ts";
-import { NAME_NUMERAL, cleanText, deathReasonText, displayName, truncate } from "../shared/format.ts";
+import { NAME_NUMERAL, cleanText, cueOfSay, deathReasonText, displayName, truncate } from "../shared/format.ts";
 
 // ================================================================== trait tags
 
@@ -497,4 +497,33 @@ export function describeAction(text: string): string | null {
     return `tried to ${what}: ${clean(res.replace(/^[a-z_ ]+(at \(-?\d+,\s*-?\d+\))?:\s*/, ""))}`;
   }
   return clean(res);
+}
+
+/** how long a spoken line shows over a head (server ms) */
+export const BUBBLE_MS = 6000;
+/** how long an emote ("+HOMESICK+") shows over a head */
+export const EMOTE_MS = 4000;
+
+export interface SpeechBubble {
+  key: string;
+  playerId: number;
+  text: string;
+  /** set for a +WORD+ cue: shown as a small emote, not a speech bubble */
+  emote?: string;
+}
+
+/** The newest say per speaker still on screen at `now` (events oldest first); a cue is an emote, for EMOTE_MS. */
+export function speechBubbles(events: readonly RunEvent[], now: number): SpeechBubble[] {
+  const out: SpeechBubble[] = [];
+  const seen = new Set<number>();
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (now - e.t > BUBBLE_MS) break;
+    if (e.kind !== "say" || e.playerId == null || seen.has(e.playerId) || !e.text.trim()) continue;
+    const emote = cueOfSay(e.text);
+    if (emote && now - e.t > EMOTE_MS) continue;
+    seen.add(e.playerId);
+    out.push(emote ? { key: String(e.seq), playerId: e.playerId, text: "", emote } : { key: String(e.seq), playerId: e.playerId, text: e.text });
+  }
+  return out;
 }

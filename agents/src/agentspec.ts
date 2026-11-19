@@ -16,7 +16,11 @@ import { config, type Config } from "./config.ts";
 import { actionList, systemPromptFor } from "./agent/prompt.ts";
 import { parseReply, checkActions, validActionTypes, type Action } from "./agent/reply.ts";
 import { turnClock, turnsFor } from "./agent/turns.ts";
-import { sayLimit } from "./game/body.ts";
+import { MAX_ACT_DIST, sayLimit } from "./game/body.ts";
+import { SEARCH_SHOWN } from "./game/search.ts";
+import { SEEN_SHOWN, SEEN_TURNS } from "./agent/observe.ts";
+import { MEMORY_LINE_CHARS, MEMORY_MAX_LINES, NOTE_HEADINGS, REMEMBER_EXTRA_LINES } from "./agent/memory.ts";
+import { REMEMBER_CHARS } from "./agent/reply.ts";
 import { cleanText, stripControl } from "./safety.ts";
 import type {
   AgentSpecAction,
@@ -46,15 +50,25 @@ export const OBSERVATION_LIMITS = {
   maxPeople: 10,
   /** observe.ts HISTORY_SHOWN */
   historyShown: 15,
-  /** observe.ts: heard lines kept for 90 s, last 10 */
+  /** observe.ts HEARD_SHOWN_MS: heard lines kept for 90 s (turn clock: the same number of 8 s turns), last 10 */
   heardWindowS: 90,
   heardMax: 10,
-  /** observe.ts WHAT YOU SAW NEARBY (deaths and other events seen): the last SEEN_TURNS = 5 turns (40 s of 8 s turns), last 10 */
-  deathsWindowS: 40,
-  deathsMax: 20,
+  /** observe.ts WHAT YOU SAW NEARBY: events from the last SEEN_TURNS turns, at most SEEN_SHOWN lines */
+  seenTurns: SEEN_TURNS,
+  seenMax: SEEN_SHOWN,
+  /** world.ts SEEN_DID_PER_TURN: lines about one person's doings per turn (more are counted on the last) */
+  seenPerPersonPerTurn: 4,
   /** memory.ts: the note-taker's yearly notes ("YOUR NOTES") are at most this many lines (plus headings) of this many chars */
-  memoryLines: 10,
-  memoryLineChars: 160,
+  memoryLines: MEMORY_MAX_LINES,
+  memoryLineChars: MEMORY_LINE_CHARS,
+  /** memory.ts REMEMBER_EXTRA_LINES: extra note lines allowed for "remember" items */
+  rememberExtraLines: REMEMBER_EXTRA_LINES,
+  /** reply.ts REMEMBER_CHARS: one "remember" item */
+  rememberChars: REMEMBER_CHARS,
+  /** search.ts SEARCH_SHOWN: steps shown in the SEARCH section */
+  searchSteps: SEARCH_SHOWN,
+  /** body.ts MAX_ACT_DIST: use, drop, swap and take_out refuse a tile farther than this */
+  maxActDist: MAX_ACT_DIST,
   /** salience.ts HEAR_RADIUS: speech this close wakes an agent early */
   wakeSpeechRadius: 10,
   /** server.cpp maxSpeechRadius (Euclidean): speech is delivered this far */
@@ -67,10 +81,20 @@ export const OBSERVATION_LIMITS = {
 export const REPLY_FIELDS: { name: string; meaning: string }[] = [
   { name: "thought", meaning: "one short sentence; shown back to it next turn as its previous thought (max 400 chars)" },
   { name: "goal", meaning: "optional: the long-term goal for this life (not this turn's step); kept and shown every turn with its age until it changes (max 200 chars)" },
-  { name: "say", meaning: "optional; spoken aloud now, before the action; a baby naming line ('YOU ARE X') waits for a pick_up_baby in the same reply (max 200 chars, cut further by age)" },
+  { name: "say", meaning: "optional; spoken aloud now, before the action; digits are removed; a baby naming line ('YOU ARE X') waits for a pick_up_baby in the same reply (max 200 chars, cut further by age)" },
+  { name: "remember", meaning: `optional: something to keep; handed to the note-taker, who includes it in the next yearly notes unless what happened shows it is wrong (up to ${REMEMBER_EXTRA_LINES} extra lines; max ${REMEMBER_CHARS} chars)` },
   { name: "action", meaning: "one action object (see the table)" },
   { name: "actions", meaning: "instead of action: a list of steps run back to back" },
 ];
+
+/** How the harness carries out an action, beyond the prompt's one line (shown next to it on the site). */
+export const ACTION_NOTES: Record<string, string> = {
+  use: `refused if the tile is more than ${MAX_ACT_DIST} tiles away`,
+  drop: `refused if the tile is more than ${MAX_ACT_DIST} tiles away`,
+  swap: `refused if the tile is more than ${MAX_ACT_DIST} tiles away`,
+  take_out: `refused if the tile is more than ${MAX_ACT_DIST} tiles away`,
+  search: `like the game client's hint search ("/fire"): matches whole words in object names, picks the cheapest recipe and lists it first step first (up to ${SEARCH_SHOWN} steps) in a SEARCH section shown every turn until the next search; takes no game time`,
+};
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -100,7 +124,8 @@ export function actionCatalogue(cfg: Pick<Config, "craftMacro" | "actionListMax"
     const type = /"type":"([a-z_]+)"/.exec(template)?.[1];
     if (!type) continue;
     const fields = [...template.matchAll(/"([a-z_]+)":/g)].map((x) => x[1]).filter((f) => f !== "type");
-    out.push({ type, template, fields, meaning: m[2], ...(type === "craft" ? { temporary: true } : {}) });
+    const note = ACTION_NOTES[type];
+    out.push({ type, template, fields, meaning: m[2], ...(note ? { note } : {}), ...(type === "craft" ? { temporary: true } : {}) });
   }
   return out;
 }
@@ -114,7 +139,19 @@ export function specSettings(cfg: Config, env: NodeJS.ProcessEnv = process.env):
   const clock = turnClock(cfg);
   return {
     model: cfg.llmModelName,
-    overheadModels: { narrator: cfg.narratorModel, director: cfg.directorEngine === "jev" ? cfg.directorJevModel : cfg.directorEngine === "llm" ? cfg.directorModel : null, story: cfg.storyModel },
+    selfHosted: !/openrouter\.ai/.test(cfg.llmBaseUrl),
+    overheadModels: {
+      narrator: cfg.narratorModel,
+      director: cfg.directorEngine === "jev" ? cfg.directorJevModel : cfg.directorEngine === "llm" ? cfg.directorModel : null,
+      story: cfg.storyModel,
+      fieldNotes: cfg.fieldNotesIntervalMs > 0 ? cfg.fieldNotesModel : null,
+    },
+    directorMinDwellMs: cfg.directorIntervalMs > 0 ? cfg.directorMinDwellMs : null,
+    directorCutawayMs: cfg.directorIntervalMs > 0 && cfg.directorCutawayMs > 0 ? cfg.directorCutawayMs : null,
+    fieldNotesIntervalMs: cfg.fieldNotesIntervalMs > 0 ? cfg.fieldNotesIntervalMs : null,
+    turnClock: !!clock.lockstep,
+    turnDecideTimeoutMs: cfg.turnDecideTimeoutMs,
+    babyIdleTurns: cfg.babyIdleTurns,
     decisionCycleMs: clock.cycleMs,
     babyDecisionIntervalMs: cfg.babyDecisionIntervalMs,
     babyIdleMaxMs: cfg.babyIdleMaxMs,
@@ -127,14 +164,22 @@ export function specSettings(cfg: Config, env: NodeJS.ProcessEnv = process.env):
     maxTokens: cfg.llmMaxTokens,
     reasoningEffort: cfg.llmReasoningEffort || null,
     actionListMax: cfg.actionListMax,
+    promptBaseline: cfg.promptBaseline,
     craftMacro: cfg.craftMacro,
     recipeHints: cfg.recipeHints,
     memoryMode: cfg.memoryMode,
+    memorySummary: cfg.memorySummary,
+    memorySummaryTurns: cfg.memorySummaryTurns,
     traitSource: cfg.traitSource,
     foodBonus: serverSetting("mtsNewPlayerFoodBonus", env),
     foodBonusSecondsPerPip: serverSetting("newPlayerFoodDecrementSecondsBonus", env),
     freeNames: serverSetting("mtsFreeNames", env),
     playerSaves: serverSetting("mtsPlayerSaves", env),
+    earlyMaxBabies: serverSetting("mtsEarlyMaxBabies", env),
+    earlyMaxGenerations: serverSetting("mtsEarlyMaxGenerations", env),
+    noCooldownBypass: serverSetting("mtsNoCooldownBypass", env),
+    languagesMinPlayers: serverSetting("minActivePlayersForLanguages", env),
+    langLearnSeconds: serverSetting("mtsLangFullSeconds", env),
   };
 }
 
@@ -154,7 +199,7 @@ export function interventions(cfg: Config, s: AgentSpecSettings): AgentSpecInter
     { id: "stale-check", name: "Stale-target check", category: "human-ui", on: true, detail: "a target that changed while the model was thinking is not acted on; the model is told" },
     { id: "turns", name: "Durations in turns", category: "human-ui", on: true, detail: "every time is converted from game seconds into decision turns" },
     // like human experience or the wiki
-    { id: "playbook", name: "Game facts and playbook in the prompt", category: "wiki", on: cfg.promptBaseline === "playbook", detail: "food values, cold, babies and nursing, camp priorities, naming phrases (PROMPT_BASELINE=playbook; the default new-player prompt has only the controls and our naming and flower rules)" },
+    { id: "playbook", name: "Game facts and playbook in the prompt", category: "wiki", on: cfg.promptBaseline === "playbook", detail: "food values, cold, babies and nursing, camp priorities, naming phrases (PROMPT_BASELINE=playbook; the default new-player prompt has only what a first-time player knows, the controls and our rules)" },
     { id: "recipe-hints", name: "Recipe hints", category: "wiki", on: cfg.recipeHints, detail: `what the held item or bare hands would do to nearby things (up to ${L.maxHints})` },
     // beyond a human player
     { id: "craft", name: "craft <item> macro (temporary)", category: "beyond-human", on: cfg.craftMacro, detail: "plans the recipe chain from what is in view and does the steps itself; may be removed before the main study" },
@@ -163,14 +208,18 @@ export function interventions(cfg: Config, s: AgentSpecSettings): AgentSpecInter
     { id: "food-summary", name: "Food summary", category: "beyond-human", on: true, detail: `hand-pickable food left within ${L.resourceRadius} tiles, with the nearest spots` },
     { id: "babies-line", name: "Where my babies are", category: "beyond-human", on: true, detail: "a mother is told where each of her babies under 3 is" },
     { id: "birth-spot", name: "Birth spot as home", category: "beyond-human", on: true, detail: "without a Home Marker, the coordinates of the birth spot" },
-    { id: "events", name: "Event-driven turns", category: "beyond-human", on: true, detail: "hunger thresholds, births, deaths, being picked up and nearby speech wake the agent early" },
+    { id: "events", name: "Event-driven turns", category: "beyond-human", on: true, detail: "hunger thresholds, births, deaths, being picked up, a hungry baby's \"F\" and nearby speech end a wait early and are listed under JUST HAPPENED" },
     { id: "wasted-turns", name: "Wasted-turn feedback", category: "beyond-human", on: true, detail: "a malformed reply or invalid action is explained next turn" },
     { id: "reasoning-cap", name: "Mild reasoning cap", category: "beyond-human", on: cfg.llmReasoningCap, detail: `about ${cfg.llmReasoningMaxTokens} reasoning tokens within ${cfg.llmDecisionMaxTokens} in total` },
-    { id: "memory-summary", name: "Yearly notes", category: "beyond-human", on: cfg.memorySummary, detail: `every ${cfg.memorySummaryTurns} turns a separate note-taker call (the agents' own model) rewrites this life's notes in the background from a transcript of the year (actions and results, what was seen nearby, notices, what people said as claims; not the agent's thoughts): at most ${L.memoryLines} lines of facts under headings, no plans, shown every turn` },
+    { id: "memory-summary", name: "Yearly notes", category: "beyond-human", on: cfg.memorySummary, detail: `every ${cfg.memorySummaryTurns} turns a separate note-taker call (the agents' own model) rewrites this life's notes in the background from a transcript of the year (actions and results, what was seen nearby, notices, what people said as claims; not the agent's thoughts): at most ${L.memoryLines} lines of facts under headings, no plans, shown every turn; things the agent asked to remember are included, with up to ${L.rememberExtraLines} more lines; notes cut off by the length limit are discarded` },
     { id: "memory", name: "Notes from past lives", category: "beyond-human", on: cfg.memoryMode === "persistent", detail: "MEMORY_MODE=persistent carries a slot's last yearly memory summary into its next life; off = each life starts fresh" },
     // declared changes to the game
     { id: "food-bonus", name: "New-player food bonus", category: "game-setting", on: on(s.foodBonus), detail: `+${s.foodBonusSecondsPerPip.value ?? "?"} s on every food pip, every life (stock OHOL gives it to newcomers)` },
+    { id: "turn-clock", name: "Turn clock", category: "game-setting", on: s.turnClock, detail: `the game world is paused while the agents think, then runs ${s.gameSecondsPerTurn} game seconds per turn` },
     { id: "time-scale", name: "Time dilation", category: "game-setting", on: s.timeScale !== 1, detail: `game clock ${s.timeScale}x slower than stock` },
+    { id: "early-birth-cap", name: "Early birth cap", category: "game-setting", on: s.earlyMaxBabies.value == null ? null : Number(s.earlyMaxBabies.value) > 0, detail: `at most ${s.earlyMaxBabies.value ?? "?"} babies per woman in generations 1-${s.earlyMaxGenerations.value ?? "?"}, so early camps grow through daughters` },
+    { id: "birth-cooldown", name: "Birth cooldowns kept", category: "game-setting", on: on(s.noCooldownBypass), detail: "a mother still resting after a birth never gets another baby (stock skips the rest when every mother is resting); a free seat waits for a mother who will be ready instead of starting as a new Eve" },
+    { id: "language-learning", name: "Languages learned by living together", category: "game-setting", on: s.langLearnSeconds.value == null ? null : Number(s.langLearnSeconds.value) > 0, detail: `adults of different families within speech range learn each other's language while at peace (most of it in about ${s.langLearnSeconds.value ?? "?"} game seconds together); in stock OHOL a language is learned only by hearing it spoken` },
     { id: "flowers", name: "Per-person flowers", category: "game-setting", on: true, detail: "everyone wears a flower, unique among living family members" },
     { id: "free-names", name: "Free names", category: "game-setting", on: on(s.freeNames), detail: "names are used as spoken, not snapped to the server's name lists; no family name is ever used twice, and a repeated first name in a family gets a numeral (AURORA II)" },
     { id: "player-saves", name: "Player saves", category: "game-setting", on: on(s.playerSaves), detail: "living characters survive a server restart" },
@@ -257,6 +306,8 @@ function cleanReply(v: Record<string, unknown>, steps: Action[]): AgentSpecExamp
   if (goal) out.goal = goal;
   const say = cleanText(v.say, 200);
   if (say) out.say = say;
+  const remember = cleanText(v.remember, REMEMBER_CHARS);
+  if (remember) out.remember = remember;
   const plain = steps.map((a) => Object.fromEntries(Object.entries(a).filter(([, x]) => x !== undefined)) as Record<string, unknown>);
   if (plain.length === 1 && !Array.isArray(v.actions)) out.action = plain[0];
   else out.actions = plain;
@@ -337,6 +388,13 @@ export function findExampleTurn(runDir: string, cfg: Pick<Config, "craftMacro" |
 
 // ------------------------------------------------------------------ the response
 
+/** Turns a heard line stays in HEARD (observe.ts shownMs: the turn clock keeps the same number of 8 s turns). */
+export function heardTurns(cfg: Config): number {
+  const clock = turnClock(cfg);
+  const ms = OBSERVATION_LIMITS.heardWindowS * 1000;
+  return clock.lockstep ? Math.round(ms / 8000) : Math.round(ms / clock.cycleMs);
+}
+
 export function buildAgentSpec(cfg: Config, runDir: string | null, opts: { env?: NodeJS.ProcessEnv; now?: number; runId?: string | null } = {}): AgentSpecResponse {
   const settings = specSettings(cfg, opts.env);
   let example: AgentSpecExample | null = null;
@@ -353,10 +411,11 @@ export function buildAgentSpec(cfg: Config, runDir: string | null, opts: { env?:
     systemPrompt: systemPromptFor(cfg),
     userSuffix: USER_SUFFIX,
     replyFields: REPLY_FIELDS,
+    noteHeadings: [...NOTE_HEADINGS],
     actions: actionCatalogue(cfg),
     validActionTypes: validActionTypes(cfg.craftMacro),
     settings,
-    limits: { ...OBSERVATION_LIMITS },
+    limits: { ...OBSERVATION_LIMITS, heardTurns: heardTurns(cfg) },
     sayLimits: sayLimits(),
     interventions: interventions(cfg, settings),
     example,

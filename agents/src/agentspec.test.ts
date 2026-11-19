@@ -92,6 +92,31 @@ test("response shape: settings, interventions, limits, say limits", () => {
   assert.ok(s.replyFields.length === REPLY_FIELDS.length);
   // every reply field is named in the prompt's format
   for (const f of s.replyFields) assert.ok(s.systemPrompt.includes(`"${f.name}"`), f.name);
+  assert.deepEqual(s.replyFields.map((f) => f.name), ["thought", "goal", "say", "remember", "action", "actions"]);
+  assert.match(s.actions.find((a) => a.type === "search")!.note!, /hint search.*first step first.*until the next search/);
+  assert.match(s.actions.find((a) => a.type === "use")!.note!, new RegExp(`${s.limits.maxActDist} tiles`));
+  assert.equal(s.actions.find((a) => a.type === "go")!.note, undefined);
+  assert.equal(s.settings.turnClock, false);
+  assert.equal(s.limits.heardTurns, Math.round(90_000 / 4700));
+});
+
+test("turn clock: settings, heard turns and the turn-clock intervention", () => {
+  const c = cfg({ turnClock: true, turnGameS: 2.4, timeScale: 1, babyIdleTurns: 10, memorySummaryTurns: 25 });
+  const s = buildAgentSpec(c, null, { env: { OHOL_SETTING_mtsEarlyMaxBabies: "3", OHOL_SETTING_mtsEarlyMaxGenerations: "5", OHOL_SETTING_mtsLangFullSeconds: "300" } });
+  assert.equal(s.settings.turnClock, true);
+  assert.equal(s.settings.gameSecondsPerTurn, 2.4);
+  assert.equal(s.settings.turnsPerYear, 25);
+  assert.equal(s.settings.babyIdleTurns, 10);
+  assert.equal(s.settings.memorySummaryTurns, 25);
+  assert.equal(s.limits.heardTurns, 11);
+  const by = Object.fromEntries(s.interventions.map((i) => [i.id, i]));
+  assert.equal(by["turn-clock"].on, true);
+  assert.equal(by["early-birth-cap"].on, true);
+  assert.match(by["early-birth-cap"].detail, /at most 3 babies per woman in generations 1-5/);
+  assert.equal(by["language-learning"].on, true);
+  const off = buildAgentSpec(cfg(), null, { env: { OHOL_SETTING_mtsEarlyMaxBabies: "0", OHOL_SETTING_mtsLangFullSeconds: "0" } });
+  assert.equal(off.interventions.find((i) => i.id === "early-birth-cap")!.on, false);
+  assert.equal(off.interventions.find((i) => i.id === "language-learning")!.on, false);
 });
 
 test("server settings: OHOL_SETTING_ wins, then the shipped .ini, else unknown", () => {
@@ -119,8 +144,9 @@ test("mirrored constants match observe.ts, salience.ts, agent.ts and prompt.ts",
   // windows in wall s (turn clock: the same number of 8 s turns, see observe.ts shownMs)
   assert.match(o, new RegExp(`const HEARD_SHOWN_MS = ${L.heardWindowS}_000;`));
   assert.match(o, new RegExp(`now - h\\.t < shownMs\\(HEARD_SHOWN_MS, clock\\)\\)\\.slice\\(-${L.heardMax}\\)`));
-  assert.match(o, new RegExp(`const SEEN_TURNS = ${L.deathsWindowS / 8};`));
-  assert.match(o, new RegExp(`const SEEN_SHOWN = ${L.deathsMax};`));
+  assert.match(o, new RegExp(`const SEEN_TURNS = ${L.seenTurns};`));
+  assert.match(o, new RegExp(`const SEEN_SHOWN = ${L.seenMax};`));
+  assert.match(src("game/world.ts"), new RegExp(`const SEEN_DID_PER_TURN = ${L.seenPerPersonPerTurn};`));
   assert.match(o, /now - e\.t < \(SEEN_TURNS \+ 0\.5\) \* clock\.cycleMs\)\.slice\(-SEEN_SHOWN\)/);
   const m = src("agent/memory.ts");
   assert.match(m, new RegExp(`MEMORY_MAX_LINES = ${L.memoryLines};`));
@@ -135,7 +161,7 @@ test("example turn: the latest completed adult decision, with its results", () =
   const t = 1_800_000_000_000;
   const dir = runDir(
     [
-      { t, agentId: "a01", playerId: 2, lifeIndex: 1, observation: obs(24), reply: reply({ type: "go", x: 3, y: 4 }), reasoning: "berries are north", model: "m/x" },
+      { t, agentId: "a01", playerId: 2, lifeIndex: 1, observation: obs(24), reply: reply({ type: "go", x: 3, y: 4 }, { remember: "the spring is north", note: "old notebook field" }), reasoning: "berries are north", model: "m/x" },
       { t: t + 100, agentId: "a02", playerId: 5, observation: obs(1.2), reply: reply({ type: "jump" }) }, // a baby
       { t: t + 200, agentId: "a03", playerId: 7, observation: obs(30), reply: "no json here" }, // unparseable
       { t: t + 300, agentId: "a04", playerId: 9, observation: obs(30), reply: reply({ type: "fly" }) }, // invalid action
@@ -157,7 +183,7 @@ test("example turn: the latest completed adult decision, with its results", () =
   assert.equal(ex.age, 24);
   assert.equal(ex.model, "m/x");
   assert.equal(ex.reasoning, "berries are north");
-  assert.deepEqual(ex.reply, { thought: "go to the berries", action: { type: "go", x: 3, y: 4 } });
+  assert.deepEqual(ex.reply, { thought: "go to the berries", remember: "the spring is north", action: { type: "go", x: 3, y: 4 } });
   assert.deepEqual(ex.results, [{ action: "go (3, 4)", result: "arrived" }]);
   assert.equal(ex.said, "HELLO");
   assert.ok(ex.observation.startsWith("== YOU =="));

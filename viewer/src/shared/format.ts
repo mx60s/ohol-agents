@@ -89,6 +89,20 @@ export function cleanText(s: string): string {
   return s.replace(INVISIBLE, "");
 }
 
+/**
+ * A "say" whose whole text is a +WORD+ cue ("+HOMESICK+", "+HOME+") is the game's emote over a
+ * character's head (the server's private cue to that player), not speech. Returns the word, or null.
+ */
+export function cueOfSay(text: string | null | undefined): string | null {
+  const m = /^\s*\+([A-Z](?:[A-Z ]*[A-Z])?)\+\s*$/.exec(text ?? "");
+  return m ? m[1] : null;
+}
+
+/** "homesick", "free rein": a cue as a muted label */
+export function cueLabel(word: string): string {
+  return word.toLowerCase();
+}
+
 /** II..X: the numeral of a repeated first name in a family ("AURORA II DAWN"). */
 export const NAME_NUMERAL = /^(II|III|IV|V|VI|VII|VIII|IX|X)$/i;
 
