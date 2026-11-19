@@ -164,6 +164,8 @@ export const config = {
   // --- field notes (a researcher's write-up every 20 min, per run; LOG_DIR/<run dir>/fieldnotes.jsonl); see fieldnotes.ts
   /** ms between field notes; 0 disables */
   fieldNotesIntervalMs: num("FIELD_NOTES_INTERVAL_MS", 1_200_000),
+  /** no field notes in these local hours (NARRATOR_QUIET_TZ), "start-end"; default "23-10"; "" = always */
+  fieldNotesQuietHours: env.FIELD_NOTES_QUIET_HOURS ?? "23-10",
   /** model for the field notes; default the story's model */
   fieldNotesModel: env.FIELD_NOTES_MODEL || (isOpenRouter(overheadBaseUrl) ? "anthropic/claude-sonnet-5.5" : env.STORY_MODEL || env.NARRATOR_MODEL || overheadModel),
   /** 0 = process starts idle; begin the run with POST /api/start?token=... */

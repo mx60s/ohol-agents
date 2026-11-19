@@ -49,7 +49,7 @@ function setup(logDir: string, o: { startedAt?: number | null; runDir?: string }
       agents: () => state.agents,
       now: () => clock.t,
     },
-    { intervalMs: INTERVAL, model: "fake/model", logDir },
+    { intervalMs: INTERVAL, quietHours: "", model: "fake/model", logDir },
   );
   return { fn, llm, clock, state, runDir };
 }
@@ -231,4 +231,10 @@ test("buildInput: stays under the cap with a long busy run", () => {
 test("cleanNote: keeps paragraphs and bullets, drops markup", () => {
   assert.equal(cleanNote("## Notes\n**EVE** ate.\r\n\r\n\r\n* one\n• two\n<b>x</b>"), "Notes\nEVE ate.\n\n- one\n- two\n x".replace("\n x", "\nx"));
   assert.equal(cleanNote(42), "");
+});
+
+test("quiet hours: no note inside them; the window waits, so the next note covers the quiet stretch", async () => {
+  const { inQuietHours } = await import("./quiet.ts");
+  assert.equal(inQuietHours("23-10", "America/Los_Angeles", new Date("2026-11-19T08:00:00Z")), true, "midnight PT");
+  assert.equal(inQuietHours("", "America/Los_Angeles", new Date("2026-11-19T08:00:00Z")), false);
 });

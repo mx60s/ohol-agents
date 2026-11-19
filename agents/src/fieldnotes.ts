@@ -24,6 +24,8 @@ import { productsOf } from "./director.ts";
 import { cleanText, stripControl } from "./safety.ts";
 import { cueOfSay } from "./cues.ts";
 import { rotatedFiles } from "./events.ts";
+import { config } from "./config.ts";
+import { inQuietHours } from "./quiet.ts";
 
 export const FIELD_NOTES_SYSTEM = `You are a researcher on a project in which LLM agents live whole lives in a One Hour One Life world: they are born as babies to mothers (or appear as an Eve, the founder of a family), grow up in about 14 years, raise children, make tools and die, a year being about a minute of game time. You take part in the project by keeping field notes: every 20 minutes you write one entry about what the people in the world did in that period.
 
@@ -64,6 +66,8 @@ export interface FieldNotesDeps {
 
 export interface FieldNotesOptions {
   intervalMs: number;
+  /** quiet hours override ("" = always on); default config.fieldNotesQuietHours */
+  quietHours?: string;
   model?: string;
   logDir: string;
 }
@@ -130,6 +134,8 @@ export class FieldNotes {
     const interval = this.opts.intervalMs;
     this.nextAt ??= startedAt + interval;
     if (now < this.nextAt) return "not-due";
+    // overnight quiet hours: no notes; the cursor stays, so the first note after them covers the night
+    if (inQuietHours(this.opts.quietHours ?? config.fieldNotesQuietHours, config.narratorQuietTz)) return "not-due";
     const first = this.notes.length === 0;
     const from = first ? startedAt : (this.cursor ?? startedAt);
     // not now: try again at the next interval; the empty/idle stretch isn't written up
