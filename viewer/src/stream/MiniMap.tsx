@@ -27,6 +27,8 @@ export interface MiniMapProps {
   overview?: { block: number; cells: MapCellTuple[] } | null;
   /** player id -> the colour drawn on the camera for that person's hair; dots use it (else ink) */
   hairOf?: (playerId: number) => string | null;
+  /** the camera's stage, when the inset is not inside it (phone layout); default: our grandparent */
+  viewEl?: () => HTMLElement | null;
   /** the current world (run id): the inset's bounds only grow within one world */
   worldKey?: string | null;
   /** camera target tile (null: no camera) */
@@ -89,7 +91,7 @@ function MiniMapImpl(p: MiniMapProps) {
   const hasBase = base != null;
   // the camera panel's size (our parent), for the visible-area rectangle
   useEffect(() => {
-    const parent = ref.current?.parentElement?.parentElement;
+    const parent = p.viewEl?.() ?? ref.current?.parentElement?.parentElement;
     if (!parent) return;
     const on = () => setView((v) => (v && v.w === parent.clientWidth && v.h === parent.clientHeight ? v : { w: parent.clientWidth, h: parent.clientHeight }));
     on();

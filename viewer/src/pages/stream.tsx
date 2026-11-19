@@ -30,6 +30,21 @@ function useFitScale(): number {
   return s;
 }
 
+/** Phone/small screens: the overlay becomes a scrolling column (same query as stream.css). OBS (1920x1080) never matches. */
+const PHONE_QUERY = "(max-width: 820px), (orientation: landscape) and (max-height: 500px)";
+function usePhone(): boolean {
+  const q = typeof window !== "undefined" && window.matchMedia ? window.matchMedia(PHONE_QUERY) : null;
+  const [on, setOn] = useState(() => !!q?.matches);
+  useEffect(() => {
+    if (!q) return;
+    const f = () => setOn(q.matches);
+    q.addEventListener("change", f);
+    return () => q.removeEventListener("change", f);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return on;
+}
+
 /** prefers-reduced-motion: the ticker stops scrolling (it still updates). */
 function useReducedMotion(): boolean {
   const q = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
@@ -57,6 +72,9 @@ function Stream() {
   const names = useObjectNames();
   const now = useNow(1000);
   const scale = useFitScale();
+  const phone = usePhone();
+  const camRef = useRef<HTMLElement>(null);
+  const camStage = useCallback(() => camRef.current?.querySelector<HTMLElement>(".cam-stage") ?? null, []);
   const isStatic = getClient().isStatic;
   const state = w.state;
 
@@ -170,11 +188,28 @@ function Stream() {
   // model provider down: a quiet banner (never the raw error); goes away by itself on recovery
   const thinking = !offline && lostInThought(state?.run, serverNow);
 
+  // the camera's minimap inset; on phones it gets its own panel below the followed person
+  const miniMap = (
+    <MiniMap
+      hairOf={hairOf}
+      overview={minimap.data ?? null}
+      worldKey={state?.run.id ?? null}
+      cells={map.data?.cells ?? EMPTY_CELLS}
+      players={players}
+      agents={state?.agents ?? EMPTY_AGENTS}
+      focusPlayerId={nobody || focusDead ? null : focusPlayerId}
+      camera={nobody ? null : cell}
+      cellPx={CELL}
+      focusDrop={FOCUS_DROP}
+      viewEl={phone ? camStage : undefined}
+    />
+  );
+
   return (
-    <div className="stage-fit" style={{ transform: `scale(${scale})` }}>
+    <div className="stage-fit" style={phone ? undefined : { transform: `scale(${scale})` }}>
       <div className="frame">
         <Headline state={state} lives={lives.lives} now={serverNow} />
-        <section className="cam" aria-label="camera">
+        <section className="cam" aria-label="camera" ref={camRef}>
           <WorldCamera
             key={w.runId ?? "none"}
             players={players}
@@ -207,18 +242,7 @@ function Stream() {
                 {LOST_IN_THOUGHT}
               </div>
             )}
-            <MiniMap
-              hairOf={hairOf}
-              overview={minimap.data ?? null}
-              worldKey={state?.run.id ?? null}
-              cells={map.data?.cells ?? EMPTY_CELLS}
-              players={players}
-              agents={state?.agents ?? EMPTY_AGENTS}
-              focusPlayerId={nobody || focusDead ? null : focusPlayerId}
-              camera={nobody ? null : cell}
-              cellPx={CELL}
-              focusDrop={FOCUS_DROP}
-            />
+            {!phone && miniMap}
             {offline && <div className="reconnect">reconnecting…</div>}
           </WorldCamera>
         </section>
@@ -238,6 +262,16 @@ function Stream() {
           events={w.events}
           now={serverNow}
         />
+        {phone && (
+          <section className="mapbox">
+            <div className="panel">
+              <div className="panel-head is-leaf">
+                <span className="ttl">🗺 The world</span>
+              </div>
+              {miniMap}
+            </div>
+          </section>
+        )}
         <News events={w.events} agents={state?.agents ?? []} players={players} byId={lives.byId} runId={state?.run.id ?? null} now={serverNow} />
         <Inventions lives={lives.lives} byId={lives.byId} names={names} now={serverNow} />
       </div>

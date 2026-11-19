@@ -78,7 +78,9 @@
 @media (max-width: 760px) {
   .hw-steps, .hw-cats { grid-template-columns: minmax(0, 1fr); }
   .hw-know > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
-  .hw-tpl { white-space: normal; }
+  .hw-tpl { white-space: normal; overflow-wrap: anywhere; min-width: 150px; }
+  /* the actions table keeps readable columns and scrolls inside its own frame */
+  .hw-table table.data:has(th:nth-child(3)) { min-width: 620px; }
 }
 
 /* 0. the game; 4. harness notes on actions */

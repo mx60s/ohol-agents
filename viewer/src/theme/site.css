@@ -58,12 +58,19 @@
 @media (max-width: 760px) {
   .site-top .in { padding: 10px 12px; gap: 10px; }
   .site-top .wordmark { font-size: 30px; -webkit-text-stroke-width: 6px; }
-  .site-top .navbar { margin-left: 0; order: 3; width: 100%; overflow-x: auto; }
-  .site-top .navbar a { padding: 6px 11px; font-size: 13px; }
-  .site-top .watch { margin-left: auto; padding: 5px 10px; font-size: 12.5px; }
+  /* nav: tabs wrap onto a second row (no squeezed labels, nothing hidden off-screen) */
+  .site-top .navbar { margin-left: 0; order: 3; width: 100%; display: flex; flex-wrap: wrap; border-radius: 18px; }
+  .site-top .navbar a {
+    flex: 1 0 auto; padding: 9px 10px 10px; font-size: 14px; text-align: center; white-space: nowrap;
+    border-bottom: 1.5px solid rgba(31,26,20,.35); margin: 0 -1.5px -1.5px 0;
+  }
+  .page { padding: 14px 10px 32px; }
+  .page-title { flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+  .site-top .watch { margin-left: auto; padding: 6px 12px; font-size: 13px; }
   .runbar .in { padding: 5px 12px; gap: 8px 12px; font-size: 12px; }
 }
-@media (max-width: 420px) {
-  .site-top .wordmark { font-size: 25px; -webkit-text-stroke-width: 5px; }
+@media (max-width: 440px) {
+  .site-top .wordmark { font-size: 23px; -webkit-text-stroke-width: 5px; }
+  .site-top .watch { padding: 6px 10px; font-size: 12.5px; }
 }
 .runbar .live { color: var(--danger); }

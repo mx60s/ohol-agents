@@ -218,3 +218,106 @@ body.stream { background: var(--grain), var(--parchment); }
 /* "Doing": the followed person's latest hands-on action, in full (results like "not food… nearest food…" matter) */
 .side .doing-sec .tx { white-space: normal; overflow-wrap: anywhere; }
 .side .doing-sec .t { margin-right: 6px; }
+
+/* ---------- phone / small screens ----------
+   Same query as PHONE_QUERY in pages/stream.tsx. The 1920x1080 overlay above is untouched (OBS never matches):
+   here the stage stops scaling and becomes a scrolling column: top bar, camera, the followed person,
+   the world map, news, inventions. */
+@media (max-width: 820px), (orientation: landscape) and (max-height: 500px) {
+  html, body { height: auto; overflow-x: hidden; overflow-y: auto; }
+  .stage-fit { width: auto; height: auto; transform: none; }
+  .frame { width: auto; height: auto; padding: 10px 10px 24px; display: flex; flex-direction: column; gap: 12px; }
+  .frame > * { flex: none; }
+
+  /* top bar: wordmark + LIVE, then the numbers in a compact grid */
+  .top { flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px 12px; border-radius: 16px; }
+  .top .wordmark { font-size: 27px; -webkit-text-stroke-width: 5px; }
+  .top .burst-live { width: 50px !important; height: 50px !important; font-size: 12px; margin: -6px 0; }
+  .stats { width: 100%; margin-left: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .chip { min-width: 0; height: auto; padding: 4px 8px 5px; border-radius: 12px; }
+  .chip .n { font-size: 22px; gap: 4px; }
+  .chip .n small { font-size: 14px; }
+  .chip .k { font-size: 14px; letter-spacing: 0; text-transform: none; overflow: hidden; text-overflow: ellipsis; }
+
+  /* camera: full width at a fixed aspect. The stage is laid out at twice the panel size and scaled by half,
+     so it shows a sensible patch of world; overlay sizes below are in those doubled pixels (30px reads as 15px). */
+  .cam { width: 100%; aspect-ratio: 4 / 3; border-radius: 14px; }
+  .cam-stage { inset: auto; left: 0; top: 0; width: 200%; height: 200%; transform: scale(.5); transform-origin: 0 0; }
+  .cam-vignette { box-shadow: inset 0 0 160px rgba(31,26,20,.28); }
+  .cam-label { font-size: 30px; max-width: 520px; padding: 3px 16px 5px; border-width: 3px; }
+  .cam-label.is-focus { font-size: 36px; max-width: 640px; padding: 4px 20px 6px; }
+  .cam-label.is-focus .ag { font-size: 30px; }
+  .cam-bubble { font-size: 32px; max-width: 620px; }
+  .cam-emote { font-size: 30px; padding: 4px 16px 5px 12px; border-width: 3px; }
+  .cam-emote .ic { width: 30px; height: 30px; }
+  .cam-death { font-size: 38px; max-width: 92%; }
+  .camhud { right: 20px; top: 20px; }
+  .camhud .pill { font-size: 28px; padding: 4px 18px 6px; }
+  .camhud .pill.cutaway { max-width: 900px; }
+  .reconnect { bottom: 24px; right: 24px; font-size: 28px; padding: 4px 18px 6px; }
+  .lost-in-thought { font-size: 30px; bottom: 24px; max-width: 92%; overflow: hidden; text-overflow: ellipsis; }
+  .between { width: 88%; padding: 34px 40px 36px; border-radius: 28px; }
+  .between .k { font-size: 28px; }
+  .between h2 { font-size: 52px; }
+  .between p { font-size: 32px; }
+  .between .last { font-size: 30px; }
+
+  /* the followed person */
+  .side .panel, .newsbox .panel, .inventions .panel { flex: none; }
+  .side .panel-head, .newsbox .panel-head, .inventions .panel-head, .mapbox .panel-head { font-size: 19px; padding: 7px 14px 8px; }
+  .side .panel-head .sub { font-size: 15px; }
+  .who { grid-template-columns: 108px minmax(0, 1fr); gap: 12px; padding: 12px 12px 4px; }
+  .who .photo { zoom: .68; }
+  .who h2 { font-size: 26px; white-space: normal; overflow-wrap: anywhere; }
+  .facts { font-size: 15px; column-gap: 8px; row-gap: 2px; }
+  .facts dt { font-size: 14px; letter-spacing: .04em; padding-top: 1px; }
+  .facts dd { white-space: normal; overflow-wrap: anywhere; }
+  .meters { flex-direction: column; gap: 6px; }
+  .meter .k { font-size: 14px; letter-spacing: .04em; }
+  .side .condition { font-size: 15px; }
+  .sec { padding: 8px 12px 0; }
+  .traitrow { max-height: none; }
+  .traitrow .pill { font-size: 15px; }
+  .thinking { font-size: 18px; padding: 8px 12px 10px; }
+  .thinking .t { font-size: 14px; }
+  .thinking .tx { -webkit-line-clamp: 6; }
+  .side .doing-sec .thought { font-size: 16px; }
+  .said-sec { padding-bottom: 12px; }
+  .said li { flex-wrap: wrap; gap: 2px 8px; font-size: 16px; }
+  .said .speech { font-size: 17px; max-width: 100%; white-space: normal; flex: 0 1 auto; overflow-wrap: anywhere; }
+  .said time { font-size: 14px; min-width: 0; }
+  .said .to { font-size: 14px; white-space: normal; }
+  .quiet { font-size: 16px; }
+  .side-empty { padding: 24px 16px; }
+  .side-empty h2 { font-size: 26px; }
+  .side-empty p { font-size: 17px; }
+
+  /* the world map (only rendered on phones; on the overlay it is the camera's inset) */
+  .mapbox .panel { display: flex; flex-direction: column; }
+  .mapbox .minimap { position: static; align-self: center; margin: 12px; box-shadow: none; max-width: calc(100% - 24px); }
+  .mapbox .minimap canvas { width: 440px !important; max-width: 100%; height: auto !important; aspect-ratio: 220 / 160; }
+
+  /* news + ticker, inventions */
+  .feed { padding: 8px 12px 10px; gap: 8px; }
+  .feed li { grid-template-columns: 62px minmax(0, 1fr); gap: 8px; font-size: 16px; }
+  .feed li.now { font-size: 17px; }
+  .feed li span, .feed li.now span { -webkit-line-clamp: 8; }
+  .feed time { font-size: 14px; white-space: normal; }
+  .crawl { height: 36px; }
+  .crawl .lab { font-size: 15px; padding: 0 10px; }
+  .crawl .txt { font-size: 15px; padding-left: 10px; }
+  .inv-list { padding: 4px 12px 6px; }
+  .inv-list li { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; height: auto; min-height: 52px; padding: 4px 0; }
+  .inv-icon { width: 40px; height: 40px; }
+  .inv-item { font-size: 17px; white-space: normal; overflow-wrap: anywhere; }
+  .inv-by { font-size: 14px; white-space: normal; flex-wrap: wrap; }
+  .inv-list time { font-size: 14px; }
+  .inv-empty { font-size: 16px; padding: 12px; }
+}
+/* landscape phone: the camera fits the screen height */
+@media (orientation: landscape) and (max-height: 500px) {
+  .cam { aspect-ratio: 16 / 9; width: min(100%, calc((100vh - 24px) * 16 / 9)); align-self: center; }
+  .top { flex-wrap: nowrap; }
+  .top .wordmark { font-size: 24px; flex: none; }
+  .stats { flex: 1; min-width: 0; width: auto; grid-template-columns: 1fr .8fr .8fr 1.3fr 1fr; }
+}

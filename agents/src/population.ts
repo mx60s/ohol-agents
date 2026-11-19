@@ -10,6 +10,7 @@ import type { EventLog } from "./events.ts";
 import type { LifeStore } from "./lifestore.ts";
 import type { LeadershipResponse, MapCellTuple, MapResponse, MinimapResponse, PlayerView, StateResponse } from "./api-types.ts";
 import { buildLeadership } from "./leadership.ts";
+import type { TriedNothing, World } from "./game/world.ts";
 import { LoginScheduler, type LoginDeps } from "./logins.ts";
 import { LANGUAGES_MIN_PLAYERS } from "./agent/observe.ts";
 import { FileClockPort, TurnCoordinator, type ClockPort } from "./turnclock.ts";
@@ -89,6 +90,27 @@ export function coarseMap(cells: Map<string, { biome: number }>, maxBlocks: numb
     if (!seen.has(key)) seen.set(key, [bx, by, c.biome, 0, 0]);
   }
   return { block, cells: [...seen.values()] };
+}
+
+/** a try that did nothing is relayed only from people this old or older (a baby's flailing is not news) */
+export const TRIED_MIN_AGE = 3;
+
+/**
+ * A try by `from`'s character that changed nothing (Body.lastNoop): every other
+ * living agent's World gets it (World.seeTried shows it if the actor is within
+ * its view). Nothing from a baby under TRIED_MIN_AGE.
+ */
+export function relayTried(agents: readonly { status: string; world: World | null }[], from: { world: World | null }, t: TriedNothing) {
+  const w = from.world, me = w?.self;
+  if (!w || !me || w.dead || w.currentAge(me) < TRIED_MIN_AGE) return;
+  for (const a of agents) {
+    if (a === from || a.status !== "alive" || !a.world || a.world.selfId === me.id) continue;
+    try {
+      a.world.seeTried(me.id, t);
+    } catch (e) {
+      console.error("relayTried", e);
+    }
+  }
 }
 
 export const agentIdOf = (i: number) => `a${String(i + 1).padStart(2, "0")}`;
@@ -229,6 +251,8 @@ export class Population implements SpeechSink {
       familyFirstNames: (playerId: number) => this.extras.lives?.familyFirstNames(this.cfg.runId, playerId) ?? [],
       speechScrambled: (speakerId: number, text: string) => this.speechScrambled(speakerId, text),
       turns: this.turns?.link(),
+      // a try that did nothing: our other agents nearby see it (beyond human: no client learns of it)
+      triedNothing: (from: Agent, t: TriedNothing) => relayTried(this.agents, from, t),
       // the receiver sees the item land at their feet: a notice in their next observation
       gave: (from: Agent, toPlayerId: number, item: string, at: [number, number]) => {
         const to = this.agents.find((x) => x.status === "alive" && x.world?.selfId === toPlayerId);

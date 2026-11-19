@@ -343,6 +343,10 @@ dl.kv dd { margin: 0; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
   .tools .search { min-width: 0; width: 100%; }
   .page-title h1 { font-size: 26px; }
   .ld-tree { font-size: 13px; }
+  /* leadership tree: narrower indent (the box-drawing prefix is squeezed), names wrap */
+  .ld-pre { font-size: 9px; letter-spacing: -.12em; }
+  .ld-person { flex: 1 1 auto; }
+  .ld-name { overflow-wrap: anywhere; }
   .sib-nav { margin-left: 0; }
   .story-nav { margin-left: 0; }
   .roster { grid-template-columns: 1fr; }

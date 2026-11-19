@@ -3,7 +3,7 @@
 // Every method resolves to a short plain-text result the LLM gets back.
 
 import type { Connection } from "../protocol/connection.ts";
-import type { World } from "./world.ts";
+import type { TriedNothing, World } from "./world.ts";
 import { withArticle, type GameData } from "./gameData.ts";
 
 type Pos = [number, number];
@@ -36,6 +36,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const TILE_JUST_CHANGED_MS = 6_000;
 
 export class Body {
+  /**
+   * The last world-acting try sent to the server that changed nothing (use, drop, swap,
+   * take out, feeding a person), or null. The agent clears it before each step and
+   * reads it after, to relay the try to others nearby (see World.seeTried).
+   */
+  lastNoop: TriedNothing | null = null;
   private moveSeq = 1;
   /** set by the agent: non-null = abandon a long walk or craft now (urgent event) */
   interrupt: (() => string | null) | null = null;
@@ -294,8 +300,17 @@ export class Body {
     return c.kind === "mark" ? `your hands are taken by the ${this.gd.name(s!.held.id)} for now` : `your hands are taken by your ${c.kind} (${this.gd.name(s!.held.id)}); it can't be put down`;
   }
 
+  private static unchanged(r: { before: string; after: string; heldBefore: string; heldAfter: string }): boolean {
+    return r.before === r.after && r.heldBefore === r.heldAfter;
+  }
+
+  /** a try the server answered with no change (a baby in arms is not an item try) */
+  private noteNoop(t: TriedNothing) {
+    if (t.held >= 0) this.lastNoop = t;
+  }
+
   private summarize(verb: string, x: number, y: number, r: { before: string; after: string; heldBefore: string; heldAfter: string }) {
-    if (r.before === r.after && r.heldBefore === r.heldAfter) return `${verb} at (${x},${y}): nothing happened`;
+    if (Body.unchanged(r)) return `${verb} at (${x},${y}): nothing happened`;
     const parts: string[] = [];
     if (r.before !== r.after) parts.push(`tile (${x},${y}) ${r.before} -> ${r.after}`);
     if (r.heldBefore !== r.heldAfter) parts.push(`holding ${r.heldBefore} -> ${r.heldAfter}`);
@@ -328,6 +343,7 @@ export class Body {
     // arms full with a baby: the server ignores the click; a human sees the baby in their arms
     if (heldId < 0) return `use at (${x},${y}): nothing happened (your arms are full: you're carrying baby #${-heldId}; put the baby down first)`;
     const r = await this.act(`USE ${x} ${y}${target > 0 ? " " + target : ""}`, x, y);
+    if (Body.unchanged(r)) this.noteNoop({ kind: "use", x, y, held: heldId, target });
     const out = this.summarize("use", x, y, r);
     // the age rule for picking things up (objects' minPickupAge) is visible in the client as a failed grab
     const me = this.world.self;
@@ -433,6 +449,7 @@ export class Body {
     const there = this.world.objAt(x, y).id;
     this.lastDrop = { at: [x, y], there };
     const r = await this.act(`DROP ${x} ${y} -1`, x, y);
+    if (Body.unchanged(r)) this.noteNoop({ kind: "drop", x, y, held: heldId, target: there });
     const out = this.summarize("drop", x, y, r) + moved;
     // server.cpp DROP: an item goes only onto an empty tile or into a container with room
     const o = this.gd.get(there);
@@ -487,6 +504,7 @@ export class Body {
     const heldId = this.world.self?.held.id ?? 0;
     const there = this.world.objAt(x, y).id;
     const r = await this.act(`SWAP ${x} ${y}`, x, y);
+    if (Body.unchanged(r)) this.noteNoop({ kind: "swap", x, y, held: heldId, target: there });
     const out = this.summarize("swap", x, y, r);
     if (!/nothing happened$/.test(out)) return out;
     // server.cpp SWAP: the held item and a loose item on the tile trade places
@@ -509,6 +527,7 @@ export class Body {
     const stack = this.world.objAt(x, y);
     const there = stack.id;
     const r = await this.act(`REMV ${x} ${y} -1`, x, y);
+    if (Body.unchanged(r)) this.noteNoop({ kind: "take_out", x, y, held: heldId, target: there });
     const out = this.summarize("take out", x, y, r);
     if (!/nothing happened$/.test(out)) return out;
     // server.cpp REMV: only with empty hands, from a container with something in it
@@ -756,6 +775,7 @@ export class Body {
     const heldId = this.world.self?.held.id ?? 0;
     const r = await this.act(`UBABY ${n.p[0]} ${n.p[1]} -1 ${id}`, n.p[0], n.p[1]);
     if (r.heldBefore !== r.heldAfter) return `gave/used ${r.heldBefore} on #${id}; now holding ${r.heldAfter}`;
+    this.noteNoop({ kind: "feed", x: n.p[0], y: n.p[1], held: heldId, target: 0, person: id });
     // server.cpp: a baby under 3 (defaultActionAge) refuses food above babyFeedingLevel (2); the client shows the refusal
     const o = this.world.players.get(id);
     if (o && heldId > 0 && this.gd.isFood(heldId) && this.world.currentAge(o) < 3) return `#${id} refused the ${this.gd.name(heldId)}: a baby under 3 only takes food when starving (2 food or less); a woman aged 14-40 nurses a baby by holding it`;

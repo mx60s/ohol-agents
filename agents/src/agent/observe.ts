@@ -379,7 +379,10 @@ export function seenText(w: World, gd: GameData, e: SeenEvent): string {
     const rel = relation(w, q);
     return `${playerLabel(w, gd, q)}${rel ? ` [${rel}]` : ""}`;
   });
-  return e.more ? `${line} (and ${e.more} more change${e.more === 1 ? "" : "s"} by them)` : line;
+  const times = e.times && e.times > 1 ? ` (${e.times} times)` : "";
+  const more = e.more ? ` (and ${e.more} more change${e.more === 1 ? "" : "s"} by them)` : "";
+  const tries = e.moreTries ? ` (and ${e.moreTries} more tr${e.moreTries === 1 ? "y" : "ies"} by them that did nothing)` : "";
+  return `${line}${times}${more}${tries}`;
 }
 
 /** The notes as shown: heading lines ("What worked:") as they are, facts as "- fact". */

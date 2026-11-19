@@ -3,7 +3,7 @@
 
 import { Connection } from "../protocol/connection.ts";
 import { parseMessage } from "../protocol/messages.ts";
-import { World, homesickNotice } from "../game/world.ts";
+import { World, homesickNotice, type SeenEvent, type TriedNothing } from "../game/world.ts";
 import { Body } from "../game/body.ts";
 import type { GameData } from "../game/gameData.ts";
 import type { Config } from "../config.ts";
@@ -28,6 +28,8 @@ export { sanitizeAction, type Action };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** how long to wait for the server's FW (who follows whom) after saying "I FOLLOW ..." */
 const FOLLOW_WAIT_MS = 1500;
+/** steps whose try-that-did-nothing others nearby see (go, say, search, wait, remember and the craft macro are not) */
+const RELAYED_TRIES = new Set(["use", "pick_up", "drop", "swap", "take_out", "give", "feed", "use_on_person"]);
 
 /** Collects who heard each spoken line (see Population). */
 export interface SpeechSink {
@@ -41,6 +43,11 @@ function plannerFor(gd: GameData): CraftPlanner {
   let p = planners.get(gd);
   if (!p) planners.set(gd, (p = new CraftPlanner(gd)));
   return p;
+}
+
+/** A new WHAT YOU SAW NEARBY line as it goes to the note-taker's transcript (an animal's every step does not: null). */
+export function seenForNotes(world: World, gd: GameData, e: SeenEvent): string | null {
+  return e.kind === "animal_move" ? null : seenText(world, gd, e);
 }
 
 /** Optional hooks from Population (see logins.ts). */
@@ -69,6 +76,8 @@ export interface AgentHooks {
    * actTurn) instead of its own loop; World runs on the coordinator's game-paced clock.
    */
   turns?: TurnLink;
+  /** our world-acting step changed nothing (Body.lastNoop): others nearby see the try (World.seeTried) */
+  triedNothing?(from: Agent, t: TriedNothing): void;
   /** we put an item down next to another player (give): tell them, if they're one of ours */
   gave?(from: Agent, toPlayerId: number, item: string, at: [number, number]): void;
 }
@@ -306,7 +315,8 @@ export class Agent implements TurnAgent<TurnPlan> {
       onCue: (word, wasHomesick) => this.felt(world, word, wasHomesick),
       // what was seen nearby goes to the note-taker's transcript (an animal's every step does not)
       onSeen: (e) => {
-        if (e.kind !== "animal_move") this.mem.saw(seenText(world, gd, e));
+        const line = seenForNotes(world, gd, e);
+        if (line) this.mem.saw(line);
       },
     }, turns ? () => turns.now() : undefined);
     this.pending = [];
@@ -696,6 +706,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       try {
         const stale = this.seen ? staleness(this.world!, this.gd, this.seen, action, i === 0) : null;
         this.body?.takeNotes();
+        if (this.body) this.body.lastNoop = null;
         result = stale?.skip ? stale.text : `${stale?.text ?? ""}${await this.execute(action)}`;
         const notes = this.body?.takeNotes() ?? [];
         if (notes.length) result += ` (${notes.join("; ")})`;
@@ -703,6 +714,8 @@ export class Agent implements TurnAgent<TurnPlan> {
         this.actionStartedAt = Infinity;
       }
       this.record(stepLabel(desc, i, n), result);
+      const noop = this.body?.lastNoop;
+      if (noop && RELAYED_TRIES.has(action.type)) this.hooks.triedNothing?.(this, noop);
       // turnMs (calibration): observation built -> the reply's first action dispatched
       const timing = i === 0 ? { turnMs: startedAt - obsBuiltAt } : {};
       if (action.type !== "wait") this.ev("action", `${desc} -> ${result}`, { action, step: n > 1 ? i + 1 : undefined, steps: n > 1 ? n : undefined, ...timing, ...this.actionData(before) });

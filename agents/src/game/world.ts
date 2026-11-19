@@ -117,6 +117,24 @@ const SEEN_KEEP = 50;
 const SEEN_DID_PER_TURN = 4;
 
 /**
+ * Someone's world-acting step that changed nothing (Body.lastNoop): use, drop,
+ * swap, take out, or feeding a person. No client sees such a try (nothing in the
+ * world changed); Population relays it to our other agents nearby (World.seeTried),
+ * a deliberate beyond-human cue. Ids are object ids (0 = bare hands / empty tile).
+ */
+export interface TriedNothing {
+  kind: "use" | "drop" | "swap" | "take_out" | "feed";
+  x: number;
+  y: number;
+  /** what the actor held (> 0 an object; 0 bare hands) */
+  held: number;
+  /** the object on the tile before the try (0 = empty) */
+  target: number;
+  /** feed: the person it was offered to */
+  person?: number;
+}
+
+/**
  * Something this character saw happen nearby (World.seen): one line of the
  * observation's WHAT YOU SAW NEARBY. `text` names people as {0}, {1}...
  * (an entry of `people`: a snapshot when it happened, or just the id), so the
@@ -124,13 +142,17 @@ const SEEN_DID_PER_TURN = 4;
  */
 export interface SeenEvent {
   t: number;
-  kind: "view" | "born" | "died" | "baby" | "named" | "did" | "ate" | "animal_seen" | "animal_move" | "wounded";
+  kind: "view" | "born" | "died" | "baby" | "named" | "did" | "tried" | "ate" | "animal_seen" | "animal_move" | "wounded";
   text: string;
   people: (Player | { id: number })[];
   /** a later event with the same key within a turn replaces this one */
   key?: string;
   /** further changes by the same person this turn, folded into this line */
   more?: number;
+  /** further tries that did nothing by the same person this turn, folded into this line */
+  moreTries?: number;
+  /** "tried": the same try seen this many times this turn (one line, counted) */
+  times?: number;
 }
 
 export interface WorldEvents {
@@ -810,15 +832,18 @@ export class World {
       const [e] = this.seen.splice(i, 1);
       // a dangerous animal that came into view this turn still did, wherever it went next
       const appeared = e.kind === "animal_seen" && kind === "animal_move";
-      this.seen.push({ ...e, t: now, kind: appeared ? e.kind : kind, text: appeared ? text.replace(" moved to ", " came into view at ") : text, people });
+      // the same try again: one line with a count
+      const times = kind === "tried" ? { times: (e.times ?? 1) + 1 } : {};
+      this.seen.push({ ...e, t: now, kind: appeared ? e.kind : kind, text: appeared ? text.replace(" moved to ", " came into view at ") : text, people, ...times });
       return;
     }
-    // a person busy with many things: at most SEEN_DID_PER_TURN lines a turn, the rest counted on the last
-    if (kind === "did") {
-      const mine = this.seen.filter((e) => e.kind === "did" && e.people[0]?.id === people[0]?.id && now - e.t < this.seenMergeMs);
+    // a person busy with many things: at most SEEN_DID_PER_TURN lines a turn (doings and tries together), the rest counted on the last
+    if (kind === "did" || kind === "tried") {
+      const mine = this.seen.filter((e) => (e.kind === "did" || e.kind === "tried") && e.people[0]?.id === people[0]?.id && now - e.t < this.seenMergeMs);
       if (mine.length >= SEEN_DID_PER_TURN) {
         const last = mine[mine.length - 1];
-        last.more = (last.more ?? 0) + 1;
+        if (kind === "did") last.more = (last.more ?? 0) + 1;
+        else last.moreTries = (last.moreTries ?? 0) + 1;
         return;
       }
     }
@@ -939,6 +964,31 @@ export class World {
       else if (removed && removed > 0) text = `took ${n(removed)} out of ${n(a)} at ${at}`;
     }
     if (text) this.pushSeen("did", `{0} ${text}`, people);
+  }
+
+  /**
+   * Another person's try that changed nothing (relayed by Population from that
+   * person's agent; no client gets it): a WHAT YOU SAW NEARBY line if they are
+   * within VIEW_RADIUS of us. Facts only: what they tried, on what, and the outcome.
+   */
+  seeTried(by: number, t: TriedNothing) {
+    if (this.dead || by === this.selfId) return;
+    const actor = this.players.get(by);
+    if (!actor || !this.inSight(this.posOf(actor), VIEW_RADIUS)) return;
+    const gd = this.gd;
+    const n = (id: number) => withArticle(gd.name(id));
+    const at = `(${t.x}, ${t.y})`;
+    const hand = t.held > 0 ? n(t.held) : "bare hands";
+    const people: SeenEvent["people"] = [this.snap(actor)];
+    let text: string;
+    if (t.kind === "feed" && t.person != null) {
+      people.push(this.who(t.person));
+      text = t.held > 0 && gd.isFood(t.held) ? `tried to feed ${n(t.held)} to {1}: refused` : `tried ${hand} on {1}: nothing happened`;
+    } else if (t.kind === "drop") text = `tried to put down ${n(t.held)}${t.target > 0 ? ` on ${n(t.target)}` : ""} at ${at}: nothing happened`;
+    else if (t.kind === "swap") text = `tried to swap ${t.held > 0 ? n(t.held) : "empty hands"} for ${t.target > 0 ? n(t.target) : "an empty tile"} at ${at}: nothing happened`;
+    else if (t.kind === "take_out") text = `tried to take something out of ${t.target > 0 ? n(t.target) : "an empty tile"} at ${at}: nothing happened`;
+    else text = `tried ${hand} on ${t.target > 0 ? n(t.target) : "the empty ground"} at ${at}: nothing happened`;
+    this.pushSeen("tried", `{0} ${text}`, people);
   }
 }
 

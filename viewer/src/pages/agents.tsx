@@ -218,7 +218,8 @@ function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
       "What you saw nearby",
       <>
         From the last {plural(L.seenTurns, "turn")}, at most {L.seenMax} lines: people coming and going, what others did to things (up to {L.seenPerPersonPerTurn} lines per person a turn), babies picked up
-        or put down, who ate, who attacked whom, namings, births, deaths with their cause, dangerous animals.
+        or put down, who ate, who attacked whom, namings, births, deaths with their cause, dangerous animals. Also, beyond what a human sees: someone within {L.viewRadius} tiles trying
+        something that did nothing ("tried a Flint Chip on a Sharp Stone at (3, 4): nothing happened"), repeats counted on one line.
       </>,
     ],
     ["Heard", <>The last {L.heardMax} lines from the past {plural(L.heardTurns, "turn")}, with who said them and whether another family's language differs; game notices; words written on the ground.</>],
@@ -235,7 +236,7 @@ function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
   return (
     <Panel title="What they know" variant="green">
       <p className="hw-p">
-        The observation is built only from what the character's own client received. Every turn, in this order:
+        The observation is built only from what the character's own client received (one exception, marked below). Every turn, in this order:
       </p>
       <dl className="hw-know">
         {rows.map(([k, v]) => (
