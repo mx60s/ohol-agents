@@ -127,6 +127,7 @@ test("recycled player id after a game-server restart: own log file, epoch surviv
     a.handle("r", runDir, f.eve("a01", 5));
     a.handle("r", runDir, f.death("a01", 5));
     a.handle("r", runDir, f.eve("a02", 9));
+    f.wait(60_000); // the game server takes a while to come back
     a.handle("r", runDir, f.eve("a01", 5)); // restart: id 5 again
     a.handle("r", runDir, f.ev("thought", "a01", 5, undefined, { text: "new life" }));
     assert.equal(a.readLog("r:5", null, 10)!.events.length, 2, "old life: birth + death only");

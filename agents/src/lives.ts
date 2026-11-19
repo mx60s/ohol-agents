@@ -53,6 +53,11 @@ export function lifeIdOf(runId: string, playerId: number) {
  * clock stands still while agents think, so a life lasts longer in wall time. setLifespanWallFactor
  * (from LifeBook, gameClockLags) stretches the wall-clock estimates by this much.
  */
+/** ids a birth may arrive behind the highest seen without meaning the game server restarted */
+const PID_REORDER_SLACK = 8;
+/** ...and how soon after it (a game-server restart takes far longer) */
+const PID_REORDER_MS = 5_000;
+
 let lifespanWallFactor = 1;
 export function setLifespanWallFactor(f: number) {
   lifespanWallFactor = f > 0 ? f : 1;
@@ -206,8 +211,11 @@ export class LifeBook {
   private runPid = new Map<string, string>();
   /** highest player id born so far (the game server hands out increasing ids until it restarts) */
   private maxPid = -Infinity;
+  private maxPidAt = -Infinity;
   /** bornAt of the first birth after the latest detected game-server restart; older lives can't be alive after it */
   epochStart = -Infinity;
+  /** bornAt of every detected game-server restart, oldest first */
+  private restartTimes: number[] = [];
   /** `${runId}|${agentId}` -> current lifeId */
   private slotLife = new Map<string, string>();
 
@@ -241,15 +249,66 @@ export class LifeBook {
    */
   rebuildEpochs() {
     this.maxPid = -Infinity;
+    this.maxPidAt = -Infinity;
     this.epochStart = -Infinity;
+    this.restartTimes = [];
     for (const l of [...this.lives.values()].sort((a, b) => a.bornAt - b.bornAt)) this.noteBirth(l.playerId, l.bornAt);
   }
 
+  /**
+   * A restarted game server hands out ids from the bottom again. Births can arrive a few ids out of
+   * order (an Eve and her first baby in the same second), which is not a restart: treating it as one
+   * cut every earlier life off as a possible mother (r9: 14 babies orphaned into their own families).
+   */
   private noteBirth(playerId: number, t: number) {
-    if (playerId <= this.maxPid) {
+    // a lower id within seconds of the highest and only a few below it: births arriving out of order
+    const reordered = playerId < this.maxPid && this.maxPid - playerId <= PID_REORDER_SLACK && t - this.maxPidAt <= PID_REORDER_MS;
+    if (playerId <= this.maxPid && !reordered) {
       this.epochStart = t;
+      this.restartTimes.push(t);
       this.maxPid = playerId;
-    } else this.maxPid = playerId;
+      this.maxPidAt = t;
+    } else if (playerId > this.maxPid) {
+      this.maxPid = playerId;
+      this.maxPidAt = t;
+    }
+  }
+
+  /**
+   * Re-attach babies stored without a mother although the game named one (motherPlayerId) who was
+   * alive when they were born; their own lineage, and their descendants', becomes the mother's.
+   * Returns the lives changed.
+   */
+  relinkOrphans(onlyMotherPid?: number): LifeCore[] {
+    const changed = new Set<LifeCore>();
+    for (const l of [...this.lives.values()].sort((a, b) => a.bornAt - b.bornAt)) {
+      if (l.motherLifeId != null || l.motherPlayerId == null) continue;
+      if (onlyMotherPid != null && l.motherPlayerId !== onlyMotherPid) continue;
+      let mother: LifeCore | null = null;
+      for (const id of this.byPlayer.get(l.motherPlayerId) ?? []) {
+        const m = this.lives.get(id);
+        // born up to a few seconds after the baby: the two births arrived out of order
+        if (!m || m.runId !== l.runId || m.lifeId === l.lifeId || m.bornAt > l.bornAt + 5_000) continue;
+        // a game-server restart between them: the id belonged to someone else
+        if (this.restartTimes.some((r) => m.bornAt < r && r <= l.bornAt)) continue;
+        if (m.diedAt != null && m.diedAt < l.bornAt - 60_000) continue;
+        if (m.female === false) continue;
+        if (!mother || m.bornAt > mother.bornAt) mother = m;
+      }
+      if (!mother) continue;
+      const oldLineage = l.lineageId;
+      l.motherLifeId = mother.lifeId;
+      if (!mother.childLifeIds.includes(l.lifeId)) mother.childLifeIds.push(l.lifeId);
+      changed.add(mother);
+      changed.add(l);
+      if (oldLineage !== mother.lineageId) {
+        for (const d of this.lives.values()) if (d.lineageId === oldLineage) {
+          d.lineageId = mother.lineageId;
+          changed.add(d);
+        }
+      }
+    }
+    return [...changed];
   }
 
   /** The run's current life for a player id. */
@@ -452,6 +511,8 @@ export class LifeBook {
       mother.updatedAt = ev.t;
       changed.push(mother);
     }
+    // a baby whose birth arrived just before this mother's (same second) waited without her
+    for (const c of this.relinkOrphans(playerId)) if (!changed.includes(c)) changed.push(c);
     return { life, changed, important: true, loggable: true, created: true };
   }
 

@@ -429,3 +429,59 @@ test("turn clock: an open life stays findable past its wall-clock lifespan (view
   g.wait(60 * 60_000);
   assert.equal(n.findByPlayer(10, g.t), null);
 });
+
+test("births a few ids out of order are not a game-server restart: earlier mothers stay findable (r9 orphans)", () => {
+  const b = book();
+  const f = new FakeEvents();
+  b.apply(R, f.eve("a01", 169));
+  b.apply(R, f.eve("a02", 187));
+  b.apply(R, f.eve("a03", 186)); // arrived after 187, same second in r9
+  b.apply(R, f.child("a04", 198, 169));
+  const kid = b.get("run1:198")!;
+  assert.equal(kid.motherLifeId, "run1:169");
+  assert.equal(kid.lineageId, "run1:169");
+});
+
+test("a baby whose birth arrives just before its mother's is attached when she appears", () => {
+  const b = book();
+  const f = new FakeEvents();
+  b.apply(R, f.eve("a01", 50));
+  b.apply(R, f.child("a02", 52, 51));
+  assert.equal(b.get("run1:52")!.motherLifeId, null);
+  const r = b.apply(R, f.eve("a03", 51));
+  const kid = b.get("run1:52")!;
+  assert.equal(kid.motherLifeId, "run1:51");
+  assert.equal(kid.lineageId, "run1:51");
+  assert.deepEqual(b.get("run1:51")!.childLifeIds, ["run1:52"]);
+  assert.ok(r.changed.some((l) => l.lifeId === "run1:52"));
+});
+
+test("relinkOrphans: stored orphans and their descendants rejoin the mother's lineage; not across a server restart", () => {
+  const b = book();
+  const f = new FakeEvents();
+  b.apply(R, f.eve("a01", 10));
+  b.apply(R, f.child("a02", 11, 10));
+  b.apply(R, f.child("a03", 12, 11));
+  b.apply(R, f.child("a04", 13, 12));
+  // simulate the r9 damage: 12 stored without its mother, 13 inheriting 12's own lineage
+  const twelve = b.get("run1:12")!, thirteen = b.get("run1:13")!;
+  twelve.motherLifeId = null;
+  twelve.lineageId = "run1:12";
+  thirteen.lineageId = "run1:12";
+  b.get("run1:11")!.childLifeIds = [];
+  const changed = b.relinkOrphans();
+  assert.ok(changed.length >= 3);
+  assert.equal(twelve.motherLifeId, "run1:11");
+  assert.equal(twelve.lineageId, "run1:10");
+  assert.equal(thirteen.lineageId, "run1:10");
+  assert.deepEqual(b.get("run1:11")!.childLifeIds, ["run1:12"]);
+  assert.equal(b.relinkOrphans().length, 0, "idempotent");
+
+  // after a restart (ids from the bottom), id 12 is someone else: a new-epoch baby naming it stays an orphan
+  b.apply(R, f.eve("a05", 2));
+  b.apply(R, f.child("a07", 5, 99));
+  const orphan = [...b.lives.values()].find((l) => l.agentId === "a07")!;
+  orphan.motherPlayerId = 12;
+  b.relinkOrphans();
+  assert.equal(orphan.motherLifeId, null);
+});

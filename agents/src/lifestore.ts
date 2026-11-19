@@ -92,6 +92,8 @@ export class LifeStore {
     const healed = this.book.healSplitReconnects();
     if (healed.removed.length) console.log(`lives: merged ${healed.removed.length} split reconnects back (${healed.removed.join(", ")})`);
     this.book.rebuildEpochs();
+    const relinked = this.book.relinkOrphans();
+    if (relinked.length) console.log(`lives: re-attached orphaned babies to their mothers (${relinked.length} lives updated)`);
     // records from before per-person flowers get one (persisted by the snapshot below)
     this.book.assignMissingFlowers();
     // nothing from before this process is still being played, unless its run is being resumed
