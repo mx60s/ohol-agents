@@ -185,12 +185,12 @@ export async function cappedDecision(
 
 const BABY_AGE = 3;
 /** action results kept (the observation shows the last 15) */
-const HISTORY_MAX = 20;
+const HISTORY_MAX = 40;
 /** turn clock: wall ms between our SAY messages (the server's flood gap is 1 wall s) */
 const SAY_GAP_MS = 1100;
 
 /** thoughts shown back each turn (dated, in full up to the 400-char thought limit) */
-const RECENT_THOUGHTS = 3;
+const RECENT_THOUGHTS = 10;
 
 export class Agent implements TurnAgent<TurnPlan> {
   status: AgentView["status"] = "waiting";

@@ -88,7 +88,7 @@ function replyFormat(o: PromptOptions, example: boolean): string {
       : `Instead of "action" you may give "actions": a list of up to ${listMax} actions done back to back at once. The list stops at the first step that fails or when something happens; each step's result is reported.\n`
     : "";
   return `Reply with ONE JSON object, nothing else:
-{"thought":"one short sentence","goal":"optional: what you are working on now; only when it changes","say":"optional: words to say now","remember":"optional: anything you want to remember, for any reason; it can stay with you for the rest of your life (up to 25 things)","forget":"optional: the number of a memory to let go (as listed)","action":{"type":"...",...}}
+{"thought":"one short sentence","goal":"optional: what you are working on now; change it when you reach it or it no longer applies","say":"optional: words to say now","remember":"optional: anything you want to remember, for any reason; it can stay with you for the rest of your life (up to 25 things)","forget":"optional: the number of a memory to let go (as listed)","action":{"type":"...",...}}
 ${list}
 Actions (x,y are world coordinates from ${example ? "your observation" : "what you see"}; y grows north):
 ${actionList(o)}`;

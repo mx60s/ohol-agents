@@ -26,7 +26,7 @@ const HELD_HINTS = 4;
 /** lines on what goes on the thing our last use just made */
 const MADE_HINTS = 3;
 /** recent action results shown (an actions list adds one line per step) */
-const HISTORY_SHOWN = 15;
+const HISTORY_SHOWN = 30;
 const FERTILE_MIN = 14, FERTILE_MAX = 40;
 /** timers are shown for things that change on their own within this many game seconds */
 const TIMER_MAX_S = 300;

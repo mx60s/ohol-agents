@@ -39,7 +39,7 @@ test("prompt: no \"note\" field and no notebook in either baseline", () => {
   for (const baseline of ["new", "playbook"] as const) {
     const p = buildSystemPrompt(clock, { craft: true, actionListMax: 3, baseline });
     assert.doesNotMatch(p, /"note"|notebook/i, baseline);
-    assert.match(p, /"goal":"optional: what you are working on now; only when it changes","say"/, baseline);
+    assert.match(p, /"goal":"optional: what you are working on now; change it when you reach it or it no longer applies","say"/, baseline);
   }
 });
 
@@ -50,16 +50,16 @@ test("parser: a reply with \"note\" parses and runs; the note is ignored", () =>
   assert.ok("steps" in c && c.steps.length === 1 && c.notes.length === 0, JSON.stringify(c));
 });
 
-test("observation: YOUR NOTES where the notebook was, headings kept, omitted while empty; long-term goal age; 15 history lines", () => {
+test("observation: YOUR NOTES where the notebook was, headings kept, omitted while empty; current goal age; 30 history lines", () => {
   const g = world();
   const now = g.world.now();
-  const history = Array.from({ length: 20 }, (_, i) => ({ t: now - 1000, action: `act${i}`, result: "ok" }));
+  const history = Array.from({ length: 40 }, (_, i) => ({ t: now - 1000, action: `act${i}`, result: "ok" }));
   const base = { recipeHints: false, history, pastLifeNotes: [], clock, now };
   const obs = buildObservation(g.world, gd, { ...base, memory: ["What you learned:", "Pond at (5, 10)", "flint works on tinder only when dry"], goal: "make fire", goalSetAt: now - 3 * 8000 });
   assert.match(obs, /== YOUR NOTES \(this life\) ==\nWhat you learned:\n- Pond at \(5, 10\)\n- flint works on tinder only when dry$/);
   assert.doesNotMatch(obs, /NOTEBOOK|WHAT YOU REMEMBER/);
   assert.match(obs, /Your current goal \(set 3 turns ago\): make fire/);
-  assert.equal((obs.match(/^- just now: act\d+/gm) ?? []).length, 15, "the last 15 actions are shown");
+  assert.equal((obs.match(/^- just now: act\d+/gm) ?? []).length, 30, "the last 30 actions are shown");
   assert.match(obs, /act19 -> ok/);
   assert.doesNotMatch(obs, /act4 -> ok/);
 

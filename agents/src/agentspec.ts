@@ -51,7 +51,7 @@ export const OBSERVATION_LIMITS = {
   /** observe.ts: people listed, nearest first */
   maxPeople: 10,
   /** observe.ts HISTORY_SHOWN */
-  historyShown: 15,
+  historyShown: 30,
   /** observe.ts HEARD_SHOWN_MS: heard lines kept for 90 s (turn clock: the same number of 8 s turns), last 10 */
   heardWindowS: 90,
   heardMax: 10,
