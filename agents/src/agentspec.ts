@@ -81,7 +81,7 @@ export const OBSERVATION_LIMITS = {
 export function replyFields(keptMax: number): { name: string; meaning: string }[] {
   return [
     { name: "thought", meaning: "one short sentence; shown back to it next turn as its previous thought (max 400 chars)" },
-    { name: "goal", meaning: "optional: the long-term goal for this life (not this turn's step); kept and shown every turn with its age until it changes (max 200 chars)" },
+    { name: "goal", meaning: "optional: what the agent is working on now; kept and shown every turn with its age until it changes (max 200 chars)" },
     { name: "say", meaning: "optional; spoken aloud now, before the action; digits are removed; a baby naming line ('YOU ARE X') waits for a pick_up_baby in the same reply (max 200 chars, cut further by age)" },
     { name: "remember", meaning: `optional: anything the agent wants to remember, for any reason; kept verbatim with when it was made and listed every turn under THINGS YOU CHOSE TO REMEMBER, numbered, oldest first (up to ${keptMax} entries, the oldest dropped when full; an exact duplicate is not added; max ${REMEMBER_CHARS} chars). A name stated for one stranger in view ("the woman with the red rose is LIRA") becomes the agent's own name for them` },
     { name: "forget", meaning: "optional: the number of a memory as listed (or its exact text) to let go; done before a remember in the same reply" },

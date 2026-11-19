@@ -39,7 +39,7 @@ test("prompt: no \"note\" field and no notebook in either baseline", () => {
   for (const baseline of ["new", "playbook"] as const) {
     const p = buildSystemPrompt(clock, { craft: true, actionListMax: 3, baseline });
     assert.doesNotMatch(p, /"note"|notebook/i, baseline);
-    assert.match(p, /"goal":"optional: your long-term goal for this life \(not this turn's step\); only when it changes","say"/, baseline);
+    assert.match(p, /"goal":"optional: what you are working on now; only when it changes","say"/, baseline);
   }
 });
 
@@ -58,15 +58,15 @@ test("observation: YOUR NOTES where the notebook was, headings kept, omitted whi
   const obs = buildObservation(g.world, gd, { ...base, memory: ["What you learned:", "Pond at (5, 10)", "flint works on tinder only when dry"], goal: "make fire", goalSetAt: now - 3 * 8000 });
   assert.match(obs, /== YOUR NOTES \(this life\) ==\nWhat you learned:\n- Pond at \(5, 10\)\n- flint works on tinder only when dry$/);
   assert.doesNotMatch(obs, /NOTEBOOK|WHAT YOU REMEMBER/);
-  assert.match(obs, /Your long-term goal \(set 3 turns ago\): make fire/);
+  assert.match(obs, /Your current goal \(set 3 turns ago\): make fire/);
   assert.equal((obs.match(/^- just now: act\d+/gm) ?? []).length, 15, "the last 15 actions are shown");
   assert.match(obs, /act19 -> ok/);
   assert.doesNotMatch(obs, /act4 -> ok/);
 
   const fresh = buildObservation(g.world, gd, { ...base, memory: [], goal: "make fire", goalSetAt: now });
   assert.doesNotMatch(fresh, /YOUR NOTES/);
-  assert.match(fresh, /Your long-term goal \(just set\): make fire/);
-  assert.match(buildObservation(g.world, gd, { ...base, goal: "x", goalSetAt: now - 8000 }), /Your long-term goal \(set 1 turn ago\): x/);
+  assert.match(fresh, /Your current goal \(just set\): make fire/);
+  assert.match(buildObservation(g.world, gd, { ...base, goal: "x", goalSetAt: now - 8000 }), /Your current goal \(set 1 turn ago\): x/);
 });
 
 test("trimSummary: bullets and numbering stripped, at most 10 facts of 160 chars, blanks and fences dropped", () => {
@@ -278,7 +278,7 @@ test("agent: the summary is fired every N decisions in the background; a slow on
   assert.equal((a as unknown as Record<string, unknown>).notebook, undefined, "no notebook");
   assert.doesNotMatch(seen.join("\n"), /NOTEBOOK|strike flint/);
   assert.doesNotMatch(seen.at(-1)!, /YOUR NOTES/);
-  assert.match(seen.at(-1)!, /Your long-term goal \(set \d+ turns? ago\): find berries/);
+  assert.match(seen.at(-1)!, /Your current goal \(set \d+ turns? ago\): find berries/);
 
   d.resolve(res("What didn't work:\n- you called HELP and nobody came\nWhat worked:\nWhat you learned:\n- no berries in view", 0.002));
   await new Promise((r) => setTimeout(r, 10));
@@ -306,8 +306,8 @@ test("agent: the goal age counts from when it was set or changed, not when it wa
   ];
   const { A, seen } = agent({ memorySummary: false }, async () => res(""), () => replies.shift() ?? '{"action":{"type":"wait"}}');
   for (let i = 0; i < 5; i++) await A.turn();
-  assert.match(seen[2], /Your long-term goal \(set 2 turns ago\): make fire/);
-  assert.match(seen[3], /Your long-term goal \(set 1 turn ago\): eat/);
+  assert.match(seen[2], /Your current goal \(set 2 turns ago\): make fire/);
+  assert.match(seen[3], /Your current goal \(set 1 turn ago\): eat/);
 });
 
 test("note-taker: third-person prompt with the five headings, facts only; transcript lines labelled in order", () => {
@@ -384,7 +384,7 @@ test("remember: parsed and cleaned like say/goal (about 200 chars); \"note\" is 
 test("remember: in the reply format line of both baselines", () => {
   for (const baseline of ["new", "playbook"] as const) {
     const p = buildSystemPrompt(clock, { craft: true, actionListMax: 3, baseline });
-    assert.ok(p.includes(`"say":"optional: words to say now","remember":"optional: anything you want to remember, for any reason","forget":"optional: the number of a memory to let go (as listed)","action"`), baseline);
+    assert.ok(p.includes(`"say":"optional: words to say now","remember":"optional: anything you want to remember, for any reason; it can stay with you for the rest of your life (up to 25 things)","forget":"optional: the number of a memory to let go (as listed)","action"`), baseline);
   }
 });
 

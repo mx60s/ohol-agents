@@ -127,7 +127,7 @@ function TurnSteps({ spec }: { spec: AgentSpecResponse }) {
         </>
       ),
     },
-    { n: "3", title: "Reply", body: <>One JSON object: a thought, maybe a long-term goal, words to say, something to remember or forget, and an action{st.actionListMax > 1 ? <> or up to {st.actionListMax} in a row</> : null}.</> },
+    { n: "3", title: "Reply", body: <>One JSON object: a thought, maybe a current goal, words to say, something to remember or forget, and an action{st.actionListMax > 1 ? <> or up to {st.actionListMax} in a row</> : null}.</> },
     {
       n: "4",
       title: "Act",
@@ -207,7 +207,7 @@ function KnowPanel({ spec }: { spec: AgentSpecResponse }) {
     [
       "You",
       <>
-        Name, age, generation, flower, who they follow and who follows them; their long-term goal and how many turns ago they set it; their family's Home Marker (or, without one, where they
+        Name, age, generation, flower, who they follow and who follows them; their current goal and how many turns ago they set it; their family's Home Marker (or, without one, where they
         were born); position and biome; food, with how fast it drains in turns; heat; wounds or sickness; what they hold and wear; a craving; the nearest water and fire within{" "}
         {L.resourceRadius} tiles; hand-pickable food nearby; dangerous animals in view.
       </>,

@@ -210,7 +210,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   if (myFollowers.length) L.push(`Your followers: ${myFollowers.slice(0, 8).map(nameOf).join(", ")}${myFollowers.length > 8 ? `, and ${myFollowers.length - 8} more` : ""}.`);
   if (me.name) L.push(`Your name is ${me.name}.`);
   if (!me.name) L.push(isEve ? `You have no name yet, and neither does your family: name yourself and your family now, this turn, by saying "I AM <FIRST NAME> <FAMILY NAME>" (once only; your children carry the family name).${o.takenSurnames?.length ? ` Family names already taken (pick a new one): ${takenList(o.takenSurnames)}.` : ""}` : `No name yet; usually your mother names you.`);
-  if (o.goal) L.push(`Your long-term goal${goalAge(o.goalSetAt, now, clock)}: ${o.goal}`);
+  if (o.goal) L.push(`Your current goal${goalAge(o.goalSetAt, now, clock)}: ${o.goal}`);
   L.push(homeLine(w, pos, isEve));
   if (w.homesick) L.push(HOMESICK_LINE);
 
