@@ -265,7 +265,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       onDone: (r) =>
         this.log.write("llm.jsonl", {
           t: Date.now(), kind: "summary", agentId: this.id, playerId: this.world?.selfId ?? null, lifeIndex: this.lifeIndex, input: r.input,
-          ...(r.ok ? { reply: r.result.text, memory: r.memory, ...llmLogFields(r.result), finishReason: r.result.finishReason } : { error: r.error }),
+          ...(r.ok ? { reply: r.result.text, memory: r.memory, ...llmLogFields(r.result, this.log.dir ?? null), finishReason: r.result.finishReason } : { error: r.error }),
         }),
     });
   }
@@ -685,7 +685,7 @@ export class Agent implements TurnAgent<TurnPlan> {
     }
     this.log.write("llm.jsonl", {
       t: Date.now(), agentId: this.id, playerId: world.selfId, lifeIndex: this.lifeIndex,
-      observation: obs, reply: llmRes.text, ...llmLogFields(llmRes), finishReason: llmRes.finishReason,
+      observation: obs, reply: llmRes.text, ...llmLogFields(llmRes, this.log.dir ?? null), finishReason: llmRes.finishReason,
     });
     const parsed = parseReply(llmRes.text);
     if (!parsed.ok) return { kind: "unparseable", reason: parsed.reason, cut: llmRes.finishReason === "length" };

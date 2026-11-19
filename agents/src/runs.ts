@@ -17,6 +17,7 @@ import { JevClient } from "./jev.ts";
 import { StoryKeeper } from "./story.ts";
 import { InventionLog } from "./inventions.ts";
 import { FieldNotes } from "./fieldnotes.ts";
+import { writeServing } from "./agent/replaylog.ts";
 import { LifeStore } from "./lifestore.ts";
 import { SpendLedger } from "./spend.ts";
 import { LlmHealth } from "./agent/llm.ts";
@@ -179,6 +180,8 @@ export class RunController extends EventEmitter {
     const startSeq = resume ? readLastSeq(resume.eventsDir) + RunController.SEQ_GAP : 0;
     this.log = new EventLog(cfg.logDir, runId, Math.max(0, cfg.logMaxFileMb) * 1024 * 1024, startSeq, Math.max(0, cfg.logMaxTotalMb) * 1024 * 1024);
     this.log.on("event", (e: RunEvent) => this.emit("event", e));
+    // what serves the agents' model (host, model ids, /v1/models), for replaying llm.jsonl; fire and forget
+    void writeServing(this.log.dir, cfg);
     this.lives.attach(this.log, runId);
     const resumeSlots = resume ? this.lives.book.resumeRun(runId) : [];
     if (resume) console.log(`run ${runId}: resumed; reconnecting ${resumeSlots.length ? resumeSlots.join(", ") : "nobody (no open lives)"}; event seq from ${startSeq}`);

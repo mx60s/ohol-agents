@@ -17,6 +17,8 @@ A torn last line is possible after a crash; skip lines that don't parse.
   <runId>-<startStamp>/                  one dir per agents-service start of a run
     events.jsonl                         run events (also served by /api/events)
     llm.jsonl                            every agent model call
+    prompts/<sha256>.txt                 each distinct system prompt sent, once (see llm.jsonl)
+    serving.json                         what served the agents' model (host, model ids, /v1/models)
     positions.jsonl                      where everyone is, once per turn; walk targets
     director.jsonl                       stream camera decisions
     lives.jsonl                          each slot's login into a body
@@ -102,10 +104,87 @@ line, craft actors/targets, cause of death, ...).
 
 One line per agent model call. Decisions:
 `{t, agentId, playerId, lifeIndex, observation, reply, latencyMs, promptTokens, completionTokens, cachedTokens, cacheWriteTokens, reasoningTokens, costUsd, model, provider, ttftMs, reasoning?, finishReason}`
-(`observation` is the full user message the model saw, `reply` its raw JSON
-answer; fields from `llmLogFields` in `agents/src/agent/llm.ts`). Memory
-summaries have `kind: "summary"` with `input`, `reply`, `memory`. Failed calls:
-`{t, agentId, playerId, error}`. The biggest file (~150 MB/day).
+(`observation` is the observation body, `reply` the raw answer; fields from
+`llmLogFields` in `agents/src/agent/llm.ts`). Memory summaries have
+`kind: "summary"` with `input`, `reply`, `memory`. Failed calls:
+`{t, agentId, playerId, error}`. The biggest file (~150 MB/day before the replay
+fields; they add about one user message per line, see below).
+
+Since 2026-11-18 every successful call (decisions, turn-clock decisions and
+memory summaries) also carries replay fields (`agents/src/agent/replaylog.ts`):
+
+- `systemSha`: sha256 (hex, of the UTF-8 text) of the exact system prompt sent.
+  The text is in `prompts/<systemSha>.txt` in the same run dir, written once
+  per distinct prompt (atomically; never rewritten).
+- `messages`: the message list exactly as sent, except the system message is
+  `{"role": "system", "sha": "<systemSha>"}` (`"parts": true` if it was sent as
+  a content-part array with a cache breakpoint, only for OpenRouter
+  Gemini/Claude). User messages are verbatim, including the suffix
+  (`"\n\nWhat do you do next? Reply with JSON only."` for decisions).
+- `content`: the assistant content string exactly as returned (before any
+  parsing, trimming or cleaning; same as `reply`).
+- `reasoning`: the raw reasoning string as returned (vLLM `reasoning_content`,
+  OpenRouter `reasoning`), untrimmed and uncapped (it was capped at 8000 chars
+  before). Omitted when the call returned none or `LLM_CAPTURE_REASONING=0`.
+- `request`: the request body as finally sent, minus `messages`: `model` (the
+  id as sent, e.g. `m`), `max_tokens`, `temperature`, `response_format`,
+  `chat_template_kwargs`, `thinking_token_budget`, `reasoning`, `provider`,
+  `stream`, `usage`, ... (whatever was sent; a field the code doesn't send, like
+  `top_p` or `seed`, means the server default). If the provider rejected the
+  first try with a 400 and it was retried without `response_format`/extras,
+  this is the retry's body. Credentials are never in the body (the key goes
+  only in the Authorization header, which is not logged).
+- `servedModel`: the response's `model` field (what the server says it ran);
+  `model` stays the display name (`LLM_MODEL_NAME`).
+
+When a decision was retried after running out of tokens (`cappedDecision`), the
+line describes the second (used) call; cost and latency are the sum.
+
+Size: per call the replay fields add the user message (about the observation,
+~3-10 KB), the reply again (`content`, ~0.2-1 KB), the request (~0.3 KB) and a
+64-char sha. The system prompt (~6 KB) is not repeated: one file per distinct
+prompt per run dir.
+
+### prompts/<sha256>.txt
+
+The exact system prompt text for `systemSha` in `llm.jsonl` (no trailing
+newline added). A new file appears whenever the prompt changes (a code update,
+a config change such as recipe hints).
+
+### serving.json
+
+Written once per run dir when it starts: `{writtenAt, pid, baseUrlHost (host
+only), model (LLM_MODEL as sent), llmModelName (the LLM_MODEL_NAME env, or
+null), modelName, reasoningStyle, quantization, models}`. `quantization` is
+`LLM_QUANTIZATION` if set, else `"fp8"` when a model name/root says FP8, else
+null. `models` is the self-hosted endpoint's `/v1/models` as
+`[{id, root, max_model_len}]` (null on OpenRouter; `{error}` if the fetch failed).
+No keys or headers.
+
+### Replaying a call
+
+To rebuild exactly what the model saw and said (e.g. teacher-forced activation
+analysis):
+
+1. Read the line; replace the `{"role": "system", "sha": ...}` entry of
+   `messages` with `{"role": "system", "content": <prompts/<sha>.txt>}`.
+2. Apply the served model's chat template (the tokenizer of
+   `serving.json` `models[].root`, e.g. `Qwen/Qwen3.8-27B-FP8`) with
+   `add_generation_prompt=True` and the request's `chat_template_kwargs`
+   (e.g. `enable_thinking: true`).
+3. Append the assistant turn as generated: the thinking block with `reasoning`
+   (for Qwen: `<think>\n` + reasoning + `\n</think>\n\n`, as the template
+   renders it) followed by `content`. Tokenize; the prompt token count should
+   match `promptTokens`.
+4. Run one forward pass over prompt + completion and read activations or
+   logprobs at the completion positions.
+
+Caveats: the live model is served in FP8 (with MTP speculative decoding), so a
+bf16 forward pass will give slightly different logits and activations than
+the ones that produced the reply; sampling was at the logged `temperature`, so
+the reply is a sample, not the argmax. vLLM's reasoning parser splits the
+thinking text from the content; whitespace around the `<think>` tags is
+re-created by the template, not logged.
 
 ### director.jsonl
 

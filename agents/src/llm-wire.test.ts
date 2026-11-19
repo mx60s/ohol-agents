@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { Llm, llmLogFields, needsExplicitCache, reasoningOf, wireMessages, REASONING_LOG_MAX_CHARS } from "./agent/llm.ts";
+import { Llm, llmLogFields, needsExplicitCache, reasoningOf, wireMessages } from "./agent/llm.ts";
 import type { Config } from "./config.ts";
 
 async function fakeProvider(reply: (body: any) => unknown) {
@@ -13,7 +13,7 @@ async function fakeProvider(reply: (body: any) => unknown) {
     let raw = "";
     req.on("data", (c) => (raw += c));
     req.on("end", () => {
-      const body = JSON.parse(raw);
+      const body = raw ? JSON.parse(raw) : { get: req.url };
       bodies.push(body);
       res.end(JSON.stringify(reply(body)));
     });
@@ -102,7 +102,7 @@ test("cached, cache-write and reasoning tokens and the reasoning text are captur
   }
 });
 
-test("reasoning from reasoning_details, missing usage details, and the llm.jsonl cap", async () => {
+test("reasoning from reasoning_details, missing usage details, and reasoning logged uncapped", async () => {
   assert.equal(
     reasoningOf({ content: "x", reasoning_details: [{ type: "reasoning.encrypted", data: "zz" }, { type: "reasoning.summary", summary: "plan" }, { type: "reasoning.text", text: "step" }] }),
     "plan\nstep",
@@ -115,8 +115,66 @@ test("reasoning from reasoning_details, missing usage details, and the llm.jsonl
     const r = await new Llm(cfg(p.base)).chat(msgs);
     assert.equal(r.cachedTokens, 0);
     assert.equal(r.reasoningTokens, 0);
-    assert.equal(llmLogFields(r).reasoning!.length, REASONING_LOG_MAX_CHARS);
+    assert.equal(llmLogFields(r).reasoning, "r".repeat(20_000), "reasoning is logged whole, for exact replay");
   } finally {
     p.close();
+  }
+});
+
+test("replay fields: system prompt by sha (written once), messages as sent, raw content, request without secrets, served model", async () => {
+  const { mkdtempSync, readdirSync, readFileSync, rmSync } = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { sha256, writeServing } = await import("./agent/replaylog.ts");
+  const raw = '  ```json\n{"thought":"berries","action":{"type":"wait"}}\n```  ';
+  const p = await fakeProvider((body) =>
+    body.messages
+      ? { model: "Qwen/Qwen3.8-27B-FP8", choices: [{ message: { content: raw, reasoning_content: "\n  think hard  \n" }, finish_reason: "stop" }], usage: { cost: 0 } }
+      : { data: [{ id: "m", root: "Qwen/Qwen3.8-27B-FP8", max_model_len: 16384, object: "model" }] },
+  );
+  const dir = mkdtempSync(path.join(os.tmpdir(), "replay-"));
+  const SECRET = "sk-super-secret-123";
+  try {
+    const llm = new Llm(cfg(p.base, { llmModel: "m", llmModelName: "Qwen/Qwen3.8-27B-FP8", llmApiKey: SECRET }));
+    const extra = { chat_template_kwargs: { enable_thinking: true }, thinking_token_budget: 300 };
+    const sent = [msgs[0], { role: "user" as const, content: "observation 17\n\nWhat do you do next? Reply with JSON only." }];
+    const r1 = await llm.chat(sent, { maxTokens: 800, extra });
+    const r2 = await llm.chat([msgs[0], { role: "user", content: "observation 18" }], { maxTokens: 800, extra });
+    const line = llmLogFields(r1, dir);
+    llmLogFields(r2, dir);
+    // the system prompt: one file per distinct sha, its text exact
+    assert.equal(line.systemSha, sha256(SYSTEM));
+    assert.deepEqual(readdirSync(path.join(dir, "prompts")), [`${sha256(SYSTEM)}.txt`]);
+    assert.equal(readFileSync(path.join(dir, "prompts", `${line.systemSha}.txt`), "utf8"), SYSTEM);
+    // messages exactly as sent, system replaced by its sha
+    assert.deepEqual(line.messages, [{ role: "system", sha: sha256(SYSTEM) }, sent[1]]);
+    // raw content and reasoning, untouched
+    assert.equal(line.content, raw);
+    assert.equal(line.reasoning, "\n  think hard  \n");
+    // the request as sent, minus messages
+    const body = p.bodies.at(-2);
+    const { messages: _m, ...params } = body;
+    assert.deepEqual(line.request, params);
+    assert.equal((line.request as any).model, "m");
+    assert.equal((line.request as any).max_tokens, 800);
+    assert.equal((line.request as any).thinking_token_budget, 300);
+    assert.deepEqual((line.request as any).response_format, { type: "json_object" });
+    assert.equal(line.servedModel, "Qwen/Qwen3.8-27B-FP8");
+    // no credentials anywhere in the line
+    const text = JSON.stringify(line);
+    assert.ok(!text.includes(SECRET) && !/authorization|bearer|api_?key/i.test(text), text.slice(0, 300));
+
+    // serving.json: host only, /v1/models, no key
+    await writeServing(dir, { ...cfg(p.base, { llmModel: "m", llmModelName: "Qwen/Qwen3.8-27B-FP8", llmApiKey: SECRET }), llmReasoningStyle: "vllm" } as Config, { LLM_MODEL_NAME: "Qwen/Qwen3.8-27B-FP8" });
+    const serving = readFileSync(path.join(dir, "serving.json"), "utf8");
+    const s = JSON.parse(serving);
+    assert.equal(s.baseUrlHost, new URL(p.base).host);
+    assert.equal(s.model, "m");
+    assert.equal(s.quantization, "fp8");
+    assert.deepEqual(s.models, [{ id: "m", root: "Qwen/Qwen3.8-27B-FP8", max_model_len: 16384 }]);
+    assert.ok(!serving.includes(SECRET) && !/bearer|authorization/i.test(serving));
+  } finally {
+    p.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });

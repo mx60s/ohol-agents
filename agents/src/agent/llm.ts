@@ -3,6 +3,7 @@
 import type { Config } from "../config.ts";
 import type { LlmStatus } from "../api-types.ts";
 import { cleanPhrase } from "../safety.ts";
+import { replayFields, requestForLog } from "./replaylog.ts";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -38,22 +39,28 @@ export interface LlmResult {
   ttftMs?: number | null;
   /** the upstream provider that served the call (OpenRouter's top-level `provider`), if reported */
   provider?: string | null;
+  /** the messages exactly as sent (wireMessages), for replay logging */
+  sentMessages?: unknown[];
+  /** the request body as finally sent, minus messages (requestForLog: no credentials) */
+  request?: Record<string, unknown>;
+  /** the model the server reports (the response's `model`), null if absent */
+  servedModel?: string | null;
 }
-
-/** max chars of reasoning written per llm.jsonl line */
-export const REASONING_LOG_MAX_CHARS = 8000;
 
 /**
  * The per-call fields for an llm.jsonl line: tokens (incl. cached and
- * reasoning), cost, latency, model, and the reasoning text capped at
- * REASONING_LOG_MAX_CHARS (omitted when there is none).
+ * reasoning), cost, latency, model, the raw reasoning text (untrimmed and
+ * uncapped, for exact replay; omitted when there is none) and the replay
+ * fields (replaylog.ts: systemSha, messages, content, request, servedModel).
+ * runDir: where prompts/<sha>.txt go (the run's log dir); null = none written.
  */
-export function llmLogFields(r: LlmResult) {
+export function llmLogFields(r: LlmResult, runDir: string | null = null) {
   return {
     latencyMs: r.latencyMs, promptTokens: r.promptTokens, completionTokens: r.completionTokens,
     cachedTokens: r.cachedTokens ?? 0, cacheWriteTokens: r.cacheWriteTokens ?? 0, reasoningTokens: r.reasoningTokens ?? 0,
     costUsd: r.costUsd, model: r.model, provider: r.provider ?? null, ttftMs: r.ttftMs ?? null,
-    ...(r.reasoningText ? { reasoning: r.reasoningText.slice(0, REASONING_LOG_MAX_CHARS) } : {}),
+    ...(r.reasoningText ? { reasoning: r.reasoningText } : {}),
+    ...replayFields(r, runDir),
   };
 }
 
@@ -337,6 +344,9 @@ export class Llm {
           reasoningText: this.cfg.llmCaptureReasoning === false ? null : reasoningOf(message),
           ttftMs,
           provider: typeof j.provider === "string" ? j.provider : null,
+          sentMessages: body.messages as unknown[],
+          request: requestForLog(body),
+          servedModel: typeof j.model === "string" ? j.model : null,
         };
       } catch (e) {
         lastErr = e;
