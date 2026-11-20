@@ -3,7 +3,7 @@ import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useMemo, useState } from "react";
 import type { LifeRecord } from "../api-types.ts";
 import { pageHref } from "../data/index.ts";
-import { deathReasonText, displayName, formatAge } from "../shared/index.ts";
+import { deathReasonText, displayName, formatAge, PersonalityTag } from "../shared/index.ts";
 import { PersonalityCloud } from "../site/Cloud.tsx";
 import { RecentDeaths } from "../site/Deaths.tsx";
 import { FieldNotes } from "../site/FieldNotes.tsx";
@@ -132,6 +132,11 @@ function PersonCard({ l, site }: { l: LifeRecord; site: SiteData }) {
           <Sex female={l.female} /> {formatAge(age)} · gen {l.generation}
         </div>
         {doing && <div className="doing ugc">{doing}</div>}
+        {site.personalityOf(l.lineageId) && (
+          <span className="flag">
+            <PersonalityTag personality={site.personalityOf(l.lineageId)} palette={site.personalities} short />
+          </span>
+        )}
         {(starving || dying || cond) && (
           <span className="flag">
             <Pill tone="danger">⚠ {dying ? "dying" : cond ? (cond.kind === "sickness" ? "sick" : "wounded") : "starving"}</Pill>
@@ -214,6 +219,7 @@ function Families({ site }: { site: SiteData }) {
             </div>
             <div className="row2">
               {f.totalLives} {f.totalLives === 1 ? "life" : "lives"} · {f.maxGeneration} gen
+              <PersonalityTag personality={site.personalityOf(f.lineageId)} palette={site.personalities} short />
             </div>
             {living.length > 0 && (
               <div className="members">

@@ -74,6 +74,8 @@ export interface DirectorOptions {
   jevModel?: string;
   /** jev: min switch.noul to leave a valid focus (default 0.7) */
   switchP?: number;
+  /** jev: after this long on one person, rotate to the best-scoring person of another family (else anyone else); 0 = off */
+  maxDwellMs?: number;
   /** jev: min combined(choice) - combined(current) to leave a valid focus (default 0.15) */
   switchMargin?: number;
   /** jev: weight of Jev's probabilities vs the normalised heuristic salience (default 0.5) */
@@ -476,11 +478,16 @@ export class Director {
     const current = curValid ? this.focus.agentId : null;
     const liveIds = new Set(this.living().map((a) => a.agentId));
     const cands = scored.filter((s) => liveIds.has(s.agent.agentId)).map((s) => ({ id: s.agent.agentId, salience: s.event, major: !!s.major }));
-    const v = blendVerdict(res.answers, current, cands, {
+    let v = blendVerdict(res.answers, current, cands, {
       switchP: this.opts.switchP ?? 0.7,
       switchMargin: this.opts.switchMargin ?? 0.15,
       weight: this.opts.jevWeight ?? 0.5,
     });
+    const maxDwell = this.opts.maxDwellMs ?? 0;
+    if (v.ok && current && v.id === current && maxDwell > 0 && now - this.focus.since >= maxDwell) {
+      const alt = rotateAway(current, this.living(), v.components);
+      if (alt) v = { ...v, id: alt, switched: true, why: `held ${Math.round((now - this.focus.since) / 1000)}s >= max dwell ${Math.round(maxDwell / 1000)}s: rotate` };
+    }
     this.deps.record?.({
       t: this.now(), kind: "decision", via: "jev", cause, model: res.model ?? req.model, state: req.state, answers: res.answers,
       valid: v.ok, error: v.ok ? undefined : v.error, ...(v.ok ? { pick: v.id, switched: v.switched, why: v.why, pSwitch: v.pSwitch, weight: v.weight, components: v.components } : {}),
@@ -1179,4 +1186,17 @@ export function jevVerdict(answers: unknown, current: string | null, liveIds: st
   const margin = pChoice - pCur;
   if (margin < o.switchMargin) return { ok: true, id: current, switched: false, why: `margin ${margin.toFixed(3)} < ${o.switchMargin}` };
   return { ok: true, id: choice, switched: true, why: `switch ${pSwitch} >= ${o.switchP}, margin ${margin.toFixed(3)} >= ${o.switchMargin}` };
+}
+
+/**
+ * Max-dwell rotation: the best-scoring (combined) living person of another family than the current
+ * focus, else the best other person; null when nobody else is alive.
+ */
+export function rotateAway(current: string, living: readonly { agentId: string; name: string | null }[], components: Record<string, { combined: number }>): string | null {
+  const fam = (n: string | null | undefined) => (n ?? "").trim().split(/\s+/).pop() ?? "";
+  const me = fam(living.find((a) => a.agentId === current)?.name);
+  const others = living.filter((a) => a.agentId !== current);
+  const score = (id: string) => components[id]?.combined ?? 0;
+  const best = (xs: typeof others) => xs.slice().sort((a, b) => score(b.agentId) - score(a.agentId))[0]?.agentId ?? null;
+  return best(others.filter((a) => me && fam(a.name) !== me)) ?? best(others);
 }

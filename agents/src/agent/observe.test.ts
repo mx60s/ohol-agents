@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { GameData } from "../game/gameData.ts";
 import { FakeGame } from "../game/fakeGame.ts";
 import { Body } from "../game/body.ts";
-import { ageText, buildObservation, direction, foodLine } from "./observe.ts";
+import { ageText, buildObservation, direction, foodLine, shortTermNote, HISTORY_SHOWN, THOUGHTS_SHOWN } from "./observe.ts";
 import { turnsFor, turnsForWall, turnsText, turnsTextWall, turnClock, turnsAgo } from "./turns.ts";
 import { buildSystemPrompt, drainSecondsPerPip, newbornWindowSeconds, systemPromptFor } from "./prompt.ts";
 
@@ -771,4 +771,40 @@ test("recent thoughts: shown dated and in full (no 200-char cut)", () => {
   const obs = buildObservation(g.world, gd, { recipeHints: false, history: [], pastLifeNotes: [], goal: null, clock, recentThoughts: [{ t: now - 2, text: "First." }, { t: now - 1, text: "Second." }, { t: now, text: long }] });
   assert.match(obs, /Your recent thoughts:\n- [^\n]*: "First\."\n- [^\n]*: "Second\."\n- [^\n]*: "I will carefully/);
   assert.ok(obs.includes(long), "the long thought is shown whole");
+});
+
+test("short-term memory note: under YOUR LAST ACTIONS with the real counts; years mentioned only when year lines are on", () => {
+  const g = new FakeGame(gd);
+  g.addPlayer({ id: 1, x: 0, y: 0, age: 31, held: 0, female: true });
+  g.start();
+  const now = g.world.now();
+  const base = { recipeHints: false, history: [{ t: now, action: "eat", result: "ate" }], pastLifeNotes: [], goal: null, clock, now, recentThoughts: [{ t: now, text: "Eat." }], kept: [{ t: now, text: "pond west" }] };
+  const off = buildObservation(g.world, gd, base);
+  const note = `(You see your last ${HISTORY_SHOWN} actions and last ${THOUGHTS_SHOWN} thoughts; older ones fade unless you chose to remember them.)`;
+  assert.equal(note, "(You see your last 30 actions and last 10 thoughts; older ones fade unless you chose to remember them.)");
+  assert.ok(off.includes(`== YOUR LAST ACTIONS ==\n${note}\nYour recent thoughts:\n`), off);
+  assert.doesNotMatch(off, /PAST YEARS|each past year/);
+  // year lines off: lines given but not shown, byte-identical to no year options at all
+  const years = [{ from: 29, to: 30, text: "you gathered berries" }, { from: 30, to: 31, text: "you made a fire at (3, 4) with your mother" }, { from: 31, to: 31, text: "you held your baby" }];
+  assert.equal(buildObservation(g.world, gd, { ...base, years, yearLinesShown: 0 }), off);
+  assert.equal(buildObservation(g.world, gd, { ...base, years: [], yearLinesShown: 2 }).replace(shortTermNote(2), note), off, "on with no lines yet: only the note differs");
+
+  const on = buildObservation(g.world, gd, { ...base, years, yearLinesShown: 2 });
+  assert.equal(shortTermNote(2), "(You see your last 30 actions and last 10 thoughts; older ones fade unless you chose to remember them. A one-line summary of each past year of this life is kept; the last 2 are shown under YOUR PAST YEARS.)");
+  assert.match(shortTermNote(1), /the last one is shown under YOUR PAST YEARS\.\)$/);
+  assert.ok(on.includes(`== YOUR LAST ACTIONS ==\n${shortTermNote(2)}\n`));
+  // the rest is unchanged: the section is appended at the end, after THINGS YOU CHOSE TO REMEMBER, newest last, only the last N
+  assert.equal(on.replace(shortTermNote(2), note), off + "\n\n== YOUR PAST YEARS ==\n- Age 30-31: you made a fire at (3, 4) with your mother\n- Age 31: you held your baby");
+  assert.ok(on.indexOf("== THINGS YOU CHOSE TO REMEMBER ==") < on.indexOf("== YOUR PAST YEARS =="));
+  const three = buildObservation(g.world, gd, { ...base, years, yearLinesShown: 3 });
+  assert.match(three, /== YOUR PAST YEARS ==\n- Age 29-30: you gathered berries\n- Age 30-31: [^\n]*\n- Age 31: you held your baby$/);
+});
+
+test("prompted personality: 'You are <descriptor>.' is the system prompt's second sentence; none = unchanged", () => {
+  const plain = systemPromptFor({});
+  const p = systemPromptFor({}, "conscientious and restless");
+  assert.ok(p.startsWith("You are a person in a world. You are conscientious and restless. Everyone else is an independent mind like you."));
+  assert.equal(p.replace(" You are conscientious and restless.", ""), plain);
+  assert.equal(systemPromptFor({}, null), plain);
+  assert.notEqual(systemPromptFor({}, "sociable and sentimental"), p, "cached per descriptor");
 });

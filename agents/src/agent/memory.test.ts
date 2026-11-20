@@ -11,7 +11,10 @@ import type { EventLog } from "../events.ts";
 import { buildObservation } from "./observe.ts";
 import { buildSystemPrompt } from "./prompt.ts";
 import { parseReply, checkActions, parseRemember } from "./reply.ts";
-import { YearMemory, trimSummary, summaryInput, summaryMaxTokens, looksLikeReasoning, SUMMARY_SYSTEM, SUMMARY_REPLY_TOKENS, NOTE_HEADINGS, REMEMBER_MAX } from "./memory.ts";
+import { YearMemory, trimSummary, summaryInput, summaryMaxTokens, looksLikeReasoning, SUMMARY_SYSTEM, SUMMARY_REPLY_TOKENS, NOTE_HEADINGS, REMEMBER_MAX, YEAR_LINE_SYSTEM, YEAR_LINE_REPLY_TOKENS, YEAR_LINE_TRIES, trimYearLine, yearLineInput, yearLabel, yearLinesPath } from "./memory.ts";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 const gd = new GameData();
 const clock = { cycleMs: 8000, timeScale: 1 };
@@ -205,7 +208,7 @@ function agent(cfg: Record<string, unknown>, summary: (m: ChatMessage[], o?: Cha
   const llm = {
     overBudget: false,
     chat: async (m: ChatMessage[], o?: ChatOptions) => {
-      if (m[0].content === SUMMARY_SYSTEM) {
+      if (m[0].content === SUMMARY_SYSTEM || m[0].content === YEAR_LINE_SYSTEM) {
         summaryCalls.push(o);
         return summary(m, o);
       }
@@ -503,4 +506,183 @@ test("agent by default: no note-taker call and no YOUR NOTES section; a remember
   assert.ok(seen.every((o) => !/YOUR NOTES/.test(o)));
   assert.match(seen[3], /== THINGS YOU CHOSE TO REMEMBER ==\n1\. \(\d+ turns? ago\) x marks the spot$/m);
   assert.deepEqual(A.kept.texts, ["x marks the spot"]);
+});
+
+// --- year lines (MEMORY_SUMMARY=years): one line per completed year, from that year's transcript alone
+
+function yearsWith(call: (m: ChatMessage[]) => Promise<LlmResult>, o: Partial<ConstructorParameters<typeof YearMemory>[0]> = {}) {
+  const done: { ok: boolean }[] = [];
+  const m = new YearMemory({ mode: "years", everyTurns: 2, lockstep: false, cycleMs: 1000, call, onDone: (r) => done.push(r), ...o });
+  return { m, done };
+}
+
+test("year-line writer: one line, second person, facts of that year (goals at a high level, with outcome); no advice or how-to", () => {
+  assert.equal(
+    YEAR_LINE_SYSTEM,
+    `You write one line of a player's life record in a survival game. From the transcript of one year of their life, write ONE line in second person ("you"), at most 240 characters: what they did and made, where, who they were with, and notable events (births, deaths, injuries). You may say at a high level what they were trying to do ("goal:" lines: "you tried to...", "you wanted to...") and whether it worked, failed or was left unfinished. Otherwise only what the transcript shows happened: no advice, guesses, how-to or plans for later. Say what people said as said, not as fact. Reply with the line only.`,
+  );
+  {
+    const { m } = yearsWith(async () => ({ text: "x" }) as LlmResult);
+    m.goal("make fire");
+    assert.deepEqual((m as unknown as { entries: string[] }).entries, ["goal: make fire"], "a new goal goes into the year's transcript");
+  }
+  const input = yearLineInput(30, 31, ["you: eat -> ate", 'claim: #3 LUNA said: "BERRIES NORTH"']);
+  assert.equal(input, `The player's age during this year: 30 to 31.\n\nTranscript of this year, oldest first ("you:" is the player's action and its result; "saw:" happened nearby; "game:" is a game notice; "claim:" is what someone said, not checked; "goal:" is what the player set out to do):\n- you: eat -> ate\n- claim: #3 LUNA said: "BERRIES NORTH"`);
+  assert.match(yearLineInput(4, 4, []), /^The player's age during this year: 4\.\n/);
+  assert.equal(yearLabel({ from: 30, to: 31 }), "Age 30-31");
+  assert.equal(yearLabel({ from: 30, to: 30 }), "Age 30");
+});
+
+test("trimYearLine: the first line with words, bullets, quotes and an echoed age label stripped, at most 240 chars", () => {
+  assert.equal(trimYearLine("- You made a fire at (3, 4).\n- second line"), "You made a fire at (3, 4).");
+  assert.equal(trimYearLine("```\nAge 30-31: you ate berries\n```"), "you ate berries");
+  assert.equal(trimYearLine('**Age 30**: "you buried your mother"'), "you buried your mother");
+  assert.equal(trimYearLine("<think>hm</think>\n\nyou slept"), "you slept");
+  assert.equal(trimYearLine("x".repeat(300)).length, 240);
+  assert.equal(trimYearLine(" \n)\n"), "");
+});
+
+test("YearMemory years mode: exactly one line per completed year, labelled with the ages, from that year's transcript alone", async () => {
+  const calls: ChatMessage[][] = [];
+  let n = 0;
+  const { m, done } = yearsWith(async (msgs) => (calls.push(msgs), res(`- you did thing ${++n}`)));
+  m.add("eat -> ate");
+  assert.equal(m.tick(0, 30.1), null);
+  const p1 = m.tick(0, 31.0);
+  assert.ok(p1, "a year (2 decisions) in");
+  await p1;
+  m.add("go (5, 5) -> arrived");
+  assert.equal(m.tick(0, 31.5), null);
+  await m.tick(0, 32.1);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][0].content, YEAR_LINE_SYSTEM);
+  assert.match(calls[0][1].content, /^The player's age during this year: 30 to 31\./);
+  assert.match(calls[0][1].content, /eat -> ate/);
+  assert.match(calls[1][1].content, /^The player's age during this year: 31 to 32\./);
+  assert.doesNotMatch(calls[1][1].content, /eat -> ate|thing 1/, "not cumulative: neither last year's transcript nor its line");
+  assert.deepEqual(m.years, [{ from: 30, to: 31, text: "you did thing 1" }, { from: 31, to: 32, text: "you did thing 2" }]);
+  assert.deepEqual(m.memory, [], "the notes are untouched");
+  assert.deepEqual(done.map((d) => d.ok), [true, true]);
+  // a year with nothing in its transcript gets no line and no call
+  m.tick(0, 32.5);
+  assert.equal(m.tick(0, 33.0), null);
+  assert.equal(calls.length, 2);
+});
+
+test("YearMemory years mode: a failed year is retried on its own (never merged into the next) and dropped after the tries", async () => {
+  let fail = true;
+  const inputs: string[] = [];
+  const { m, done } = yearsWith(async (msgs) => {
+    inputs.push(msgs[1].content);
+    if (fail) throw new Error("LLM HTTP 500");
+    return res("you fished");
+  }, { everyTurns: 2 });
+  m.add("year one");
+  m.tick(0, 10);
+  await m.tick(0, 11); // try 1 fails
+  m.add("year two");
+  await m.tick(0, 11.5); // try 2 of year one (year two not due yet)
+  assert.match(inputs[1], /year one/);
+  assert.doesNotMatch(inputs[1], /year two/);
+  fail = false;
+  await m.tick(0, 12); // year two is cut off and queued; year one's 3rd try succeeds
+  assert.deepEqual(m.years, [{ from: 10, to: 11, text: "you fished" }]);
+  assert.doesNotMatch(inputs[2], /year two/);
+  await m.tick(0, 12.2);
+  assert.deepEqual(m.years.map((y) => [y.from, y.to]), [[10, 11], [11, 12]]);
+  assert.match(inputs[3], /year two/);
+  assert.doesNotMatch(inputs[3], /year one/);
+  // all tries fail: that year gets no line
+  fail = true;
+  m.add("year three");
+  m.tick(0, 12.5);
+  for (let i = 0; i < YEAR_LINE_TRIES + 2; i++) await m.tick(0, 13);
+  assert.equal(inputs.filter((s) => /year three/.test(s)).length, YEAR_LINE_TRIES);
+  assert.equal(m.years.length, 2);
+  assert.equal(m.busy, false);
+  assert.equal(done.filter((d) => !d.ok).length, 2 + YEAR_LINE_TRIES);
+});
+
+test("YearMemory years mode: a new life clears the lines and drops a line still in flight; lines are saved per life and restored after a restart", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "yearlines-"));
+  try {
+    const file = yearLinesPath(dir, "run/1", "a1");
+    assert.equal(file, path.join(dir, "research", "year-lines", "run_1", "a1.json"));
+    const { m } = yearsWith(async () => res("you built a fire"), { everyTurns: 2, yearsFile: file });
+    m.reset(7);
+    m.add("x");
+    m.tick(0, 20);
+    m.add("y");
+    await m.tick(0, 21);
+    assert.deepEqual(m.years, [{ from: 20, to: 21, text: "you built a fire" }]);
+    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { playerId: 7, years: m.years });
+
+    // a restart: a fresh YearMemory gets them back for the same life, not for another one
+    const { m: m2 } = yearsWith(async () => res(""), { yearsFile: file });
+    assert.equal(m2.restoreYears(8), false);
+    assert.deepEqual(m2.years, []);
+    assert.equal(m2.restoreYears(7), true);
+    assert.deepEqual(m2.years, [{ from: 20, to: 21, text: "you built a fire" }]);
+
+    // a new life: nothing, saved; a line in flight from the last life is dropped
+    const d = deferred<LlmResult>();
+    const { m: m3 } = yearsWith(() => d.promise, { everyTurns: 2, yearsFile: file });
+    m3.restoreYears(7);
+    m3.add("z");
+    m3.tick(0, 21);
+    const p = m3.tick(0, 22)!;
+    assert.ok(p);
+    m3.reset(9);
+    d.resolve(res("stale line"));
+    await p;
+    assert.deepEqual(m3.years, []);
+    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { playerId: 9, years: [] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("agent with MEMORY_SUMMARY=years: a line per year in the background, YOUR PAST YEARS shows the last N, the count note names them; no notes, remember list unchanged", async () => {
+  const { config } = await import("../config.ts");
+  assert.equal(config.memoryYears, process.env.MEMORY_SUMMARY === "years");
+  assert.equal(config.memoryYearLines, process.env.MEMORY_YEAR_LINES ? Math.max(1, Math.floor(Number(process.env.MEMORY_YEAR_LINES))) : 2);
+  let n = 0;
+  const { a, A, seen, logged, summaryCalls } = agent(
+    { memorySummary: false, memoryYears: true, memoryYearLines: 2, memorySummaryTurns: 1 },
+    async () => res(`you waited, year ${++n}`, 0.001),
+    () => '{"thought":"wait it out","remember":"pond west","action":{"type":"wait","turns":1}}',
+  );
+  for (let i = 0; i < 5; i++) {
+    await A.turn();
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  assert.ok(summaryCalls.length >= 3, String(summaryCalls.length));
+  assert.deepEqual(summaryCalls[0], { maxTokens: 800, extra: { reasoning: { max_tokens: 300 } }, json: false }, "same model and cap; max(decision, reasoning + one line)");
+  assert.equal(summaryMaxTokens(800, 1200, YEAR_LINE_REPLY_TOKENS), 1400);
+  assert.ok(a.yearLines.length >= 3);
+  assert.deepEqual(a.memory, [], "no headed notes");
+  const last = seen.at(-1)!;
+  assert.match(last, /\(You see your last 30 actions and last 10 thoughts; older ones fade unless you chose to remember them\. A one-line summary of each past year of this life is kept; the last 2 are shown under YOUR PAST YEARS\.\)/);
+  const section = last.split("== YOUR PAST YEARS ==\n")[1]?.split("\n\n")[0];
+  assert.ok(section, last);
+  const lines = section.split("\n");
+  assert.equal(lines.length, 2, "only the last 2 years");
+  const k = Number(/year (\d+)$/.exec(lines[1])?.[1]);
+  assert.ok(k >= 3, lines[1]);
+  assert.deepEqual(lines, [`- Age 20: you waited, year ${k - 1}`, `- Age 20: you waited, year ${k}`], "the last two, newest last");
+  assert.match(last, /== THINGS YOU CHOSE TO REMEMBER ==\n1\. \(\d+ turns? ago\) pond west\n\n== YOUR PAST YEARS ==/);
+  assert.doesNotMatch(last, /YOUR NOTES/);
+  const yl = logged.find((r) => r.kind === "yearline");
+  assert.ok(yl && yl.costUsd === 0.001 && /The player's age during this year: 20\./.test(yl.input), "logged with its cost");
+  assert.doesNotMatch(yl.input, /wait it out/, "the agent's own thoughts are not input");
+  assert.ok(!logged.some((r) => r.kind === "summary"));
+});
+
+test("agent by default (MEMORY_SUMMARY unset): no year-line calls, no YOUR PAST YEARS, the count note without years", async () => {
+  const { A, seen, summaryCalls } = agent({ memorySummary: false, memorySummaryTurns: 1 }, async () => res("you waited"), () => '{"action":{"type":"wait","turns":1}}');
+  for (let i = 0; i < 3; i++) await A.turn();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(summaryCalls.length, 0);
+  assert.ok(seen.every((o) => !/PAST YEARS|past year/.test(o)));
+  assert.match(seen.at(-1)!, /== YOUR LAST ACTIONS ==\n\(You see your last 30 actions and last 10 thoughts; older ones fade unless you chose to remember them\.\)\n/);
 });

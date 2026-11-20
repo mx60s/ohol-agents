@@ -5,7 +5,7 @@ import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentView, Invention, LifeRecord, MapCellTuple, PlayerView, RunEvent } from "../api-types.ts";
 import { getClient, useInventions, useLives, useMap, useMinimap, useNow, useObjectNames, useWorldState } from "../data/index.ts";
-import { ageStage, cueLabel, cueOfSay, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait, withFamilyNames } from "../shared/index.ts";
+import { ageStage, cueLabel, cueOfSay, deathReasonText, displayName, FlowerIcon, formatAge, formatRelative, LOST_IN_THOUGHT, lostInThought, ObjectIcon, PersonPortrait, PersonalityTag, personalityByLineage, withFamilyNames } from "../shared/index.ts";
 import { flowersForLives } from "../ohol/flower.ts";
 import { Sticker, Wordmark } from "../theme/index.ts";
 import { backHome, biomeName, cutawayShot, headlineNumbers, latestNarrations, objectIdsByName, recentOf, runTimeParts, selectTicker, shortAgo, speechBubbles, describeAction, traitTags, warmthLabel, type TickerItem } from "../stream/logic.ts";
@@ -109,6 +109,23 @@ function Stream() {
     }
     return (pid: number) => byPlayer.get(pid) ?? null;
   }, [players, lives.byId, lifeFlowers]);
+  // each family's prompted personality (PERSONALITIES; null when off): from the agents and players
+  // in /api/state, remembered across polls so a family keeps its tag while nobody of it is in view
+  const personaMemo = useRef(new Map<string, string>());
+  const personalities = state?.run.personalities ?? null;
+  const personaOfLineage = useMemo(() => {
+    const m = personaMemo.current;
+    for (const [k, v] of personalityByLineage(state?.agents ?? EMPTY_AGENTS, players)) m.set(k, v);
+    return (lineageId: string | null | undefined) => (personalities && lineageId ? (m.get(lineageId) ?? null) : null);
+  }, [state?.agents, players, personalities]);
+  const personaOf = useMemo(() => {
+    const byPlayer = new Map<number, string>();
+    for (const q of players) {
+      const v = q.personality ?? personaOfLineage(q.lineageId ?? (q.lifeId ? lives.byId[q.lifeId]?.lineageId : null));
+      if (v) byPlayer.set(q.id, v);
+    }
+    return (pid: number) => byPlayer.get(pid) ?? null;
+  }, [players, lives.byId, personaOfLineage]);
   const player = players.find((p) => lifeId && p.lifeId === lifeId) ?? (agent?.playerId != null ? players.find((p) => p.id === agent.playerId) : undefined);
   const focusPlayerId = player?.id ?? life?.playerId ?? agent?.playerId ?? null;
 
@@ -222,9 +239,9 @@ function Stream() {
   const miniMap = (
     <MiniMap
       hairOf={hairOf}
-      overview={minimap.data ?? null}
+      overview={sameRun(minimap.data, state?.run.id) ? minimap.data! : null}
       worldKey={state?.run.id ?? null}
-      cells={map.data?.cells ?? EMPTY_CELLS}
+      cells={sameRun(map.data, state?.run.id) ? map.data!.cells : EMPTY_CELLS}
       players={players}
       agents={state?.agents ?? EMPTY_AGENTS}
       focusPlayerId={nobody || focusDead ? null : focusPlayerId}
@@ -254,6 +271,8 @@ function Stream() {
             bubbles={bubbles}
             speakers={speakers}
             colorOf={hairOf}
+            personalityOf={personalities ? personaOf : undefined}
+            personalities={personalities}
             onInView={onInView}
             emptyCard={emptyCard}
             deathCard={deathCard}
@@ -297,6 +316,8 @@ function Stream() {
           lineageIds={lineageIds}
           events={w.events}
           now={serverNow}
+          personality={agent?.personality ?? player?.personality ?? personaOfLineage(life?.lineageId ?? player?.lineageId ?? agent?.lineageId)}
+          personalities={personalities}
         />
         {phone && (
           <section className="mapbox">
@@ -378,6 +399,10 @@ interface FollowingProps {
   lineageIds: string[];
   events: RunEvent[];
   now: number;
+  /** the family's prompted personality descriptor (null: none / feature off) */
+  personality?: string | null;
+  /** run.personalities (tag colours) */
+  personalities?: string[] | null;
 }
 
 function Following(p: FollowingProps) {
@@ -536,11 +561,12 @@ function Following(p: FollowingProps) {
             )}
           </div>
         </div>
-        {(tags.length > 0 || !TRAITS_SHOWN) && (
+        {(tags.length > 0 || !TRAITS_SHOWN || p.personality) && (
           <div className="sec">
             <div className="label">Personality</div>
             <div className="traitrow">
-              {(TRAITS_SHOWN ? tags : ["none"]).map((t) => (
+              <PersonalityTag personality={p.personality} palette={p.personalities} />
+              {(TRAITS_SHOWN ? tags : p.personality ? [] : ["none"]).map((t) => (
                 <span key={t} className="pill">
                   {t}
                 </span>
@@ -735,3 +761,9 @@ function InventionRow({ inv, life, flowers, byName, now }: { inv: Invention; lif
 }
 
 mount(<Stream />);
+
+/** map data belongs to the run on screen (no run id on it: an older service, trust it); a poll from the
+ * previous run that lands after the run id changed would otherwise be drawn into the new world */
+function sameRun(d: { runId?: string } | null | undefined, runId: string | null | undefined): boolean {
+  return !!d && (!d.runId || !runId || d.runId === runId);
+}

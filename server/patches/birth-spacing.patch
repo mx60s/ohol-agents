@@ -1,0 +1,40 @@
+MTS patch: longer, configurable birth cooldown (settings
+mtsBirthCooldownMinSeconds / mtsBirthCooldownMaxSeconds, game seconds;
+max 0 = stock).
+
+Stock picks a mother's cooldown after each birth from a Kumaraswamy
+distribution over 0..300 s (mean ~2 min): with a 60 s game year her babies
+come ~2 years apart. With max > 0 the cooldown is uniform in [min, max]
+instead. It is game time (time-scale.patch), so it holds while the turn
+clock is paused; wait-for-mothers.patch keeps a mom on cooldown from
+getting a baby anyway.
+
+diff --git a/server/server.cpp b/server/server.cpp
+index 58c58de..1b0ace4 100644
+--- a/server/server.cpp
++++ b/server/server.cpp
+@@ -2161,6 +2161,24 @@ static double pickBirthCooldownSeconds() {
+     
+     // v is in [0..1], the value range of Kumaraswamy
+ 
++    // MTS patch (birth-spacing.patch): with mtsBirthCooldownMinSeconds /
++    // mtsBirthCooldownMaxSeconds > 0 the cooldown is uniform in [min, max]
++    // game seconds instead (a game year is 60 s), so a mother's babies come
++    // years apart rather than ~2 minutes apart
++    int mtsMin = 
++        SettingsManager::getIntSetting( "mtsBirthCooldownMinSeconds", 0 );
++    int mtsMax = 
++        SettingsManager::getIntSetting( "mtsBirthCooldownMaxSeconds", 0 );
++    if( mtsMax > 0 ) {
++        if( mtsMin < 0 ) {
++            mtsMin = 0;
++            }
++        if( mtsMax < mtsMin ) {
++            mtsMax = mtsMin;
++            }
++        return mtsMin + u * ( mtsMax - mtsMin );
++        }
++
+     // put max at 5 minutes
+     return v * 5 * 60;
+     }

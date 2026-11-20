@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  BABY_NAMING_PHRASES, FAMILY_NAMING_PHRASES, babyNameFrom, namingSayAfterStep, eveNameFrom, firstNameKey, freeFirstName, isNumeral, mergeSurnames, namingRest, reviewSpeech, surnameOf,
+  BABY_NAMING_PHRASES, FAMILY_NAMING_PHRASES, babyNameFrom, namingSayAfterStep, eveNameFrom, firstNameKey, freeFirstName, isNumeral, mergeSurnames, namingMissNote, namingRest, reviewSpeech, surnameOf,
 } from "./naming.ts";
 
 test("naming phrases match like server.cpp isNamingSay: at the start, a space after, first listed phrase wins", () => {
@@ -71,4 +71,14 @@ test("namingSayAfterStep: a baby naming line waits for the reply's first pick_up
   assert.equal(namingSayAfterStep("YOU ARE AURORA", steps, true), -1, "already holding someone");
   assert.equal(namingSayAfterStep("I AM LUNA VALLEY", steps, false), -1, "not a baby naming line");
   assert.equal(namingSayAfterStep("YOU ARE AURORA", [{ type: "go" }], false), -1, "no pickup in the reply");
+});
+
+test("namingMissNote: a baby-naming line that can reach nobody says so; holding a baby, a reachable nameless person or other speech says nothing", () => {
+  const far = [{ pos: [80, 0] as [number, number], age: 0.1, named: false }];
+  assert.match(namingMissNote("YOU ARE DAISY", false, [0, 0], far) ?? "", /^nobody was named/);
+  assert.equal(namingMissNote("YOU ARE DAISY", true, [0, 0], far), null, "holding the baby: the server names it");
+  assert.equal(namingMissNote("YOU ARE DAISY", false, [0, 0], [{ pos: [2, 0], age: 0.1, named: false }]), null, "baby within 3");
+  assert.equal(namingMissNote("YOU ARE DAISY", false, [0, 0], [{ pos: [15, 0], age: 9, named: false }]), null, "nameless child within 20");
+  assert.match(namingMissNote("YOU ARE DAISY", false, [0, 0], [{ pos: [2, 0], age: 0.1, named: true }]) ?? "", /^nobody/, "already named");
+  assert.equal(namingMissNote("BRING THE STONE", false, [0, 0], far), null);
 });

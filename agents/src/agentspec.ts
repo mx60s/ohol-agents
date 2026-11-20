@@ -177,6 +177,8 @@ export function specSettings(cfg: Config, env: NodeJS.ProcessEnv = process.env):
     memoryMode: cfg.memoryMode,
     memorySummary: cfg.memorySummary,
     memorySummaryTurns: cfg.memorySummaryTurns,
+    memoryYears: !!cfg.memoryYears && !cfg.memorySummary,
+    memoryYearLines: cfg.memoryYearLines ?? 2,
     traitSource: cfg.traitSource,
     foodBonus: serverSetting("mtsNewPlayerFoodBonus", env),
     foodBonusSecondsPerPip: serverSetting("newPlayerFoodDecrementSecondsBonus", env),
@@ -228,6 +230,7 @@ export function interventions(cfg: Config, s: AgentSpecSettings): AgentSpecInter
     { id: "reasoning-cap", name: "Mild reasoning cap", category: "beyond-human", on: cfg.llmReasoningCap, detail: `about ${cfg.llmReasoningMaxTokens} reasoning tokens within ${cfg.llmDecisionMaxTokens} in total` },
     { id: "kept-memory", name: "Agent-kept memory", category: "beyond-human", on: true, detail: `up to ${keptMaxOf(cfg)} entries the agent chooses, verbatim: each "remember" (max ${L.rememberChars} chars) is listed every turn under THINGS YOU CHOSE TO REMEMBER, numbered, oldest first, with its age in turns; "forget" lets one go by number or text; a new entry on a full list drops the oldest and the agent is told; no rewriting, filtering or summarising. Saved per life across restarts` },
     { id: "memory-summary", name: "Yearly notes", category: "beyond-human", on: cfg.memorySummary, detail: `off by default (MEMORY_SUMMARY=1 turns it on): every ${cfg.memorySummaryTurns} turns a separate note-taker call (the agents' own model) rewrites this life's notes in the background from a transcript of the year (actions and results, what was seen nearby, notices, what people said as claims; not the agent's thoughts): at most ${L.memoryLines} lines of facts under headings, no plans, shown every turn; things the agent asked to remember are included, with up to ${REMEMBER_EXTRA_LINES} more lines; notes cut off by the length limit are discarded` },
+    { id: "year-lines", name: "Year lines", category: "beyond-human", on: !!cfg.memoryYears && !cfg.memorySummary, detail: `off by default (MEMORY_SUMMARY=years turns it on): every ${cfg.memorySummaryTurns} turns (a game year) a separate call to the agents' own model writes one line (max ${MEMORY_LINE_CHARS} chars, second person) of facts from that year's transcript alone (actions and results, what was seen nearby, notices, what people said as claims; not the agent's thoughts, not earlier lines): what you did and made, where, with whom, births, deaths, injuries; no advice or plans. YOUR PAST YEARS shows the last ${cfg.memoryYearLines ?? 2} (MEMORY_YEAR_LINES) of this life; saved per life across restarts` },
     { id: "memory", name: "Notes from past lives", category: "beyond-human", on: cfg.memoryMode === "persistent", detail: "MEMORY_MODE=persistent carries what a slot chose to remember (and its yearly notes, if on) into its next life; off = each life starts fresh" },
     // declared changes to the game
     { id: "food-bonus", name: "New-player food bonus", category: "game-setting", on: on(s.foodBonus), detail: `+${s.foodBonusSecondsPerPip.value ?? "?"} s on every food pip, every life (stock OHOL gives it to newcomers)` },

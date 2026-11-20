@@ -360,3 +360,21 @@ dl.kv dd { margin: 0; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
 .tree-scroll.dense .fbody .fn { max-width: 50px; font-size: 10.5px; }
 .tree-scroll.dense .fbody em { font-size: 9.5px; }
 .tree-scroll.dense .ftree li { padding-left: 1px; padding-right: 1px; }
+
+/* prompted family personalities (PersonalityTag pills; colours in theme/tokens.css) */
+.pill.persona { font-size: 11.5px; }
+.lineage .row2 .pill.persona { margin-left: 6px; vertical-align: 1px; }
+.fam-card:has(.fc-persona) { row-gap: 4px; }
+.fam-card:has(.fc-persona) > .fam-look { grid-row: span 2; }
+.fam-card .fc-persona { grid-column: 2 / -1; justify-self: start; display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.fam-head .pill.persona { font-size: 13px; }
+.fam-cell { white-space: nowrap; }
+.fam-cell .clip { max-width: 160px; }
+.fam-cell .pill.persona { margin-left: 6px; vertical-align: middle; }
+.ld-person .ld-persona { margin-left: 6px; }
+.persona-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; font-size: 13px; color: var(--ink-2); }
+.persona-line .pill.persona { font-size: 13px; }
+.persona-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; font-size: 13px; }
+.persona-legend .lg-k { font-weight: 900; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.persona-legend .lg-item { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.persona-legend .lg-fams { color: var(--ink-2); font-weight: 700; }

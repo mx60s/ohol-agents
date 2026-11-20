@@ -46,7 +46,7 @@ before(async () => {
   const runs = Object.assign(new EventEmitter(), {
     lives,
     inventions,
-    pop: { state: () => ({ run: { id: "run1", status: "running" }, agents: [], players: [] }), map: () => ({ cells: [], names: {} }), minimap: () => ({ block: 1, cells: [] }), leadership: () => ({ runId: "run1", at: 5, edges: [{ follower: 2, leader: 1 }], people: [] }) },
+    pop: { state: () => ({ run: { id: "run1", status: "running" }, agents: [], players: [] }), map: () => ({ cells: [], names: {} }), minimap: () => ({ block: 1, cells: [] }), leadership: () => ({ runId: "run1", at: 5, edges: [{ follower: 2, leader: 1 }], people: [] }), personalityOfLineage: (id: string) => (id === "run1:10" ? "sociable and sentimental" : null) },
     log: { since: (n: number) => [{ seq: n + 1, kind: "system" }] },
     openControl: false,
     maxTotalCostUsd: 0,
@@ -218,6 +218,8 @@ test("GET /api/lineages and /api/deaths", async () => {
   const fam = lin.lineages.find((l) => l.lineageId === "run1:10")!;
   assert.equal(fam.totalLives, 2);
   assert.equal(fam.extinctAt, null);
+  assert.equal(fam.personality, "sociable and sentimental", "the run's family personality");
+  assert.ok(lin.lineages.filter((l) => l.lineageId !== "run1:10").every((l) => !("personality" in l)), "absent for families without one");
   assert.equal(lin.lineages.filter((l) => l.extinctAt != null).length, 3);
 
   const d = (await get("/api/deaths")).body as DeathsResponse;

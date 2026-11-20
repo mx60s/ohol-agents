@@ -3,7 +3,7 @@ import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useMemo, useState } from "react";
 import type { LifeRecord, RunEvent } from "../api-types.ts";
 import { pageHref, queryParam, useLife, useLifeLog, useNow, useWorldState, type LifeLogState } from "../data/index.ts";
-import { cueLabel, cueOfSay, deathReasonText, displayName, firstNameOf, formatAge, formatClock, formatCount, formatDuration, formatTrait, personalityText } from "../shared/index.ts";
+import { cueLabel, cueOfSay, deathReasonText, displayName, firstNameOf, formatAge, formatClock, formatCount, formatDuration, formatTrait, PersonalityTag, personalityText } from "../shared/index.ts";
 import { DEATH_ICON } from "../site/Deaths.tsx";
 import { FamilyTree, TreeScroll } from "../site/FamilyTree.tsx";
 import {
@@ -229,10 +229,19 @@ function Personality({ life, site }: { life: LifeRecord; site: SiteData }) {
   const pos = (v: number) => ((v + TRAIT_LIMIT) / (2 * TRAIT_LIMIT)) * 100;
   const p = personalityText(life, dims);
   const famName = site.famName(life.lineageId);
+  const persona = site.personalityOf(life.lineageId);
   return (
     <Panel title="Personality" variant="pink" badge={TRAITS_SHOWN ? <MockBadge title={MOCK_TITLE} /> : undefined}>
+      {persona && (
+        <p className="persona-line">
+          <PersonalityTag personality={persona} palette={site.personalities} />
+          <span className="ugc">
+            The {famName} family's prompted personality: every member's system prompt says "You are {persona}."
+          </span>
+        </p>
+      )}
       {!TRAITS_SHOWN ? (
-        <Note>none</Note>
+        persona ? null : <Note>none</Note>
       ) : !life.traits ? (
         <Note>No traits recorded for this life.</Note>
       ) : (

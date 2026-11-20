@@ -10,12 +10,12 @@ import type { Config } from "../config.ts";
 import type { EventLog } from "../events.ts";
 import type { AgentView } from "../api-types.ts";
 import { Llm, llmLogFields, type ChatMessage, type ChatOptions, type LlmResult } from "./llm.ts";
-import { YearMemory, summaryMaxTokens } from "./memory.ts";
+import { YearMemory, summaryMaxTokens, yearLinesPath, YEAR_LINE_REPLY_TOKENS, type YearLine } from "./memory.ts";
 import { KEPT_MAX, KeptMemory, keptMemoryPath } from "./kept.ts";
-import { buildObservation, seenText, thingName } from "./observe.ts";
+import { buildObservation, seenText, thingName, THOUGHTS_SHOWN } from "./observe.ts";
 import { Acquaintances, PeopleView, knownNamesPath, rememberedName } from "./people.ts";
 import { foodBonusOf, systemPromptFor } from "./prompt.ts";
-import { firstNameKey, mergeSurnames, namingSayAfterStep, reviewSpeech, surnameOf, type NamingContext } from "./naming.ts";
+import { firstNameKey, mergeSurnames, namingMissNote, namingSayAfterStep, reviewSpeech, surnameOf, type NamingContext } from "./naming.ts";
 import { parseReply, parseRemember, parseForget, checkActions, sanitizeAction, type Action } from "./reply.ts";
 import { parseIssue } from "./tester.ts";
 import { stepFailed, stepLabel, seenSnapshot, staleness, type Seen } from "./steps.ts";
@@ -100,6 +100,8 @@ export interface AgentHooks {
   graves?: GraveBook;
   /** tester mode (TESTER_GOALS): the task list of the family of our life with this player id (tester.ts), null = none */
   testTask?(playerId: number): string | null;
+  /** prompted personalities (PERSONALITIES): the descriptor of the family of our life with this player id, null = none */
+  personality?(playerId: number): string | null;
   /** the life and lineage ids of our life with this player id (LifeStore), for logs */
   lifeOf?(agent: Agent, playerId: number): { lifeId: string | null; lineageId: string | null };
 }
@@ -194,9 +196,6 @@ const HISTORY_MAX = 40;
 /** turn clock: wall ms between our SAY messages (the server's flood gap is 1 wall s) */
 const SAY_GAP_MS = 1100;
 
-/** thoughts shown back each turn (dated, in full up to the 400-char thought limit) */
-const RECENT_THOUGHTS = 10;
-
 export class Agent implements TurnAgent<TurnPlan> {
   status: AgentView["status"] = "waiting";
   lifeIndex = 0;
@@ -257,7 +256,10 @@ export class Agent implements TurnAgent<TurnPlan> {
     const clock = turnClock(cfg);
     this.acq = new Acquaintances(cfg.logDir && cfg.runId ? knownNamesPath(cfg.logDir, cfg.runId, id) : null);
     this.kept = new KeptMemory(cfg.logDir && cfg.runId ? keptMemoryPath(cfg.logDir, cfg.runId, id) : null, cfg.memoryMaxEntries ?? KEPT_MAX);
+    const years = !!cfg.memoryYears && !cfg.memorySummary;
     this.mem = new YearMemory({
+      mode: years ? "years" : "notes",
+      yearsFile: years && cfg.logDir && cfg.runId ? yearLinesPath(cfg.logDir, cfg.runId, id) : null,
       everyTurns: Math.max(1, Math.floor(cfg.memorySummaryTurns ?? 25)),
       lockstep: !!clock.lockstep,
       cycleMs: clock.cycleMs,
@@ -265,11 +267,12 @@ export class Agent implements TurnAgent<TurnPlan> {
       // max_tokens leaves room for the 8 lines after the reasoning budget
       call: (messages) => {
         const cap = capOptions(this.cfg);
-        return this.llm.chat(messages, { ...(cap ? { ...cap, maxTokens: summaryMaxTokens(this.cfg.llmDecisionMaxTokens, this.cfg.llmReasoningMaxTokens) } : {}), json: false });
+        const reply = years ? YEAR_LINE_REPLY_TOKENS : undefined;
+        return this.llm.chat(messages, { ...(cap ? { ...cap, maxTokens: summaryMaxTokens(this.cfg.llmDecisionMaxTokens, this.cfg.llmReasoningMaxTokens, reply) } : {}), json: false });
       },
       onDone: (r) =>
         this.log.write("llm.jsonl", {
-          t: Date.now(), kind: "summary", agentId: this.id, playerId: this.world?.selfId ?? null, lifeIndex: this.lifeIndex, input: r.input,
+          t: Date.now(), kind: years ? "yearline" : "summary", agentId: this.id, playerId: this.world?.selfId ?? null, lifeIndex: this.lifeIndex, input: r.input,
           ...(r.ok ? { reply: r.result.text, memory: r.memory, ...llmLogFields(r.result, this.log.dir ?? null), finishReason: r.result.finishReason } : { error: r.error }),
         }),
     });
@@ -278,6 +281,16 @@ export class Agent implements TurnAgent<TurnPlan> {
   /** this life's memory lines as the model sees them ([] with MEMORY_SUMMARY=0) */
   get memory(): string[] {
     return this.cfg.memorySummary ? this.mem.memory : [];
+  }
+
+  /** year lines on (MEMORY_SUMMARY=years; MEMORY_SUMMARY=1, the notes, wins) */
+  private get yearsOn(): boolean {
+    return !!this.cfg.memoryYears && !this.cfg.memorySummary;
+  }
+
+  /** this life's year lines, oldest first ([] unless MEMORY_SUMMARY=years) */
+  get yearLines(): YearLine[] {
+    return this.yearsOn ? this.mem.years : [];
   }
 
   get email() {
@@ -423,8 +436,9 @@ export class Agent implements TurnAgent<TurnPlan> {
       this.lifeIndex = resumed.lifeIndex ?? Math.max(1, this.lifeIndex);
       this.status = "alive";
       if (!sameAsBefore) {
-        // a new process: this life's earlier turns are gone from memory
+        // a new process: this life's earlier turns are gone from memory (its saved year lines are reloaded)
         this.mem.reset();
+        if (this.yearsOn) this.mem.restoreYears(me.id);
         this.history = [];
         this.lastSearch = null;
         this.goal = null;
@@ -447,7 +461,7 @@ export class Agent implements TurnAgent<TurnPlan> {
       this.pastLifeNotes.push(...carried);
       this.pastLifeNotes = this.pastLifeNotes.slice(-30);
     }
-    this.mem.reset();
+    this.mem.reset(this.yearsOn ? me.id : undefined);
     this.kept.reset(me.id);
     this.history = [];
     this.lastSearch = null;
@@ -651,7 +665,7 @@ export class Agent implements TurnAgent<TurnPlan> {
     // what woke us / happened since the last decision
     const alerts = this.pending.splice(0).map((s) => s.reason);
     // a year's summary in the background (fire and forget: never awaited here)
-    if (this.cfg.memorySummary && !this.llm.overBudget) this.mem.tick(world.now());
+    if ((this.cfg.memorySummary || this.yearsOn) && !this.llm.overBudget) this.mem.tick(world.now(), world.currentAge(me));
     const obsWorldT = world.now();
     let obs = buildObservation(world, this.gd, {
       recipeHints: this.cfg.recipeHints,
@@ -660,6 +674,8 @@ export class Agent implements TurnAgent<TurnPlan> {
       pastLifeNotes: this.pastLifeNotes,
       memory: this.memory,
       kept: this.kept.entries,
+      years: this.yearLines,
+      yearLinesShown: this.yearsOn ? Math.max(1, Math.floor(this.cfg.memoryYearLines ?? 2)) : 0,
       goal: this.goal,
       goalSetAt: this.goalSetAt,
       lastThought: this.lastThought,
@@ -679,7 +695,7 @@ export class Agent implements TurnAgent<TurnPlan> {
     // what the model is about to see; checked again when its action runs (staleness)
     this.seen = seenSnapshot(world, world.now());
     const messages: ChatMessage[] = [
-      { role: "system", content: systemPromptFor(this.cfg) },
+      { role: "system", content: systemPromptFor(this.cfg, this.hooks.personality?.(me.id) ?? null) },
       { role: "user", content: obs + "\n\nWhat do you do next? Reply with JSON only." },
     ];
     let llmRes: LlmResult | undefined;
@@ -712,13 +728,14 @@ export class Agent implements TurnAgent<TurnPlan> {
     if (thought) {
       this.lastThought = thought;
       this.recentThoughts.push({ t: d.obsWorldT ?? this.world?.now() ?? Date.now(), text: thought });
-      if (this.recentThoughts.length > RECENT_THOUGHTS) this.recentThoughts.shift();
+      if (this.recentThoughts.length > THOUGHTS_SHOWN) this.recentThoughts.shift();
       this.ev("thought", thought);
     }
     const goal = cleanText(reply.goal, 200);
     if (goal && goal !== this.goal) {
       this.goal = goal;
       this.goalSetAt = d.obsWorldT ?? this.world?.now() ?? Date.now();
+      if (this.yearsOn) this.mem.goal(goal);
     }
     // tester mode: "issue" (the model reporting a problem with the game or its controls)
     if (this.cfg.testerGoals?.length) this.logIssue(parseIssue(reply));
@@ -877,7 +894,11 @@ export class Agent implements TurnAgent<TurnPlan> {
     const r = reviewSpeech(text, this.namingContext());
     if (!r.ok) return r.reason;
     const said = this.body!.say(r.say);
-    return r.note ? `${said}: ${r.note}` : said;
+    const w = this.world!, me = w.self!;
+    const miss = namingMissNote(r.say, me.held.id < 0, w.posOf(me),
+      [...w.players.values()].filter((p) => p.id !== me.id).map((p) => ({ pos: w.posOf(p), age: w.currentAge(p), named: !!(p.name ?? w.names.get(p.id)) })));
+    const note = [r.note, miss].filter(Boolean).join("; ");
+    return note ? `${said}: ${note}` : said;
   }
 
   private namingContext(): NamingContext {

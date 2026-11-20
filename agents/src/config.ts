@@ -54,6 +54,14 @@ export const config = {
    * agents keep their own memory instead (the reply's "remember", agent/kept.ts)
    */
   memorySummary: env.MEMORY_SUMMARY === "1",
+  /**
+   * MEMORY_SUMMARY=years: year lines instead of the notes. Each completed year (MEMORY_SUMMARY_TURNS
+   * turns) becomes one line of facts from that year's transcript alone, written in the background by
+   * the agents' model; YOUR PAST YEARS shows the last MEMORY_YEAR_LINES (default 2) of this life
+   */
+  // MEMORY_SUMMARY=years, or (no env change needed for a hot update) the file LOG_DIR/research/memory-years exists at start
+  memoryYears: env.MEMORY_SUMMARY === "years" || existsSync(path.join(env.LOG_DIR ?? path.join(root, "agents/logs"), "research", "memory-years")),
+  memoryYearLines: Math.max(1, Math.floor(num("MEMORY_YEAR_LINES", 2))),
   /** entries an agent can keep in THINGS YOU CHOSE TO REMEMBER (the reply's "remember"; agent/kept.ts) */
   memoryMaxEntries: Math.max(1, Math.floor(num("MEMORY_MAX_ENTRIES", 25))),
   /** turns between memory summaries (turn clock: 25 turns of TURN_GAME_S=2.4 = one game year; else decisions) */
@@ -145,6 +153,8 @@ export const config = {
   directorJevWeight: num("DIRECTOR_JEV_WEIGHT", 0.5),
   /** min ms on one character before switching (not applied on death/disconnect) */
   directorMinDwellMs: num("DIRECTOR_MIN_DWELL_MS", 30000),
+  /** jev: after this long on one person the camera rotates to another family (DIRECTOR_MAX_DWELL_MS; 0 = off) */
+  directorMaxDwellMs: num("DIRECTOR_MAX_DWELL_MS", 240000),
   /** ms to stay on a character after they die, so viewers see it */
   directorDeathHoldMs: num("DIRECTOR_DEATH_HOLD_MS", 8000),
   /** length of a cutaway (a short look at something critical elsewhere, then back to the subject); 0 disables cutaways */
@@ -216,6 +226,11 @@ export const config = {
   earlyMaxGenerations: num("EARLY_MAX_GENERATIONS", 5),
   /** after a login comes out as an Eve (outside the starting burst), hold joins this long: no Eve floods. 0 = off */
   eveMinGapMs: num("EVE_MIN_GAP_S", 300) * 1000,
+  /**
+   * No Eves after the starting ones: a free slot waits (indefinitely) for a woman who can have a baby instead of
+   * logging in as an Eve. NO_NEW_EVES=1, or live: the file LOG_DIR/research/no-new-eves exists (checked each poll).
+   */
+  noNewEves: env.NO_NEW_EVES === "1",
   // --- LLM provider outage handling and request options
   /** provider failing (401/402/403, 5xx, timeouts) for longer than this many s -> run paused, lives flagged; 0 = never pause */
   llmOutagePauseMs: num("LLM_OUTAGE_PAUSE_S", 60) * 1000,
@@ -300,6 +315,14 @@ export const config = {
    * to issues.jsonl). Empty/unset = off.
    */
   testerGoals: parseTesterGoals(env.TESTER_GOALS),
+  /**
+   * Prompted personalities: "|"-separated descriptors ("sociable and sentimental|adventurous and creative").
+   * Each Eve of the run gets one in founding order (round robin, LifeBook.founderIndex) and every descendant
+   * inherits it: "You are <descriptor>." becomes the system prompt's second sentence. Empty = off.
+   */
+  personalities: (env.PERSONALITIES ?? "").split("|").map((x) => x.trim()).filter(Boolean),
+  /** live override of the task lists (tester.ts LiveTesterGoals); default LOG_DIR/research/tester-goals.json */
+  testerGoalsFile: env.TESTER_GOALS_FILE ?? "",
   /** RUN_LABEL: a short label for this run, shown on the stream and site (run.label); "" = none */
   runLabel: (env.RUN_LABEL ?? "").trim(),
 };

@@ -54,6 +54,12 @@ const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : nu
 const boolOrNull = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
 /** a positive time scale (game clock slowdown), else 1 */
 const scaleOf = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 1);
+/** a personality descriptor: trimmed, capped, null if empty */
+const personalityOrNull = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim().slice(0, 80) : null);
+const personalityList = (v: unknown[]): string[] | null => {
+  const out = v.map(personalityOrNull).filter((x): x is string => x !== null);
+  return out.length ? out : null;
+};
 const strArr = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
 export function normTraitSource(v: unknown): TraitSource {
@@ -105,6 +111,7 @@ function normRun(v: unknown): RunInfo {
     dailySpend: ds ? { last24hUsd: num(ds.last24hUsd), capUsd: num(ds.capUsd) } : undefined,
     llmStatus: normLlmStatus(r.llmStatus) ?? undefined,
     timeScale: scaleOf(r.timeScale),
+    personalities: Array.isArray(r.personalities) ? personalityList(r.personalities) : null,
   };
 }
 
@@ -135,6 +142,7 @@ function normAgent(v: unknown): AgentView | null {
     lifeId: strOrNull(v.lifeId),
     lineageId: strOrNull(v.lineageId),
     traits: normTraits(v.traits),
+    personality: personalityOrNull(v.personality),
   };
 }
 
@@ -161,6 +169,7 @@ function normPlayer(v: unknown): PlayerView | null {
     displayId: num(v.displayId, 19),
     lifeId: strOrNull(v.lifeId),
     lineageId: strOrNull(v.lineageId),
+    personality: personalityOrNull(v.personality),
   };
 }
 
@@ -289,6 +298,7 @@ export function normLineage(v: unknown): LineageRecord | null {
     totalLives: num(v.totalLives),
     maxGeneration: num(v.maxGeneration, 1),
     meanTraits: normTraits(v.meanTraits) ?? {},
+    personality: personalityOrNull(v.personality),
   };
 }
 
@@ -350,13 +360,13 @@ export function normMap(v: unknown): MapResponse {
   const cells = Array.isArray(r.cells)
     ? (r.cells.filter((c) => Array.isArray(c) && c.length >= 5 && c.every((x) => typeof x === "number")) as MapResponse["cells"])
     : [];
-  return { cells, names: normNames(r.names) };
+  return { cells, names: normNames(r.names), ...(typeof r.runId === "string" ? { runId: r.runId } : {}) };
 }
 
 export function normMinimap(v: unknown): MinimapResponse {
   const r = isObj(v) ? v : {};
   const block = typeof r.block === "number" && r.block >= 1 && r.block <= 64 ? Math.floor(r.block) : 1;
-  return { block, cells: normMap({ cells: r.cells }).cells };
+  return { block, cells: normMap({ cells: r.cells }).cells, ...(typeof r.runId === "string" ? { runId: r.runId } : {}) };
 }
 
 export function normNames(v: unknown): Record<number, string> {
@@ -421,7 +431,7 @@ export function normLeadership(v: unknown): LeadershipResponse {
     const family = strOrNull(x.family)?.trim() || null;
     return {
       id, name, age: num(x.age), female: boolOrNull(x.female), isEve: x.isEve === true, family, alive: true,
-      lifeId: strOrNull(x.lifeId), flower: canonicalFlower(x.flower),
+      lifeId: strOrNull(x.lifeId), flower: canonicalFlower(x.flower), personality: personalityOrNull(x.personality),
     };
   });
   const leaderOf = new Map<number, number>();

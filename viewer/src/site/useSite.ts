@@ -5,7 +5,7 @@ import { useMemo, useRef } from "react";
 import type { AgentView, Flower, LifeRecord, LineageRecord, PlayerView } from "../api-types.ts";
 import { flowersForLives } from "../ohol/flower.ts";
 import { getClient, useLineages, useLives, useWorldState } from "../data/index.ts";
-import { displayName, lineageName, lineageOrder, surnameOf, withFamilyNames } from "../shared/index.ts";
+import { displayName, lineageName, lineageOrder, personalityByLineage, surnameOf, withFamilyNames } from "../shared/index.ts";
 import { lifeAge, settleStaleLives } from "./logic.ts";
 
 export interface SiteData {
@@ -23,6 +23,10 @@ export interface SiteData {
   famName: (lineageId: string | null | undefined) => string;
   /** the flower a life wears in its hair (the record's; fixtures/old data: ohol flowersForLives) */
   flowerOf: (lifeId: string) => Flower | null;
+  /** a family's prompted personality descriptor (PERSONALITIES); null when off or unknown */
+  personalityOf: (lineageId: string | null | undefined) => string | null;
+  /** run.personalities in founding order (tag colours, legend); null = feature off */
+  personalities: string[] | null;
   /** best known in-game age (live from /api/state for the living) */
   ageOf: (l: LifeRecord) => number | null;
   /** first load still pending */
@@ -90,6 +94,13 @@ export function useSite(): SiteData {
 
   const flowers = useMemo(() => flowersForLives(lv.lives), [lv.lives]);
 
+  // family personalities: /api/lineages has every family of the run; /api/state fills in the newest
+  const runPersonalities = w.state?.run.personalities;
+  const personaKey = runPersonalities?.join("|") ?? "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const personalities = useMemo(() => (runPersonalities?.length ? runPersonalities : null), [personaKey]);
+  const personaByLineage = useMemo(() => personalityByLineage(derived.lineages, agents ?? [], players ?? []), [derived.lineages, agents, players]);
+
   return useMemo(() => {
     const { lineageById, agentByLife, playerByLife } = derived;
     const famName = (id: string | null | undefined) => {
@@ -113,6 +124,8 @@ export function useSite(): SiteData {
       ...derived,
       famName,
       flowerOf: (lifeId: string) => flowers.get(lifeId) ?? null,
+      personalityOf: (id: string | null | undefined) => (id ? (personaByLineage.get(id) ?? null) : null),
+      personalities,
       ageOf,
       loading: lv.loading && lv.lives.length === 0 && !lv.error,
       failed,
@@ -122,5 +135,5 @@ export function useSite(): SiteData {
       serverNow: lv.now,
       runLabel: w.state?.run.label?.trim() ?? "",
     };
-  }, [derived, surnameByLineage, flowers, lv.lives, lv.byId, lv.traitDims, lv.loading, lv.error, lv.now, lin.error, w.online, w.state?.run.label]);
+  }, [derived, surnameByLineage, flowers, personaByLineage, personalities, lv.lives, lv.byId, lv.traitDims, lv.loading, lv.error, lv.now, lin.error, w.online, w.state?.run.label]);
 }

@@ -9,7 +9,7 @@ import { withArticle, type GameData } from "../game/gameData.ts";
 import { DEFAULT_FOOD_BONUS_S, drainSecondsPerPip, newbornWindowSeconds } from "./prompt.ts";
 import { sayLimit } from "../game/body.ts";
 import { takenList } from "./naming.ts";
-import { NOTE_HEADINGS } from "./memory.ts";
+import { NOTE_HEADINGS, yearLabel, type YearLine } from "./memory.ts";
 import { keptLines, type KeptEntry } from "./kept.ts";
 import { turnsAgo, turnsForWall, turnsText, turnsTextWall, type TurnClock } from "./turns.ts";
 import { ageText, playerLabel, PeopleView, type Acquaintances } from "./people.ts";
@@ -27,7 +27,9 @@ const HELD_HINTS = 4;
 /** lines on what goes on the thing our last use just made */
 const MADE_HINTS = 3;
 /** recent action results shown (an actions list adds one line per step) */
-const HISTORY_SHOWN = 30;
+export const HISTORY_SHOWN = 30;
+/** recent thoughts shown back each turn (agent.ts keeps this many; dated, in full up to the 400-char thought limit) */
+export const THOUGHTS_SHOWN = 10;
 const FERTILE_MIN = 14, FERTILE_MAX = 40;
 /** timers are shown for things that change on their own within this many game seconds */
 const TIMER_MAX_S = 300;
@@ -53,6 +55,10 @@ export interface ObservationOptions {
   memory?: string[];
   /** what the agent chose to remember this life (kept.ts), oldest first, verbatim; empty = no section */
   kept?: KeptEntry[];
+  /** year lines (MEMORY_SUMMARY=years): this life's completed years, oldest first; the last yearLinesShown are shown */
+  years?: YearLine[];
+  /** MEMORY_YEAR_LINES when year lines are on; 0/absent = off (no section, no mention) */
+  yearLinesShown?: number;
   goal: string | null;
   /** when the goal was last set or changed (the clock of `now`); shown as its age in turns */
   goalSetAt?: number | null;
@@ -346,6 +352,7 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
   if (o.history.length || o.lastThought || o.recentThoughts?.length) {
     L.push(``);
     L.push(`== YOUR LAST ACTIONS ==`);
+    L.push(shortTermNote(o.yearLinesShown ?? 0));
     if (o.recentThoughts?.length) {
       L.push(`Your recent thoughts:`);
       for (const th of o.recentThoughts) L.push(`- ${turnsAgo(th.t, now, clock)}: "${th.text}"`);
@@ -368,7 +375,19 @@ export function buildObservation(w: World, gd: GameData, o: ObservationOptions):
     L.push(`== THINGS YOU CHOSE TO REMEMBER ==`);
     L.push(...keptLines(o.kept, now, clock));
   }
+  const years = o.yearLinesShown ? (o.years ?? []).slice(-o.yearLinesShown) : [];
+  if (years.length) {
+    L.push(``);
+    L.push(`== YOUR PAST YEARS ==`);
+    for (const y of years) L.push(`- ${yearLabel(y)}: ${y.text}`);
+  }
   return L.join("\n");
+}
+
+/** How much of the past the observation shows (under YOUR LAST ACTIONS); yearLines = MEMORY_YEAR_LINES when year lines are on, else 0. */
+export function shortTermNote(yearLines: number): string {
+  const years = yearLines > 0 ? ` A one-line summary of each past year of this life is kept; the last ${yearLines === 1 ? "one is" : `${yearLines} are`} shown under YOUR PAST YEARS.` : "";
+  return `(You see your last ${HISTORY_SHOWN} actions and last ${THOUGHTS_SHOWN} thoughts; older ones fade unless you chose to remember them.${years})`;
 }
 
 /** One WHAT YOU SAW NEARBY line: {0}, {1}... become the people as labelled elsewhere ("you" for ourselves). */

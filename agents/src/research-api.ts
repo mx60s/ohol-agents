@@ -2,7 +2,7 @@
 // Contract (LivesResponse etc.) in api-types.ts. Mounted by api.ts.
 
 import type http from "node:http";
-import type { DeathsResponse, LifeLogResponse, LineagesResponse, LivesResponse } from "./api-types.ts";
+import type { DeathsResponse, LifeLogResponse, LineageRecord, LineagesResponse, LivesResponse } from "./api-types.ts";
 import type { LifeStore } from "./lifestore.ts";
 
 export const LIVES_DEFAULT_LIMIT = 1000;
@@ -16,6 +16,15 @@ export const DEATHS_MAX_LIMIT = 500;
 const LIFE_ID_RE = /^[A-Za-z0-9_.-]{1,120}:\d{1,12}$/;
 
 class BadRequest extends Error {}
+
+/** Each lineage with its family's prompted personality, when the run has them (else unchanged). */
+function withPersonalities(lineages: LineageRecord[], personalityOf?: (lineageId: string) => string | null): LineageRecord[] {
+  if (!personalityOf) return lineages;
+  return lineages.map((l) => {
+    const personality = personalityOf(l.lineageId);
+    return personality ? { ...l, personality } : l;
+  });
+}
 
 /** Non-negative integer query param, absent = default, capped at max. */
 function intParam(url: URL, name: string, def: number | null, max = Number.MAX_SAFE_INTEGER): number | null {
@@ -35,7 +44,7 @@ function limitParam(url: URL, def: number, max: number): number {
  * Handles /api/lives*, /api/lineages and /api/deaths. Returns false for any
  * other path. Errors never echo request input.
  */
-export function handleResearchApi(url: URL, res: http.ServerResponse, store: LifeStore): boolean {
+export function handleResearchApi(url: URL, res: http.ServerResponse, store: LifeStore, personalityOf?: (lineageId: string) => string | null): boolean {
   const p = url.pathname;
   if (!(p === "/api/lives" || p.startsWith("/api/lives/") || p === "/api/lineages" || p === "/api/deaths")) return false;
   const send = (status: number, body: unknown) => {
@@ -54,7 +63,7 @@ export function handleResearchApi(url: URL, res: http.ServerResponse, store: Lif
       return true;
     }
     if (p === "/api/lineages") {
-      const body: LineagesResponse = { now, traitDims: store.dims, traitSource: store.traitSource, lineages: store.lineages() };
+      const body: LineagesResponse = { now, traitDims: store.dims, traitSource: store.traitSource, lineages: withPersonalities(store.lineages(), personalityOf) };
       send(200, body);
       return true;
     }

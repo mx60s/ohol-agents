@@ -21,17 +21,17 @@ birthlands y shift and forceEveLocation:
   +- specialBiomeBandThickness/4) and only x follows the distance rule.
 
 - The run's starting Eves (the first mtsEveScatterStartCount=2 placed
-  since the server started) use [mtsEveScatterStartMin,
+  since the server started, while fewer than that many are alive) use [mtsEveScatterStartMin,
   mtsEveScatterStartMax] = [3, 10] instead, so they land next to each
   other and can help out; every later Eve is scattered as above.
 
 Each placement is logged ("MTS Eve scatter: ...").
 
 diff --git a/server/server.cpp b/server/server.cpp
-index 2cc272b..8f67928 100644
+index de64db7..e1b1894 100644
 --- a/server/server.cpp
 +++ b/server/server.cpp
-@@ -9552,6 +9552,253 @@ char isAccountSpecial( char *inEmail ) {
+@@ -9570,6 +9570,264 @@ char isAccountSpecial( char *inEmail ) {
      
  
  
@@ -122,7 +122,7 @@ index 2cc272b..8f67928 100644
 +        }
 +
 +    // living players, connected or not (held babies at their holder)
-+    SimpleVector<GridPos> living;
++    SimpleVector<GridPos> living; int livingEves = 0;
 +    for( int i=0; i<players.size(); i++ ) {
 +        LiveObject *o = players.getElement( i );
 +        if( o->error || o->isTutorial || o->isGhost ||
@@ -136,13 +136,24 @@ index 2cc272b..8f67928 100644
 +                p = getPlayerPos( h );
 +                }
 +            }
-+        living.push_back( p );
++        living.push_back( p ); if( o->parentID == -1 ) { livingEves++; }
 +        }
 +
 +    int x, y;
 +    GridPos anchor;
 +    const char *how = "";
 +    
++    if( starting && livingEves >= startCount ) {
++        // a restarted server forgets its count: with that many Eves already
++        // alive these are not the run's starting Eves (babies don't count)
++        starting = false;
++        minD = SettingsManager::getIntSetting( "mtsEveScatterMin", 60 );
++        maxD = SettingsManager::getIntSetting( "mtsEveScatterMax", 300 );
++        if( maxD < minD ) {
++            maxD = minD;
++            }
++        }
++
 +    if( living.size() == 0 ) {
 +        // nobody alive: the forced location, small spread if set
 +        anchor.x = SettingsManager::getIntSetting( "forceEveLocationX", 0 );
@@ -285,7 +296,7 @@ index 2cc272b..8f67928 100644
  // MTS patch: living players survive restarts (setting mtsPlayerSaves)
  #include "mtsPlayerSaves.h"
  
-@@ -11451,6 +11698,28 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
+@@ -11469,6 +11727,28 @@ int processLoggedInPlayer( int inAllowOrForceReconnect,
                      }
                  }
              }

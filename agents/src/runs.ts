@@ -293,6 +293,7 @@ export class RunController extends EventEmitter {
         engine: cfg.directorEngine,
         intervalMs: cfg.directorIntervalMs,
         minDwellMs: cfg.directorMinDwellMs,
+        maxDwellMs: cfg.directorMaxDwellMs,
         deathHoldMs: cfg.directorDeathHoldMs,
         model: cfg.directorModel,
         jevModel: cfg.directorJevModel,

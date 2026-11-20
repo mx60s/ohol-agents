@@ -3,7 +3,7 @@ import { TRAITS_SHOWN } from "../shared/personality.ts";
 import { useMemo, useState } from "react";
 import type { LifeRecord } from "../api-types.ts";
 import { pageHref, useNow } from "../data/index.ts";
-import { deathReasonText, displayName, formatAge, formatRelative, formatTrait } from "../shared/index.ts";
+import { deathReasonText, displayName, formatAge, formatRelative, formatTrait, PersonalityTag } from "../shared/index.ts";
 import { clampTrait, matchesQuery, pageSlice, sortBy, traitLabel, traitShort, type SortDir } from "../site/logic.ts";
 import { LifePortrait, LivesState, Pager, Seg, SortTh } from "../site/ui.tsx";
 import { useSite } from "../site/useSite.ts";
@@ -123,7 +123,10 @@ function PeoplePage() {
                         </td>
                         <td className="num mono">{formatAge(site.ageOf(l), { unit: false })}</td>
                         <td className="num mono">{l.generation}</td>
-                        <td className="ugc clip">{site.famName(l.lineageId)}</td>
+                        <td className="fam-cell">
+                          <span className="ugc clip">{site.famName(l.lineageId)}</span>
+                          <PersonalityTag personality={site.personalityOf(l.lineageId)} palette={site.personalities} short />
+                        </td>
                         <td>{l.status === "alive" ? <span className="st alive">● alive</span> : l.status === "lost" ? <span className="st lost">lost</span> : <span className="st dead">† dead</span>}</td>
                         <td>{l.status === "dead" ? deathReasonText(l.deathReason) : ""}</td>
                         <td className="when" title={new Date(l.bornAt).toLocaleString()}>

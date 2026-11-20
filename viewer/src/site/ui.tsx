@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { LifeRecord } from "../api-types.ts";
-import { displayName, PersonFigure, PersonPortrait } from "../shared/index.ts";
+import { displayName, PersonalityTag, PersonFigure, PersonPortrait } from "../shared/index.ts";
 import type { SiteData } from "./useSite.ts";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
@@ -154,5 +154,32 @@ export function SortTh<K extends string>({ k, sort, dir, onSort, children, class
         </span>
       </button>
     </th>
+  );
+}
+
+// ------------------------------------------------------------------ personalities
+
+/**
+ * Legend for the run's prompted family personalities (PERSONALITIES): each descriptor with the
+ * families that carry it. Nothing when the run has none.
+ */
+export function PersonalityLegend({ site }: { site: SiteData }) {
+  const list = site.personalities;
+  if (!list?.length) return null;
+  return (
+    <div className="persona-legend" aria-label="Family personalities">
+      <span className="lg-k" title="Each Eve's family gets one descriptor, in founding order; her descendants inherit it in their system prompt">
+        Family personalities
+      </span>
+      {list.map((d) => {
+        const fams = site.lineages.filter((l) => site.personalityOf(l.lineageId) === d).map((l) => site.famName(l.lineageId));
+        return (
+          <span key={d} className="lg-item">
+            <PersonalityTag personality={d} palette={list} />
+            <span className="lg-fams ugc">{fams.length ? fams.join(", ") : "no family yet"}</span>
+          </span>
+        );
+      })}
+    </div>
   );
 }

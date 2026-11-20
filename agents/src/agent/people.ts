@@ -57,8 +57,11 @@ export interface KnownNamesFile {
   names: [number, KnownName][];
 }
 
-/** "I AM LIRA", "MY NAME IS LIRA": an introduction at the start of a line */
-const INTRO = /^(?:I AM|I'M|IM|MY NAME IS|CALL ME)\s+([A-Z][A-Z'-]*)/i;
+/**
+ * "I AM LIRA", "HELLO, I AM LIRA", "MY NAME IS LIRA": an introduction anywhere in a line. It teaches the
+ * speaker's full name only when the word after it is their real first name ("I AM HUNGRY" teaches nothing).
+ */
+const INTRO = /(?:^|[^A-Z'])(?:I AM|I'M|IM|MY NAME IS|CALL ME|THIS IS|IT'S|ITS)\s+([A-Z][A-Z'-]*)/gi;
 
 function hasWord(text: string, word: string): boolean {
   const w = word.replace(/[^A-Z0-9'-]/gi, "");
@@ -169,10 +172,11 @@ export class Acquaintances {
       const n = realName(w, h.named);
       if (n && hasWord(words, n.split(" ")[0])) this.learn(h.named, n);
     }
-    const m = INTRO.exec(words);
-    if (m && h.speakerId !== w.selfId) {
+    if (h.speakerId !== w.selfId) {
       const n = realName(w, h.speakerId);
-      if (n && n.split(" ")[0].toUpperCase() === m[1].toUpperCase()) this.learn(h.speakerId, n);
+      const first = n?.split(" ")[0].toUpperCase();
+      // offering a first name teaches the full name (the family name is visible to anyone who knows the first)
+      if (n && [...words.matchAll(INTRO)].some((m) => m[1].toUpperCase() === first)) this.learn(h.speakerId, n);
     }
   }
 }
@@ -259,7 +263,7 @@ export class PeopleView {
   /**
    * A person in a list or line: known, "#7 AURORA BREEZE (woman, 30, red rose)" (flower when asked);
    * named by this character itself, "#7 LIRA (as you know her), woman, 30, with a red rose";
-   * a stranger, "a woman, 30, with a red rose (you don't know their name)" or "(no name)" if they have none.
+   * a stranger, "a woman, 30, with a red rose (you don't know their name yet)" or "(no name)" if they have none.
    * posShown: the caller prints their position right after (PEOPLE), so a look-alike's ", at (x, y)" is left out.
    */
   label(p: Player, withFlower = false, posShown = false): string {
@@ -272,7 +276,7 @@ export class PeopleView {
       const f = this.flower(p.id);
       return `#${p.id} ${own.name} (as you know ${pronoun(p.female)}), ${sexWord(p.female, age)}, ${ageText(age)}${f ? `, with ${withArticle(f)}` : ""}`;
     }
-    return `${this.describe(p, posShown)} (${name ? "you don't know their name" : "no name"})`;
+    return `${this.describe(p, posShown)} (${name ? "you don't know their name yet" : "no name"})`;
   }
 
   /**

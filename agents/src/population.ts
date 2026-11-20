@@ -1,6 +1,6 @@
 // Keeps N agent slots running, and assembles the run-wide view for the API.
 
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Agent, type SpeechSink } from "./agent/agent.ts";
 import { Llm, type LlmHealth, type SpendGate } from "./agent/llm.ts";
@@ -14,7 +14,7 @@ import { GraveBook, type Player, type TriedNothing, type World } from "./game/wo
 import { LoginScheduler, type LoginDeps } from "./logins.ts";
 import { LANGUAGES_MIN_PLAYERS } from "./agent/observe.ts";
 import { FileClockPort, TurnCoordinator, type ClockPort } from "./turnclock.ts";
-import { taskFor } from "./agent/tester.ts";
+import { LiveTesterGoals, taskFor } from "./agent/tester.ts";
 
 /** positions.jsonl without the turn clock: one snapshot this often */
 export const POSITIONS_INTERVAL_MS = 10_000;
@@ -148,6 +148,14 @@ export class Population implements SpeechSink {
   /** where our living characters were last seen (map centre while nobody is alive) */
   private lastCenters: { x: number; y: number }[] = [];
   private mapCache: { at: number; radius: number; body: MapResponse } | null = null;
+  /** tester mode task lists, editable live (TESTER_GOALS_FILE) */
+  private testerGoalsLive: LiveTesterGoals | null = null;
+  private get testerGoals(): LiveTesterGoals {
+    return (this.testerGoalsLive ??= new LiveTesterGoals(
+      this.cfg.testerGoals ?? [],
+      this.cfg.testerGoals?.length ? this.cfg.testerGoalsFile || path.join(this.cfg.logDir, "research", "tester-goals.json") : null,
+    ));
+  }
   private births = 0;
   private deaths = 0;
   private pendingSays = new Map<string, PendingSay>();
@@ -225,6 +233,8 @@ export class Population implements SpeechSink {
         llmProviderOrder: c.llmProviderOrder, llmStream: c.llmStream, llmPromptCache: c.llmPromptCache,
         timeScale: (c as Config & { timeScale?: number }).timeScale ?? null,
         turnClock: c.turnClock ? { turnGameS: c.turnGameS, decideTimeoutMs: c.turnDecideTimeoutMs, babyIdleTurns: c.babyIdleTurns } : null,
+        personalities: c.personalities?.length ? c.personalities : null,
+        memorySummary: c.memorySummary ? "notes" : c.memoryYears ? "years" : null, noNewEves: this.noNewEves(),
       },
     });
     this.limitTimer = setInterval(() => this.checkLimits(), 5000);
@@ -262,7 +272,8 @@ export class Population implements SpeechSink {
       familyFirstNames: (playerId: number) => this.extras.lives?.familyFirstNames(this.cfg.runId, playerId) ?? [],
       speechScrambled: (speakerId: number, text: string) => this.speechScrambled(speakerId, text),
       // tester mode: each family's task list, by its founding position in this run (agent/tester.ts)
-      ...(c.testerGoals?.length ? { testTask: (playerId: number) => taskFor(c.testerGoals, this.extras.lives?.founderIndexOf(this.cfg.runId, playerId) ?? null) } : {}),
+      ...(c.personalities?.length ? { personality: (playerId: number) => taskFor(c.personalities, this.extras.lives?.founderIndexOf(this.cfg.runId, playerId) ?? null) } : {}),
+      ...(c.testerGoals?.length ? { testTask: (playerId: number) => taskFor(this.testerGoals.get(), this.extras.lives?.founderIndexOf(this.cfg.runId, playerId) ?? null) } : {}),
       lifeOf: (a: Agent, playerId: number) => {
         const f = this.extras.lives?.agentFields(this.cfg.runId, a.id, playerId);
         return { lifeId: f?.lifeId ?? null, lineageId: f?.lineageId ?? null };
@@ -354,8 +365,15 @@ export class Population implements SpeechSink {
     // the server's readiness file (mtsNoCooldownBypass=1): it knows cooldowns. No woman ready but one coming
     // off cooldown: wait for her (a login now would be an Eve). No woman ready or coming: an Eve is right.
     const br = this.birthReady();
-    if (br && br.ready <= 0) return br.soonest <= 0;
-    return moms === 0 || (babies < moms && babies < total - babies);
+    const noEves = this.noNewEves();
+    if (br && br.ready <= 0) return br.soonest <= 0 && !noEves;
+    if (moms === 0) return !noEves;
+    return babies < moms && babies < total - babies;
+  }
+
+  /** NO_NEW_EVES, or the live flag file LOG_DIR/research/no-new-eves: a login that would be an Eve keeps waiting */
+  noNewEves(): boolean {
+    return this.cfg.noNewEves || existsSync(path.join(this.cfg.logDir, "research", "no-new-eves"));
   }
 
   /** the server's readiness file says no woman can take a baby now, but one comes off cooldown later */
@@ -546,7 +564,7 @@ export class Population implements SpeechSink {
       }
     }
     if (this.exploredDirty && now - this.exploredSavedAt > EXPLORED_SAVE_MS) this.saveExplored(now);
-    const body = coarseMap(this.explored, MINIMAP_MAX_BLOCKS);
+    const body: MinimapResponse = { ...coarseMap(this.explored, MINIMAP_MAX_BLOCKS), runId: this.cfg.runId };
     if (body.block < 2) body.block = 2;
     this.minimapCache = { at: now, body };
     return body;
@@ -606,7 +624,7 @@ export class Population implements SpeechSink {
       if (c.obj && !names[c.obj]) names[c.obj] = this.gd.name(c.obj);
       if (c.floor && !names[c.floor]) names[c.floor] = this.gd.name(c.floor);
     }
-    const body = { cells, names };
+    const body: MapResponse = { cells, names, runId: this.cfg.runId };
     this.mapCache = { at: now, radius, body };
     return body;
   }
@@ -614,7 +632,11 @@ export class Population implements SpeechSink {
   /** GET /api/leadership: who follows whom among the living, merged across the living agents' views (leadership.ts) */
   leadership(now = Date.now()): LeadershipResponse {
     const views = this.agents.flatMap((a) => (a.status === "alive" && a.world ? [a.world] : []));
-    return buildLeadership(this.cfg.runId, views, this.extras.lives, now);
+    const body = buildLeadership(this.cfg.runId, views, this.extras.lives, now);
+    if (!this.cfg.personalities?.length) return body;
+    const personalityOf = this.personalityCache();
+    const lineageOf = (pid: number) => this.extras.lives?.playerFields(pid).lineageId ?? null;
+    return { ...body, people: body.people.map((p) => ({ ...p, personality: personalityOf(lineageOf(p.id)) })) };
   }
 
   /**
@@ -655,7 +677,28 @@ export class Population implements SpeechSink {
     }
   }
 
+  /**
+   * The prompted personality (PERSONALITIES) of a family of this run, by lineage id: each Eve's
+   * descriptor in founding order, inherited by her descendants. Null when the feature is off or
+   * the family isn't one of this run's.
+   */
+  personalityOfLineage(lineageId: string | null): string | null {
+    if (!this.cfg.personalities?.length || !lineageId) return null;
+    return taskFor(this.cfg.personalities, this.extras.lives?.founderIndexOfLineage?.(this.cfg.runId, lineageId) ?? null);
+  }
+
+  /** personalityOfLineage, memoized for one response (founderIndex walks every life) */
+  private personalityCache(): (lineageId: string | null) => string | null {
+    const memo = new Map<string, string | null>();
+    return (id) => {
+      if (!id || !this.cfg.personalities?.length) return null;
+      if (!memo.has(id)) memo.set(id, this.personalityOfLineage(id));
+      return memo.get(id)!;
+    };
+  }
+
   state(): StateResponse {
+    const personalityOf = this.personalityCache();
     const agentsByPlayer = new Map<number, string>();
     for (const a of this.agents) if (a.status === "alive" && a.world?.selfId != null) agentsByPlayer.set(a.world.selfId, a.id);
 
@@ -667,11 +710,13 @@ export class Population implements SpeechSink {
       // a wound or sickness is held like an item (it takes the hands)
       const c = p.held.id > 0 ? this.gd.condition(p.held.id) : null;
       const condition = c && c.kind !== "mark" ? { kind: c.kind, name: this.gd.name(p.held.id) } : null;
+      const pf = this.extras.lives?.playerFields(p.id) ?? { lifeId: null, lineageId: null, flower: null };
       players.set(p.id, {
         id: p.id, x: w.posOf(p)[0], y: w.posOf(p)[1], age: Math.round(w.currentAge(p) * 10) / 10, female: p.female,
         name: p.name ?? w.names.get(p.id) ?? null, held, agentId: agentsByPlayer.get(p.id) ?? null, dying: p.dying, condition,
         moving: w.isWalking(p), displayId: p.displayId,
-        ...(this.extras.lives?.playerFields(p.id) ?? { lifeId: null, lineageId: null, flower: null }),
+        ...pf,
+        personality: personalityOf(pf.lineageId),
       });
     }
     // homesick is known only to the character's own agent (the server's private +HOMESICK+ / +HOME+ cues)
@@ -682,7 +727,8 @@ export class Population implements SpeechSink {
     const lives = this.extras.lives;
     const views = this.agents.map((a) => {
       const v = a.view();
-      return { ...v, ...(lives?.agentFields(this.cfg.runId, v.agentId, v.playerId) ?? { lifeId: null, lineageId: null, traits: null, flower: null }) };
+      const f = lives?.agentFields(this.cfg.runId, v.agentId, v.playerId) ?? { lifeId: null, lineageId: null, traits: null, flower: null };
+      return { ...v, ...f, personality: personalityOf(f.lineageId) };
     });
     const alive = views.filter((v) => v.status === "alive");
     const dailyPause = this.halted ? null : this.llm.pausedReason;
@@ -703,6 +749,7 @@ export class Population implements SpeechSink {
         llmStatus: this.llm.health.status(),
         timeScale: this.cfg.timeScale ?? 1,
         ...(this.turns ? { turn: this.turns.info() } : {}),
+        personalities: this.cfg.personalities?.length ? [...this.cfg.personalities] : null,
       },
       traitDims: this.cfg.traitDims,
       traitSource: this.cfg.traitSource,

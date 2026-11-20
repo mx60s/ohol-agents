@@ -13,6 +13,7 @@ import type { LifeRecord, MapCellTuple, PlayerView } from "../api-types.ts";
 import { appearanceFor, drawGround, drawObject, drawPerson, getOholAssets, loadOholAssets, objectBounds, onOholSpriteLoaded, personBounds } from "../ohol/index.ts";
 import type { Appearance } from "../ohol/index.ts";
 import { cueLabel, displayName } from "../shared/format.ts";
+import { PersonalityTag } from "../shared/PersonalityTag.tsx";
 import { cameraStep, fanOut, focusTransition, occluderAlpha, parseHeld, retarget, sampleMotion, type Cam, type Motion, type ScreenBox, type SpeechBubble } from "./logic.ts";
 import { crowdMode, labelPriority, placeBoxes, planSpeech, shortName, type PlaceItem } from "./crowd.ts";
 
@@ -50,6 +51,10 @@ export interface CameraProps {
   speakers?: ReadonlySet<number>;
   /** a person's name colour (their hair colour), shared with the chat box */
   colorOf?: (playerId: number) => string | null;
+  /** a person's family personality descriptor (PERSONALITIES), shown under each name label (smaller for others than the followed person); absent = feature off */
+  personalityOf?: (playerId: number) => string | null;
+  /** run.personalities (tag colours) */
+  personalities?: string[] | null;
   /** the set of people on screen changed (player ids, sorted) */
   onInView?: (ids: number[]) => void;
   /** shown centred when nobody is alive */
@@ -581,6 +586,8 @@ function WorldCameraImpl(props: CameraProps) {
     const speaking = !!props.speakers?.has(f.id);
     const focusBaby = !!focusLife && f.motherLifeId === focusLife && f.age < 8;
     const color = colorOf?.(f.id) ?? null;
+    // personality tags live on the Now following card and the site, not under names on the camera
+    const persona: string | null = null;
     // crowded: first names only (the followed person keeps their full name), and a label with no room hides
     const short = crowd && !isFocus;
     labels.push(
@@ -591,12 +598,12 @@ function WorldCameraImpl(props: CameraProps) {
         data-stack={stack}
         data-prio={labelPriority({ focus: isFocus, speaking, focusBaby })}
         data-opt={isFocus || !crowd ? "0" : "1"}
-        className={`cam-label ugc${isFocus ? " is-focus" : " is-minor"}${speaking ? " is-speaking" : ""}`}
+        className={`cam-label ugc${isFocus ? " is-focus" : " is-minor"}${speaking ? " is-speaking" : ""}${persona ? " has-persona" : ""}`}
         style={color ? ({ "--who": color } as React.CSSProperties) : undefined}
       >
-        {color && !isFocus && <span className="sw" aria-hidden="true" />}
         <span className="nm">{short ? shortName(f.name) : f.name}</span>
         <span className="ag">{isFocus || short ? ` ${Math.floor(f.age)}` : ` · ${Math.floor(f.age)}`}</span>
+        {persona && <PersonalityTag personality={persona} palette={props.personalities} short className="cam-persona" />}
       </div>,
     );
   }

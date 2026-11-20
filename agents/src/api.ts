@@ -133,7 +133,7 @@ export function startApi(port: number, runs: RunController, gd: GameData, cfgTok
           return;
         default:
           // research data: /api/lives*, /api/lineages, /api/deaths (research-api.ts)
-          if (req.method === "GET" && handleResearchApi(url, res, runs.lives)) return;
+          if (req.method === "GET" && handleResearchApi(url, res, runs.lives, (id) => runs.pop?.personalityOfLineage?.(id) ?? null)) return;
           // what agents are told and can do: /api/agent-spec (agentspec.ts)
           if (req.method === "GET" && handleAgentSpecApi(url, res, () => ({ dir: runs.log?.dir ?? null, runId: runs.runId ?? null }))) return;
           if (!url.pathname.startsWith("/api/") && req.method === "GET" && serveStatic(url.pathname, res)) return;

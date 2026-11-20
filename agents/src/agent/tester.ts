@@ -9,6 +9,7 @@
 //   so the system prompt stays cacheable; the reply format gains "issue".
 // - A reply's "issue" is logged as an "issue" run event and to issues.jsonl.
 
+import { readFileSync, statSync } from "node:fs";
 import { cleanText } from "../safety.ts";
 
 /** max length of a reply's "issue" */
@@ -53,3 +54,52 @@ export function testTaskLine(task: string): string {
 export function parseIssue(reply: Record<string, unknown>): string {
   return cleanText(reply.issue, ISSUE_CHARS);
 }
+
+/**
+ * The task lists, editable live: a JSON array of strings in `file` (TESTER_GOALS_FILE)
+ * replaces TESTER_GOALS while it parses, re-read when its mtime changes (checked at most
+ * every `checkMs`). Lets a test extend a family's list up the tech tree without a restart.
+ * Tester mode itself (the reply's "issue" field) still follows TESTER_GOALS.
+ */
+export class LiveTesterGoals {
+  private goals: string[];
+  private mtime = -1;
+  private checkedAt = -Infinity;
+  constructor(
+    private readonly base: string[],
+    private readonly file: string | null,
+    private readonly fs: { mtimeMs(p: string): number | null; read(p: string): string } = nodeFs,
+    private readonly now: () => number = Date.now,
+    private readonly checkMs = 5000,
+  ) {
+    this.goals = base;
+  }
+
+  get(): string[] {
+    if (!this.file || this.now() - this.checkedAt < this.checkMs) return this.goals;
+    this.checkedAt = this.now();
+    const m = this.fs.mtimeMs(this.file);
+    if (m == null) {
+      this.mtime = -1;
+      this.goals = this.base;
+      return this.goals;
+    }
+    if (m === this.mtime) return this.goals;
+    this.mtime = m;
+    const g = parseTesterGoals(this.fs.read(this.file), (msg) => console.error(`${this.file}: ${msg}`));
+    this.goals = g.length ? g : this.base;
+    if (g.length) console.log(`tester goals: ${g.length} task lists from ${this.file}`);
+    return this.goals;
+  }
+}
+
+const nodeFs = {
+  mtimeMs(p: string): number | null {
+    try {
+      return statSync(p).mtimeMs;
+    } catch {
+      return null;
+    }
+  },
+  read: (p: string) => readFileSync(p, "utf8"),
+};

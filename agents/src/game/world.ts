@@ -623,7 +623,9 @@ export class World {
           if (r.notice) {
             // where that person is, as the client's arrow shows it
             const who = r.pointerId != null ? this.players.get(r.pointerId) : undefined;
-            const where = who ? ` They are at (${this.posOf(who)[0]}, ${this.posOf(who)[1]}).` : "";
+            const me = this.selfId != null ? this.players.get(this.selfId) : undefined;
+            const dist = who && me ? Math.round(Math.hypot(this.posOf(who)[0] - this.posOf(me)[0], this.posOf(who)[1] - this.posOf(me)[1])) : null;
+            const where = who ? ` They are at (${this.posOf(who)[0]}, ${this.posOf(who)[1]})${dist != null ? `, ${dist} tiles from you` : ""}.` : "";
             this.pushHeard({ t: now, speakerId: null, x: 0, y: 0, text: cleanText(r.notice + where, SPEECH_MAX), notice: true });
             continue;
           }

@@ -6,10 +6,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { resolveDataMode, pageHref } from "../src/data/config.ts";
-import { normCutaway, normDeaths, normInventions, normLife, normLineages, normLives, normState } from "../src/data/normalize.ts";
+import { normCutaway, normDeaths, normInventions, normLeadership, normLife, normLineages, normLives, normState } from "../src/data/normalize.ts";
 import { ageStage, deathReasonText, displayName, formatAge, formatDuration, formatMoney, formatRelative, formatTrait, truncate } from "../src/shared/format.ts";
 import { lineageColor, lineageName, LINEAGE_PALETTE } from "../src/shared/lineage.ts";
-import { personalityBlurb, personalityText } from "../src/shared/personality.ts";
+import { personalityBlurb, personalityByLineage, personalityShort, personalitySlot, personalityText } from "../src/shared/personality.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DIMS = ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"];
@@ -290,4 +290,40 @@ test("normState: focus.cutaway is optional and validated (old servers send none)
   assert.equal(normCutaway({ target: { type: "ufo" }, until: 5 }), null);
   assert.equal(normCutaway({ target: { type: "tile", x: 1, y: 2 } }), null);
   assert.equal(normCutaway("nope"), null);
+});
+
+test("prompted personalities: normalised from state, lineages and leadership; null/absent when off", () => {
+  const st = normState({
+    run: { id: "r", personalities: ["sociable and sentimental", " ", 3, "adventurous and creative"] },
+    agents: [{ agentId: "a01", lineageId: "r:1", personality: "sociable and sentimental" }, { agentId: "a02", lineageId: "r:2" }],
+    players: [{ id: 5, lineageId: "r:2", personality: "adventurous and creative" }],
+  });
+  assert.deepEqual(st.run.personalities, ["sociable and sentimental", "adventurous and creative"]);
+  assert.equal(st.agents[0].personality, "sociable and sentimental");
+  assert.equal(st.agents[1].personality, null);
+  assert.equal(st.players[0].personality, "adventurous and creative");
+  assert.equal(normState({ run: { id: "r" } }).run.personalities, null);
+  assert.equal(normState({ run: { id: "r", personalities: [] } }).run.personalities, null);
+  const lin = normLineages({ lineages: [{ lineageId: "r:1", personality: "conscientious and restless" }, { lineageId: "r:2" }] }).lineages;
+  assert.equal(lin[0].personality, "conscientious and restless");
+  assert.equal(lin[1].personality, null);
+  const ld = normLeadership({ people: [{ id: 1, personality: "sociable and sentimental" }, { id: 2 }], edges: [] });
+  assert.equal(ld.people[0].personality, "sociable and sentimental");
+  assert.equal(ld.people[1].personality, null);
+  // lineage index: first source with a descriptor wins
+  const m = personalityByLineage(lin, st.agents, st.players);
+  assert.equal(m.get("r:1"), "conscientious and restless");
+  assert.equal(m.get("r:2"), "adventurous and creative");
+});
+
+test("personalityShort / personalitySlot", () => {
+  assert.equal(personalityShort("sociable and sentimental"), "sociable · sentimental");
+  assert.equal(personalityShort("calm, curious and kind"), "calm · curious · kind");
+  assert.equal(personalityShort("stubborn"), "stubborn");
+  const list = ["a", "b", "c", "d"];
+  assert.equal(personalitySlot("b", list), 1);
+  assert.equal(personalitySlot("d", list), 0, "wraps around the three colours");
+  const s = personalitySlot("not listed", list);
+  assert.ok(s >= 0 && s < 3);
+  assert.equal(personalitySlot("not listed", null), s, "stable without the list");
 });

@@ -16,6 +16,8 @@ import { ISSUE_FIELD } from "./tester.ts";
 export interface PromptOptions {
   /** the `craft` macro is available (CRAFT_MACRO=1) */
   craft: boolean;
+  /** prompted personality (PERSONALITIES): "You are <this>." as the second sentence; empty/absent = none */
+  personality?: string;
   /** max steps in an "actions" list (ACTION_LIST_MAX); 1 = single actions only */
   actionListMax?: number;
   /** game seconds the server adds to every food pip (FOOD_BONUS_S, see config.ts); default DEFAULT_FOOD_BONUS_S */
@@ -105,7 +107,7 @@ ${actionList(o)}`;
  */
 function newPlayerPrompt(clock: TurnClock, o: PromptOptions): string {
   const T = (s: number) => turnsText(s, clock).replace(/^about /, "");
-  return `You are a person in a world. Everyone else is an independent mind like you. The environment is harsh and ever changing. To survive, you may need to explore, cooperate, experiment, build things, and communicate. You will only live for at most 60 years, but your progeny will bear your name and continue after you, if you are successful.
+  return `You are a person in a world.${o.personality ? ` You are ${o.personality}.` : ""} Everyone else is an independent mind like you. You will live at most 60 years. Children are born into your family and carry its name. How you spend your life is up to you.
 
 A year passes every ${T(60)}. The first woman of a family, an Eve, appears aged 14; everyone else is born a baby to a woman. Women aged 14 to 40 give birth from time to time.
 
@@ -145,7 +147,7 @@ export function buildSystemPrompt(clock: TurnClock, o: PromptOptions): string {
   const T = (s: number) => turnsText(s, clock).replace(/^about /, "").replace(/^less than 1 turn$/, "<1 turn");
   const bonus = o.foodBonusS ?? DEFAULT_FOOD_BONUS_S;
   const cold = drainSecondsPerPip(0.07, bonus), warm = drainSecondsPerPip(0.5, bonus);
-  return `You are a person in One Hour One Life, a survival and civilization game. You control one character; each turn (one of your decisions) you act. Everyone else is an independent mind like you.
+  return `You are a person in One Hour One Life, a survival and civilization game.${o.personality ? ` You are ${o.personality}.` : ""} You control one character; each turn (one of your decisions) you act. Everyone else is an independent mind like you.
 
 One year of life passes every ${T(60)}; you live at most 60 years. Eves appear aged 14; everyone else is born a baby to a woman.
 
@@ -189,13 +191,14 @@ If an action fails, read why and try something different.`;
 const cache = new Map<string, string>();
 
 /** The system prompt for this config (cached: identical on every call). */
-export function systemPromptFor(cfg: object & { craftMacro?: boolean; actionListMax?: number; foodBonusS?: number; promptBaseline?: "new" | "playbook"; testerGoals?: readonly string[] }): string {
+export function systemPromptFor(cfg: object & { craftMacro?: boolean; actionListMax?: number; foodBonusS?: number; promptBaseline?: "new" | "playbook"; testerGoals?: readonly string[] }, personality?: string | null): string {
   const clock = turnClock(cfg);
   const baseline = cfg.promptBaseline ?? "new";
   // the craft macro is on by default only with the playbook (config.ts does the same)
   const o: PromptOptions = { craft: cfg.craftMacro ?? baseline === "playbook", actionListMax: cfg.actionListMax ?? 4, foodBonusS: foodBonusOf(cfg), baseline };
   if (cfg.testerGoals?.length) o.tester = true;
-  const key = `${clock.cycleMs}|${clock.timeScale}|${o.craft}|${o.actionListMax}|${o.foodBonusS}|${o.baseline}|${o.tester === true}`;
+  if (personality) o.personality = personality;
+  const key = `${clock.cycleMs}|${clock.timeScale}|${o.craft}|${o.actionListMax}|${o.foodBonusS}|${o.baseline}|${o.tester === true}|${o.personality ?? ""}`;
   let p = cache.get(key);
   if (!p) cache.set(key, (p = buildSystemPrompt(clock, o)));
   return p;

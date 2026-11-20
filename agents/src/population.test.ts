@@ -1,7 +1,7 @@
 // Run status and limits in continuous vs normal mode (no game, no LLM calls).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -287,6 +287,74 @@ test("positions.jsonl: one compact line of every living player, merged across vi
     assert.equal(lines.length, 1);
     assert.equal(typeof lines[0].t, "number");
     assert.deepEqual({ ...lines[0], t: 0 }, { t: 0, turn: 12, gameTime: 34.5, players: [[3, 5, -5, 12.3, 33, 0], [7, 2, -2, 12.3, -3, 1]] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("no new Eves (NO_NEW_EVES or the live flag file): a login that would be an Eve keeps waiting", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pop-"));
+  try {
+    const cfg: Config = { ...config, logDir: dir, runId: "t", narratorIntervalMs: 0, earlyMaxBabies: 0, eveMinGapMs: 0, noNewEves: false };
+    let br: BirthReady | null = null;
+    const pop = new Population(cfg, { name: () => "Stone" } as unknown as GameData, new EventLog(dir, "t"), { birthReady: () => br });
+    pop.agents.push({ status: "alive", world: { self: { id: 1, female: false }, currentAge: () => 30 } } as never);
+    assert.equal(pop.familyRoom(), true, "no mother at all: an Eve is fine by default");
+    mkdirSync(path.join(dir, "research"), { recursive: true });
+    writeFileSync(path.join(dir, "research", "no-new-eves"), "");
+    assert.equal(pop.familyRoom(), false, "flag file: wait instead");
+    br = { ready: 0, soonest: 0 };
+    assert.equal(pop.familyRoom(), false, "server says no mother ready or coming: still wait");
+    pop.agents.push({ status: "alive", world: { self: { id: 2, female: true }, currentAge: () => 22 } } as never);
+    br = { ready: 1, soonest: 0 };
+    assert.equal(pop.familyRoom(), true, "a mother can take a baby: log in");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("personality: agents, players and the run carry the family's descriptor when PERSONALITIES is set; null when off", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pop-"));
+  try {
+    // two families of this run: "t:1" founded first (index 0), "t:2" second (index 1); "old:9" is an earlier run's
+    const founder: Record<string, number> = { "t:1": 0, "t:2": 1 };
+    const lineageOfPlayer: Record<number, string> = { 1: "t:1", 3: "t:1", 2: "t:2", 9: "old:9" };
+    const lives = {
+      playerFields: (pid: number) => ({ lifeId: `t:${pid}`, lineageId: lineageOfPlayer[pid] ?? null, flower: null }),
+      agentFields: (_run: string, _a: string, pid: number | null) => ({ lifeId: `t:${pid}`, lineageId: pid != null ? (lineageOfPlayer[pid] ?? null) : null, traits: null, flower: null }),
+      founderIndexOf: (_run: string, pid: number) => founder[lineageOfPlayer[pid]] ?? null,
+      founderIndexOfLineage: (_run: string, id: string) => founder[id] ?? null,
+      flowerLabel: () => null,
+    };
+    const person = (id: number) => ({ id, held: { id: 0 }, female: true, name: `P${id} Stone`, dying: false, displayId: 19, lastSeen: 1 });
+    const world = {
+      selfId: 1, homesick: false, players: new Map([1, 2, 3].map((id) => [id, person(id)])), names: new Map(),
+      posOf: () => [0, 0], currentAge: () => 20, isWalking: () => false,
+    };
+    const agent = (id: string, pid: number) => ({ id, status: "alive", world: { ...world, selfId: pid }, view: () => ({ agentId: id, playerId: pid, status: "alive", generation: 1, eveId: pid }) });
+    const make = (personalities: string[]) => {
+      const cfg: Config = { ...config, logDir: dir, runId: "t", narratorIntervalMs: 0, personalities };
+      const pop = new Population(cfg, { name: () => "Stone" } as unknown as GameData, new EventLog(dir, "t"), { lives: lives as never });
+      pop.agents.push(agent("a01", 1) as never, agent("a02", 2) as never, agent("a03", 3) as never);
+      return pop;
+    };
+
+    const on = make(["sociable and sentimental", "adventurous and creative"]).state();
+    assert.deepEqual(on.run.personalities, ["sociable and sentimental", "adventurous and creative"]);
+    const byAgent = Object.fromEntries(on.agents.map((a) => [a.agentId, a.personality]));
+    assert.deepEqual(byAgent, { a01: "sociable and sentimental", a02: "adventurous and creative", a03: "sociable and sentimental" });
+    const byPlayer = Object.fromEntries(on.players.map((p) => [p.id, p.personality]));
+    assert.deepEqual(byPlayer, { 1: "sociable and sentimental", 2: "adventurous and creative", 3: "sociable and sentimental" });
+    const popOn = make(["sociable and sentimental", "adventurous and creative"]);
+    assert.equal(popOn.personalityOfLineage("t:2"), "adventurous and creative");
+    assert.equal(popOn.personalityOfLineage("old:9"), null, "an earlier run's family has none");
+    assert.equal(popOn.personalityOfLineage(null), null);
+
+    const off = make([]).state();
+    assert.equal(off.run.personalities, null);
+    assert.ok(off.agents.every((a) => a.personality == null));
+    assert.ok(off.players.every((p) => p.personality == null));
+    assert.equal(make([]).personalityOfLineage("t:1"), null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

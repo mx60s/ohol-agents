@@ -286,6 +286,11 @@ h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; margin: 0; 
 .pill.danger { background: var(--gloss), var(--danger-soft); color: #7a1f14; }
 .pill.warn { background: var(--gloss), var(--warn-soft); }
 .pill.navy { background: var(--gloss), var(--grad-navy); color: #fff; }
+/* a family's prompted personality (PersonalityTag): one colour per descriptor, in run order */
+.pill.persona { font-weight: 700; text-transform: none; letter-spacing: 0; }
+.pill.persona.p0 { background: var(--gloss), var(--grad-bubblegum); }
+.pill.persona.p1 { background: var(--gloss), var(--grad-mint); }
+.pill.persona.p2 { background: var(--gloss), var(--grad-butter); }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1.5px solid var(--ink); flex: none; }
 
 /* starburst sticker: LIVE!, MOCK, NEW! */

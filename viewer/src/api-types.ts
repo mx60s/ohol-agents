@@ -72,6 +72,11 @@ export interface RunInfo {
    * wall time (stock OHOL: 1). Always sent by the agents service; treat missing as 1.
    */
   timeScale?: number;
+  /**
+   * PERSONALITIES: the prompted personality descriptors, in founding order (the run's 1st Eve gets
+   * [0], the 2nd [1], ... round robin; descendants inherit). null = feature off.
+   */
+  personalities?: string[] | null;
 }
 
 /**
@@ -127,6 +132,8 @@ export interface AgentView {
   traits?: Traits | null;
   /** the current life's flower (see LifeRecord.flower); null between lives */
   flower?: Flower | null;
+  /** the family's prompted personality descriptor (PERSONALITIES, see RunInfo.personalities); null when off or unknown */
+  personality?: string | null;
 }
 
 export interface PlayerView {
@@ -150,6 +157,8 @@ export interface PlayerView {
   lineageId?: string | null;
   /** that life's flower (see LifeRecord.flower); set when lifeId is known, else null */
   flower?: Flower | null;
+  /** the family's prompted personality descriptor (this run's families only); null when off or unknown */
+  personality?: string | null;
 }
 
 export interface Stats {
@@ -295,6 +304,8 @@ export interface LeadershipPerson {
   alive: boolean; // always true: living people only
   lifeId?: string | null;
   flower?: Flower | null;
+  /** the family's prompted personality descriptor; absent/null when off or unknown */
+  personality?: string | null;
 }
 
 /**
@@ -320,12 +331,16 @@ export type MapCellTuple = [number, number, number, number, number];
 export interface MinimapResponse {
   block: number;
   cells: MapCellTuple[];
+  /** the run these cells belong to (a page drops cells from another run, e.g. around a regen) */
+  runId?: string;
 }
 
 export interface MapResponse {
   cells: MapCellTuple[];
   /** names for every object id that appears in cells */
   names: Record<number, string>;
+  /** the run these cells belong to (a page drops cells from another run, e.g. around a regen) */
+  runId?: string;
 }
 
 export type RunEventKind =
@@ -523,6 +538,8 @@ export interface LineageRecord {
   maxGeneration: number;
   /** mean of each trait over all lives in the lineage (MOCK while traitSource is "mock") */
   meanTraits: Traits;
+  /** the family's prompted personality descriptor (current run's families, PERSONALITIES on); absent/null otherwise */
+  personality?: string | null;
 }
 
 export interface LivesResponse {

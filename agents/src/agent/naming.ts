@@ -183,3 +183,16 @@ export function mergeSurnames(...lists: Iterable<string | null | undefined>[]): 
     }
   return out;
 }
+
+
+/**
+ * A baby-naming line said with empty arms names the nearest nameless baby within 3 tiles, else the nearest
+ * nameless person aged 5 or older within 20 (server.cpp). When nobody fits, the speaker hears that nobody
+ * was named (otherwise a line said far from the baby looks like it worked). `others`: the people we can see.
+ */
+export function namingMissNote(said: string, holdingBaby: boolean, me: [number, number], others: readonly { pos: [number, number]; age: number; named: boolean }[]): string | null {
+  if (holdingBaby || namingRest(normalizeSpeech(said), BABY_NAMING_PHRASES) == null) return null;
+  const d = (q: [number, number]) => Math.hypot(q[0] - me[0], q[1] - me[1]);
+  const hit = others.some((o) => !o.named && ((o.age < 3 && d(o.pos) <= 3) || (o.age >= 5 && d(o.pos) <= 20)));
+  return hit ? null : "nobody was named: no nameless baby was within 3 tiles of you and no nameless person aged 5 or older within 20";
+}

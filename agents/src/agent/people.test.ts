@@ -119,8 +119,8 @@ test("labels: strangers by sex, age and flower; 'no name' vs 'you don\'t know th
   const { w, acq, now } = busyWorld();
   const pv = new PeopleView(w, gd, acq, flowerOf);
   // #3 and #6 are both "a woman, 30, with a red rose": told apart by what they hold
-  assert.equal(pv.label(w.players.get(3)!), "a woman, 30, with a red rose, carrying a baby (you don't know their name)");
-  assert.equal(pv.label(w.players.get(6)!), "a woman, 30, with a red rose, empty-handed (you don't know their name)");
+  assert.equal(pv.label(w.players.get(3)!), "a woman, 30, with a red rose, carrying a baby (you don't know their name yet)");
+  assert.equal(pv.label(w.players.get(6)!), "a woman, 30, with a red rose, empty-handed (you don't know their name yet)");
   assert.equal(pv.label(w.players.get(5)!), "a baby girl, 0.5 (no name)");
   assert.equal(pv.label(w.players.get(2)!, true), "#2 ANNA STONE (woman, 28, blue daisy)", "family as before");
   // same hands: their position tells them apart
@@ -129,13 +129,13 @@ test("labels: strangers by sex, age and flower; 'no name' vs 'you don\'t know th
   assert.equal(pv2.describe(w.players.get(3)!), "a woman, 30, with a red rose, at (4, 4)");
   assert.equal(pv2.describe(w.players.get(6)!), "a woman, 30, with a red rose, at (-4, -4)");
   // where the line prints the position right after (PEOPLE) it is not repeated; elsewhere (HEARD, WHAT YOU SAW NEARBY) it stays
-  assert.equal(pv2.label(w.players.get(3)!, false, true), "a woman, 30, with a red rose (you don't know their name)");
-  assert.equal(pv2.label(w.players.get(3)!), "a woman, 30, with a red rose, at (4, 4) (you don't know their name)");
+  assert.equal(pv2.label(w.players.get(3)!, false, true), "a woman, 30, with a red rose (you don't know their name yet)");
+  assert.equal(pv2.label(w.players.get(3)!), "a woman, 30, with a red rose, at (4, 4) (you don't know their name yet)");
   // a name the character gave: shown as its own
   acq.learn(4, "BRAN", true);
   assert.equal(new PeopleView(w, gd, acq, flowerOf).label(w.players.get(4)!), "#4 BRAN (as you know him), man, 25, with a white lily");
   const o = obs(w, acq, now());
-  assert.match(o, /- a woman, 30, with a red rose \(you don't know their name\) \[other family\] at \(4, 4\), 4 away, holding a baby girl, 0\.5 \(no name\)/);
+  assert.match(o, /- a woman, 30, with a red rose \(you don't know their name yet\) \[other family\] at \(4, 4\), 4 away, holding a baby girl, 0\.5 \(no name\)/);
   assert.match(o, /- #4 BRAN \(as you know him\), man, 25, with a white lily \[other family\]/);
   // without name rules (tools, older tests) everyone is shown as before
   assert.match(obs(w, null, now()), /- #3 LIRA TIDEWICK \(woman, 30, red rose\) \[other family\]/);
@@ -172,11 +172,11 @@ test("no leaks: a busy observation, the salience reasons, notes transcript and a
   assert.match(all, /#2 ANNA STONE/);
   assert.match(all, /You follow a woman, 30, with a red rose/);
   assert.match(all, /Your followers: a woman, 30, with a red rose/);
-  assert.match(all, /a woman, 30, with a red rose, carrying a baby \(you don't know their name\) \[other family[^\]]*\]: "HELLO THERE"/);
+  assert.match(all, /a woman, 30, with a red rose, carrying a baby \(you don't know their name yet\) \[other family[^\]]*\]: "HELLO THERE"/);
   assert.match(all, /\[this named a woman, 30, with a red rose/);
-  assert.match(all, /a man, 25, with a white lily \(you don't know their name\) \[other family\] died at \(-5, 2\): starved/);
+  assert.match(all, /a man, 25, with a white lily \(you don't know their name yet\) \[other family\] died at \(-5, 2\): starved/);
   assert.match(all, /Fresh Grave of a man, 25, with a white lily \[other family\]: \(-5, 2\)/);
-  assert.match(all, /tried a Stone on a woman, 30, with a red rose, holding a Stone \(you don't know their name\) \[other family\]: nothing happened/);
+  assert.match(all, /tried a Stone on a woman, 30, with a red rose, holding a Stone \(you don't know their name yet\) \[other family\]: nothing happened/);
 
   // action results (Body): a stranger by description, never by id
   const g = new FakeGame(gd);
@@ -350,7 +350,7 @@ test("agent: a remember note names a stranger (history says so, then the observa
   A.acqLive = true;
   A.sleepInterruptible = async () => {};
   await A.turn();
-  assert.match(seen[0], /- a man, 30, with a pink peony \(you don't know their name\) \[other family\] at \(2, 0\)/);
+  assert.match(seen[0], /- a man, 30, with a pink peony \(you don't know their name yet\) \[other family\] at \(2, 0\)/);
   assert.doesNotMatch(seen[0], /OSKAR|VALE|#7/);
   const hist = A.history.map((h: { action: string; result: string }) => `${h.action} -> ${h.result}`);
   assert.ok(hist.includes(`remember "the man with the pink peony is called ASH" -> kept; you'll know the man with the pink peony as ASH`), hist.join("\n"));
@@ -358,4 +358,14 @@ test("agent: a remember note names a stranger (history says so, then the observa
   await A.turn();
   assert.match(seen[1], /- #7 ASH \(as you know him\), man, 30, with a pink peony \[other family\]/);
   assert.doesNotMatch(seen[1], /OSKAR|VALE/);
+});
+
+test("an introduction anywhere in a line teaches the speaker's full name; a first name alone is enough", () => {
+  const { w, acq, send } = busyWorld();
+  send({ type: "PS", says: [{ id: 4, isCurse: false, text: "HELLO FRIEND, I AM ASH" }] });
+  acq.sync(w);
+  assert.deepEqual(acq.names.get(4), { name: "ASH TIDEWICK" });
+  send({ type: "PS", says: [{ id: 3, isCurse: false, text: "WAIT, I AM COLD" }] });
+  acq.sync(w);
+  assert.ok(!acq.knows(w, 3), "not their name");
 });

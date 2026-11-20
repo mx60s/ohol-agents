@@ -220,7 +220,7 @@ test("plan continuity: the next observation shows the previous thought and the l
   const { A, seen } = agentFor(g, ['{"thought":"Grab the stone, then sharpen it on the rock.","action":{"type":"use","x":2,"y":0}}', '{"action":{"type":"wait"}}']);
   await A.turn();
   await A.turn();
-  assert.match(seen[1], /== YOUR LAST ACTIONS ==\nYour recent thoughts:\n- [^\n]*: "Grab the stone, then sharpen it on the rock\."\n- .*: use \(2, 0\) -> use: .*Stone/);
+  assert.match(seen[1], /== YOUR LAST ACTIONS ==\n\(You see your last 30 actions and last 10 thoughts; older ones fade unless you chose to remember them\.\)\nYour recent thoughts:\n- [^\n]*: "Grab the stone, then sharpen it on the rock\."\n- .*: use \(2, 0\) -> use: .*Stone/);
   assert.doesNotMatch(seen[0], /previous thought|recent thoughts/, "nothing on the first turn");
 });
 

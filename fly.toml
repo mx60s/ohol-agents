@@ -30,10 +30,15 @@ kill_timeout = "60s"
   OPEN_CONTROL = "0"
   # few starting camps that grow by births: 2 Eves, 28 slots (one H200's comfortable load); a free slot waits to be born to a
   # mother (no forced Eves); a new Eve appears only when no woman alive can have a baby
-  # TEST RUN (Sonnet 5.5, tester mode): 2 Eves side by side, 6 more slots born as their children
-  # (up to 3 each) before any new Eve
-  AGENT_COUNT = "8"
-  INITIAL_EVES = "2"
+  # r11 (Sonnet 5.5, 3 prompted personalities): 3 Eves side by side (server mtsEveScatterStartCount=3), the other
+  # slots born as their children; never a new Eve (NO_NEW_EVES): a family that dies out stays dead
+  AGENT_COUNT = "9"
+  INITIAL_EVES = "3"
+  NO_NEW_EVES = "1"
+  # one heritable descriptor per Eve's family, in founding order, as the system prompt's second sentence
+  PERSONALITIES = "sociable and sentimental|adventurous and creative|conscientious and restless"
+  # year lines: one factual line per game year of this life, the last 2 shown (agents/src/agent/memory.ts)
+  MEMORY_SUMMARY = "years"
   FAMILY_ROOM_MAX_HOLD_S = "0"
   # early birth cap (server mtsEarlyMaxBabies/mtsEarlyMaxGenerations, mirrored here so free slots wait
   # for a mother who can still have a baby): at most 3 babies per woman in generations 1-5
@@ -53,11 +58,9 @@ kill_timeout = "60s"
   # OpenRouter: 0 = reasoning effort LLM_REASONING_EFFORT (no token budget); room for thinking + the JSON reply
   LLM_REASONING_MAX_TOKENS = "0"
   LLM_DECISION_MAX_TOKENS = "4000"
-  # tester mode (agents/src/agent/tester.ts): one ordered task list per family; issues -> issues.jsonl
-  TESTER_GOALS = '["make fire, then a kiln, then a clay bowl, then fill the bowl with water, then build adobe walls with a door and a floor", "grow carrots and beans from seed to harvest, then make clothing, then keep sheep"]'
-  RUN_LABEL = "TEST · Claude Sonnet 5.5 (medium effort)"
-  # hard stop for the test: the run halts past MAX_COST_USD; DAILY_COST_USD also survives restarts
-  MAX_COST_USD = "550"
+  RUN_LABEL = "Claude Sonnet 5.5 · 3 personalities"
+  # hard stop: the run halts past MAX_COST_USD; DAILY_COST_USD (rolling 24 h, includes r10) also survives restarts
+  MAX_COST_USD = "450"
   # turn-based clock (docs/turn-clock.md): the world is frozen while everyone thinks, then runs
   # TURN_GAME_S of game time per turn (2.4 s: a year is 25 turns). Server and agents read TURN_CLOCK.
   TURN_CLOCK = "1"
@@ -91,7 +94,7 @@ kill_timeout = "60s"
   FIELD_NOTES_MODEL = "anthropic/claude-sonnet-5.5"
   # spend guards: 0 = off. Set e.g. DAILY_COST_USD = "5" to pause LLM calls
   # once the rolling 24h spend reaches it (survives restarts, kept in LOG_DIR).
-  DAILY_COST_USD = "550"
+  DAILY_COST_USD = "800"
   MAX_TOTAL_COST_USD = "0"
   # paths on the volume (start.sh defaults, spelled out for clarity)
   DATA_DIR = "/data"

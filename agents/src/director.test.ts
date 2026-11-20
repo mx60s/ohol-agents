@@ -925,3 +925,15 @@ test("trackAnimal: same id or kind nearby, nearest first", () => {
   assert.equal(trackAnimal([bear(20, 20)], { objectId: 630, x: 1, y: 1, name: "Grizzly Bear" }), null);
   assert.equal(trackAnimal([{ objectId: 700, x: 1, y: 2, name: "Wolf" }], { objectId: 630, x: 1, y: 1, name: "Grizzly Bear" }), null);
 });
+
+test("rotateAway: the best-scoring person of another family, else the best other; null alone", async () => {
+  const { rotateAway } = await import("./director.ts");
+  const living = [
+    { agentId: "a1", name: "LUNA EMBERWILD" }, { agentId: "a2", name: "ROSE EMBERWILD" },
+    { agentId: "a3", name: "LUNA MEADOWRUE" }, { agentId: "a4", name: "ROSE THORNBERRY" },
+  ];
+  const c = { a1: { combined: 0.9 }, a2: { combined: 0.8 }, a3: { combined: 0.1 }, a4: { combined: 0.3 } };
+  assert.equal(rotateAway("a1", living, c), "a4");
+  assert.equal(rotateAway("a1", living.slice(0, 2), c), "a2", "only family left");
+  assert.equal(rotateAway("a1", living.slice(0, 1), c), null);
+});

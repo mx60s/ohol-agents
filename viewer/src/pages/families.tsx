@@ -3,12 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { LifeRecord, LineageRecord } from "../api-types.ts";
 import { queryParam, useNow } from "../data/index.ts";
-import { formatClock, formatRelative, formatTrait, PersonPortrait } from "../shared/index.ts";
+import { formatClock, formatRelative, formatTrait, PersonalityTag, PersonPortrait } from "../shared/index.ts";
 import { DeathsTable } from "../site/Deaths.tsx";
 import { Leadership } from "../site/Leadership.tsx";
 import { FamilyTree, TreeScroll, useFolds } from "../site/FamilyTree.tsx";
 import { buildForest, meanTraits, sortBy, traitLabel, TRAIT_LIMIT } from "../site/logic.ts";
-import { LivesState, Note } from "../site/ui.tsx";
+import { LivesState, Note, PersonalityLegend } from "../site/ui.tsx";
 import { useSite, type SiteData } from "../site/useSite.ts";
 import "../site/site.css";
 import { MockBadge, Panel, Pill, SiteLayout, StatTile, StatTiles } from "../theme/index.ts";
@@ -52,6 +52,7 @@ function FamilyDetail({ fam, site }: { fam: LineageRecord; site: SiteData }) {
           </div>
           <div className="panel-body fam-head">
             <FamilyLook fam={fam} members={members} site={site} size={84} />
+            <PersonalityTag personality={site.personalityOf(fam.lineageId)} palette={site.personalities} />
           </div>
           <StatTiles cols={2}>
             <StatTile value={members.length || fam.totalLives} label="Lives" />
@@ -133,6 +134,7 @@ function FamiliesPage() {
           </Panel>
         ) : (
           <>
+            <PersonalityLegend site={site} />
             <div className="fam-picker" role="tablist" aria-label="Families">
               {fams.map((f) => {
                 const members = site.lives.filter((l) => l.lineageId === f.lineageId);
@@ -146,6 +148,7 @@ function FamiliesPage() {
                       </span>
                     </span>
                     {f.extinctAt != null ? <Pill tone="dead">extinct</Pill> : <Pill tone="alive">{f.living} alive</Pill>}
+                    <PersonalityTag personality={site.personalityOf(f.lineageId)} palette={site.personalities} short className="fc-persona" />
                   </button>
                 );
               })}

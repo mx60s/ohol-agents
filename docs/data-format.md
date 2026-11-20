@@ -106,7 +106,9 @@ One line per agent model call. Decisions:
 `{t, agentId, playerId, lifeIndex, observation, reply, latencyMs, promptTokens, completionTokens, cachedTokens, cacheWriteTokens, reasoningTokens, costUsd, model, provider, ttftMs, reasoning?, finishReason}`
 (`observation` is the observation body, `reply` the raw answer; fields from
 `llmLogFields` in `agents/src/agent/llm.ts`). Memory summaries have
-`kind: "summary"` with `input`, `reply`, `memory`. Failed calls:
+`kind: "summary"` with `input`, `reply`, `memory`; year lines
+(MEMORY_SUMMARY=years) have `kind: "yearline"` with `input`, `reply` and
+`memory: ["Age 30-31: <line>"]`. Failed calls:
 `{t, agentId, playerId, error}`. The biggest file (~150 MB/day before the replay
 fields; they add about one user message per line, see below).
 

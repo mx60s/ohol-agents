@@ -330,6 +330,11 @@ export class LifeStore {
     return l ? this.book.founderIndex(runId, l.lineageId) : null;
   }
 
+  /** The founding position (LifeBook.founderIndex) of a family of this run, by lineage id; null for other runs' families. */
+  founderIndexOfLineage(runId: string, lineageId: string): number | null {
+    return this.book.founderIndex(runId, lineageId);
+  }
+
   /** Fields for PlayerView: our life (any run) with this player id that may be alive now. */
   playerFields(playerId: number) {
     const l = this.livingByPlayer(playerId);

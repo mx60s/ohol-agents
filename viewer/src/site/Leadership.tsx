@@ -3,13 +3,13 @@
 
 import { useMemo } from "react";
 import type { LeadershipPerson } from "../api-types.ts";
-import { pageHref, useLeadership } from "../data/index.ts";
-import { displayName, FlowerIcon, formatAge } from "../shared/index.ts";
+import { pageHref, useLeadership, useWorldState } from "../data/index.ts";
+import { displayName, FlowerIcon, formatAge, PersonalityTag } from "../shared/index.ts";
 import { Pill } from "../theme/index.ts";
 import { buildLeadershipTree, LEADERSHIP_EMPTY, leadershipRows, unattachedLine } from "./leadership.ts";
 import { Note } from "./ui.tsx";
 
-function Person({ p, compact }: { p: LeadershipPerson; compact?: boolean }) {
+function Person({ p, compact, palette }: { p: LeadershipPerson; compact?: boolean; palette?: string[] | null }) {
   const name = displayName(p.name);
   return (
     <span className="ld-person">
@@ -23,12 +23,14 @@ function Person({ p, compact }: { p: LeadershipPerson; compact?: boolean }) {
       )}
       {p.isEve && <Pill tone="warn" title="First of a family">Eve</Pill>}
       <span className="ld-age">{formatAge(p.age)}</span>
+      {!compact && <PersonalityTag personality={p.personality} palette={palette} short className="ld-persona" />}
     </span>
   );
 }
 
 export function Leadership() {
   const { data, loading, error } = useLeadership();
+  const palette = useWorldState().state?.run.personalities ?? null;
   const tree = useMemo(() => buildLeadershipTree(data), [data]);
   const rows = useMemo(() => leadershipRows(tree.roots), [tree]);
   if (!data) return <Note>{loading ? "Loading…" : error ? "Can't load leadership right now." : LEADERSHIP_EMPTY}</Note>;
@@ -43,7 +45,7 @@ export function Leadership() {
                 {r.prefix}
               </span>
               {r.kind === "person" ? (
-                <Person p={r.person} />
+                <Person p={r.person} palette={palette} />
               ) : (
                 <span className="ld-list">
                   {r.people.map((p, j) => (

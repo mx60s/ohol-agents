@@ -68,3 +68,39 @@ export function personalityBlurb(traits: Traits | null | undefined, dims: readon
   const first = phrase(a.d, a.v);
   return b ? `${lead} ${first}, and perhaps ${phrase(b.d, b.v)}.` : `${lead} ${first}.`;
 }
+
+// ---------------------------------------------------------------- prompted personalities
+// PERSONALITIES (backend config): each Eve's family gets one descriptor ("sociable and
+// sentimental") in founding order, inherited by her descendants, as a line in their system prompt.
+// The API sends it per agent/player/lineage (`personality`) and the run's list (run.personalities).
+
+/** "sociable and sentimental" -> "sociable · sentimental"; "a, b and c" -> "a · b · c" (compact tags) */
+export function personalityShort(descriptor: string): string {
+  const parts = descriptor
+    .split(/\s*,\s*|\s+and\s+|\s*&\s*/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return parts.length ? parts.join(" · ") : descriptor.trim();
+}
+
+/** lineage id -> descriptor, from anything that carries both (agents, players, lineages); first non-empty wins */
+export function personalityByLineage(...sources: ReadonlyArray<{ lineageId?: string | null; personality?: string | null }>[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const list of sources) for (const x of list) if (x.lineageId && x.personality && !out.has(x.lineageId)) out.set(x.lineageId, x.personality);
+  return out;
+}
+
+/** colour slot (0..2) of a descriptor: its position in run.personalities, so a family keeps its colour everywhere */
+export function personalitySlot(descriptor: string, palette: readonly string[] | null | undefined): number {
+  const i = palette?.indexOf(descriptor) ?? -1;
+  if (i >= 0) return i % 3;
+  // not in the list (older data): a stable slot from the text
+  let h = 0;
+  for (const c of descriptor) h = (h * 31 + c.charCodeAt(0)) | 0;
+  return Math.abs(h) % 3;
+}
+
+/** tooltip for a tag: what it is and where it comes from */
+export function personalityTitle(descriptor: string): string {
+  return `Family personality (prompted): their system prompt says "You are ${descriptor}." Inherited from the family's Eve.`;
+}
